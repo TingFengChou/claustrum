@@ -1,0 +1,54 @@
+name: ai-code-review
+
+# Advisory AI code review on every PR (dev-standards skill, rule 1). This posts a
+# review comment; it does not hard-fail the PR. The hard quality gate is ci.yml
+# (tests + schema/identity checks). Together they are the quality gate the
+# project ships behind.
+#
+# Requires a repo secret GEMINI_API_KEY (only the repo owner can add it:
+# Settings -> Secrets and variables -> Actions). Until it is set, this workflow
+# skips cleanly rather than failing. Optionally set a repo variable GEMINI_MODEL
+# to override the default model.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gemini-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate on API key
+        id: gate
+        env:
+          KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::notice::GEMINI_API_KEY not set — skipping AI review. Add it in repo Settings > Secrets to enable."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Gemini review
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python .github/scripts/gemini_review.py
