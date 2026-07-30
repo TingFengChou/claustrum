@@ -8,7 +8,7 @@ These are enforced structurally where possible, by policy where not.
 
 | Commitment | Enforcement |
 |---|---|
-| Video frames never leave the sensor node | **Structural** — the query surface has no code path to frame storage |
+| Video frames never leave the device | **Phone era: policy** (single node — one process holds frames and answers queries, so there is no structural boundary). **Two-node era: structural** — the query surface has no code path to frame storage. See [ADR-0004](adr/0004-phone-first-single-node.md). |
 | No face recognition, no identity attribution | **Structural** — `Actant` is a role slot; no identity field exists in the schema |
 | Frames encrypted at rest, deleted after 7 days | Policy — retention job, configurable |
 | Kineme text retained 90 days | Policy — configurable |

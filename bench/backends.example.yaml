@@ -1,30 +1,38 @@
-# Copy to backends.yaml and edit. All three candidates expose an
-# OpenAI-compatible /v1/chat/completions endpoint, which is why one client
-# serves all of them.
+# Copy to backends.yaml and edit.
 #
-# Start ONE server at a time -- a 12B model plus a video pipeline will contend
-# for the 32 GB of unified memory otherwise.
+# Phone-first (ADR-0004): the model is served ON the Pixel 10 and reached from
+# the host over `adb forward`. The benchmark client only ever talks to
+# 127.0.0.1:<port> on the host -- adb tunnels it to the phone.
+#
+#   adb forward tcp:8082 tcp:8082     # host:8082 -> phone:8082
+#
+# Whatever serves the model just needs an OpenAI-compatible
+# /v1/chat/completions endpoint. Standing that up on Android is not one command
+# -- see docs/M0-phone-setup.md (llama.cpp/Termux for fast M0 numbers, a
+# LiteRT-LM harness app for production-fidelity latency).
 
 backends:
-  # litert-lm serve
-  #   litert-lm import --from-huggingface-repo=litert-community/gemma-4-12B-it-litert-lm \
-  #                    gemma-4-12B-it.litertlm gemma4-12b
-  #   litert-lm serve --port 8081
-  - name: litertlm
+  # Gemma E2B and E4B via litert-lm, served on the phone.
+  # M0's central question is whether E2B is good enough or E4B is needed for
+  # acceptable caption quality -- benchmark both.
+  - name: gemma-e2b
     base_url: http://127.0.0.1:8081
-    model: gemma4-12b
-    notes: "same .litertlm format and quantisation as the Android path -- keeps a phone build portable"
+    model: gemma-e2b-it
+    notes: "smaller/faster; the hope is this clears the hallucination gate"
 
-  # llama.cpp
-  #   llama-server -m gemma-4-12b-Q4_K_M.gguf --mmproj mmproj.gguf -ngl 99 --port 8082
-  - name: llamacpp
+  - name: gemma-e4b
     base_url: http://127.0.0.1:8082
-    model: gemma-4-12b
-    notes: "most mature CUDA path on Jetson; easiest to get running"
+    model: gemma-e4b-it
+    notes: "larger; fallback if E2B captions are not trustworthy"
 
-  # TensorRT-LLM
-  #   trtllm-serve <engine_dir> --port 8083
-  - name: trtllm
-    base_url: http://127.0.0.1:8083
-    model: gemma-4-12b
-    notes: "usually fastest on Jetson, longest to set up (engine build)"
+  # Optional: a MediaPipe LLM Inference path behind a thin OpenAI-compatible
+  # shim, if a second on-device data point is wanted. Needs the shim app running.
+  # - name: mediapipe-e4b
+  #   base_url: http://127.0.0.1:8083
+  #   model: gemma-e4b-it
+
+  # Deferred to the Jetson era (ADR-0003/0004). Kept for when hardware arrives.
+  # - name: trtllm
+  #   base_url: http://127.0.0.1:8090
+  #   model: gemma-4-12b
+  #   notes: "usually fastest on Jetson, longest to set up (engine build)"

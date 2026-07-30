@@ -36,8 +36,6 @@ from pathlib import Path
 import requests
 import yaml
 
-from tegra_monitor import TegraMonitor
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
@@ -205,6 +203,29 @@ def load_fixtures(frames_dir: Path, grid: str) -> list[list[Path]]:
 # --------------------------------------------------------------------------- #
 
 
+# --------------------------------------------------------------------------- #
+# Device monitor
+#
+# Phone-first (ADR-0004): the default sampler is Android over adb. tegra remains
+# available for the eventual Jetson. Both expose start()/stop()->dict, so the
+# benchmark neither knows nor cares which one it holds.
+# --------------------------------------------------------------------------- #
+
+
+def make_monitor(kind: str):
+    if kind == "none":
+        return None
+    if kind == "android":
+        from phone_monitor import AndroidMonitor
+
+        return AndroidMonitor()
+    if kind == "tegra":
+        from tegra_monitor import TegraMonitor
+
+        return TegraMonitor()
+    raise SystemExit(f"unknown monitor {kind!r}")
+
+
 @dataclass
 class BackendReport:
     backend: str
@@ -217,7 +238,7 @@ class BackendReport:
     ttfts: list[float] = field(default_factory=list)
     parse_errors: list[str] = field(default_factory=list)
     samples: list[dict] = field(default_factory=list)
-    tegra: dict = field(default_factory=dict)
+    device: dict = field(default_factory=dict)
 
     def pct(self, p: float) -> float | None:
         if not self.latencies:
@@ -238,7 +259,7 @@ class BackendReport:
             "latency_p95_s": round(self.pct(95), 3) if self.latencies else None,
             "latency_mean_s": round(statistics.mean(self.latencies), 3) if self.latencies else None,
             "ttft_p50_s": round(statistics.median(self.ttfts), 3) if self.ttfts else None,
-            "tegra": self.tegra,
+            "device": self.device,
         }
 
 
@@ -251,7 +272,7 @@ def markdown_table(reports: list[BackendReport]) -> str:
     rows = []
     for r in reports:
         s = r.summary()
-        t = s["tegra"] or {}
+        t = s["device"] or {}
         rows.append(
             "| {b} | {g} | {p50} | {p95} | {ttft} | {js} | {ram} | {gpu} | {temp} | {pw} |".format(
                 b=s["backend"],
@@ -273,9 +294,13 @@ def markdown_table(reports: list[BackendReport]) -> str:
 
 
 def run_backend(cfg: BackendConfig, calls: list[list[Path]], prompt: str, grid: str,
-                repeats: int, monitor: bool) -> BackendReport:
+                repeats: int, monitor_kind: str) -> BackendReport:
     be = OpenAICompatBackend(cfg)
     rep = BackendReport(backend=cfg.name, model=cfg.model, grid=grid)
+
+    if not calls:
+        print(f"  ! no complete {grid} calls from the fixture set -- skipping {cfg.name}", file=sys.stderr)
+        return rep
 
     if not be.health():
         print(f"  ! {cfg.name} unreachable at {cfg.base_url} -- skipping", file=sys.stderr)
@@ -287,9 +312,9 @@ def run_backend(cfg: BackendConfig, calls: list[list[Path]], prompt: str, grid: 
     print(f"  warming up {cfg.name} ...", flush=True)
     w0 = time.perf_counter()
     be.caption(prompt, calls[0])
-    rep.tegra["cold_start_s"] = round(time.perf_counter() - w0, 2)
+    rep.device["cold_start_s"] = round(time.perf_counter() - w0, 2)
 
-    tm = TegraMonitor() if monitor else None
+    tm = make_monitor(monitor_kind)
     if tm:
         tm.start()
 
@@ -326,7 +351,7 @@ def run_backend(cfg: BackendConfig, calls: list[list[Path]], prompt: str, grid: 
     print()
 
     if tm:
-        rep.tegra.update(tm.stop())
+        rep.device.update(tm.stop())
     return rep
 
 
@@ -338,8 +363,11 @@ def main() -> int:
     ap.add_argument("--backend", action="append", help="restrict to named backend(s)")
     ap.add_argument("--grid", default="1x1", choices=["1x1", "1x2", "2x2", "1x4"])
     ap.add_argument("--repeats", type=int, default=5)
-    ap.add_argument("--no-monitor", action="store_true", help="skip tegrastats sampling")
+    ap.add_argument("--monitor", default="android", choices=["android", "tegra", "none"],
+                    help="device sampler: android (adb, default), tegra (Jetson), or none")
+    ap.add_argument("--no-monitor", action="store_true", help="alias for --monitor none")
     args = ap.parse_args()
+    monitor_kind = "none" if args.no_monitor else args.monitor
 
     if not args.config.exists():
         raise SystemExit(f"missing {args.config} -- copy backends.example.yaml and edit it")
@@ -356,7 +384,7 @@ def main() -> int:
     print(f"{len(calls)} call(s) per repeat x {args.repeats} repeat(s), grid={args.grid}\n")
 
     reports = [
-        run_backend(c, calls, prompt, args.grid, args.repeats, not args.no_monitor)
+        run_backend(c, calls, prompt, args.grid, args.repeats, monitor_kind)
         for c in configs
     ]
 

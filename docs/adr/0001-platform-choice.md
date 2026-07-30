@@ -1,6 +1,12 @@
 # ADR-0001 — Platform: Jetson AGX Orin over Android
 
-**Status:** accepted · **Date:** 2026-07-30
+**Status:** superseded by [ADR-0004](0004-phone-first-single-node.md) · **Date:** 2026-07-30
+
+> **Superseded.** The AGX Orin never arrived and the eventual Jetson is a *Nano*,
+> which cannot run the 12B model this decision depended on. Development is now
+> phone-first and single-node — see [ADR-0004](0004-phone-first-single-node.md).
+> The reasoning below remains valid *for an AGX Orin*, and is kept as the record
+> of why the two-node Jetson design exists at all.
 
 ## Context
 

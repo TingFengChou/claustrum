@@ -32,7 +32,7 @@ Target: 0.05–0.5 keyframes per second — 60× to 600× compression.
 
 ### L1 — Caption
 
-Gemma 4 12B Unified, resident in memory, one call per selected keyframe (or per 2×4 temporal grid — see the M0 spike).
+Gemma E2B / E4B on the phone (LiteRT-LM), resident in memory, one call per selected keyframe (or per 2×4 temporal grid — see the M0 spike). The 12B model assumed in ADR-0001 does not fit a phone or a Jetson Nano; see [ADR-0004](adr/0004-phone-first-single-node.md).
 
 Input: keyframe(s) + a one-line summary of the previous kineme, for continuity.
 Output: a structured `Kineme` conforming to [`schemas/kineme.schema.json`](../schemas/kineme.schema.json).
@@ -95,12 +95,21 @@ Schema and dataclass drifting apart is the most common invisible bug in this kin
 
 A small model shown a single static frame will invent causal narrative — "he fell and then got up to fetch his medicine", from one photograph. For a safety alerting system this is not a quality issue, it is a correctness failure.
 
-Four structural defences, in order of effectiveness:
+Model capacity used to be the first-line defence — ADR-0001 leaned on 12B for
+exactly this. On a phone (and on the eventual Jetson Nano) that lever is gone: an
+E2B/E4B model confabulates *more* than a 12B one, not less. So the structural and
+prompt-level defences carry the load, and they are now the first line, not the
+second — see [ADR-0004](adr/0004-phone-first-single-node.md).
 
-1. **Model capacity.** A 12B model confabulates far less than a 2B one. The hardware affords it; use it.
-2. **Explicit single-instant framing.** The prompt states that the model is seeing one moment and must not infer off-frame events.
-3. **`unclear` is a valid answer.** Give the model an exit that is not fabrication.
-4. **`risk` requires evidence of occurrence.** "Could be dangerous" does not qualify. Without this, a knife resting on a counter is reported as a child hazard.
+Defences, in order of effectiveness on a small model:
+
+1. **Explicit single-instant framing.** The prompt states that the model is seeing one moment and must not infer off-frame events.
+2. **`unclear` is a valid answer.** Give the model an exit that is not fabrication.
+3. **`risk` requires evidence of occurrence.** "Could be dangerous" does not qualify. Without this, a knife resting on a counter is reported as a child hazard.
+4. **Closed risk enumeration.** A fixed `RiskCategory` set stops the model inventing categories the L2 rules will silently never match.
+
+Because the model is small, the M1 hallucination gate is more load-bearing, not
+less. Treat a regression there as a release blocker.
 
 Hallucination rate is a tracked regression metric, not an aspiration. See [`eval/`](../eval/).
 

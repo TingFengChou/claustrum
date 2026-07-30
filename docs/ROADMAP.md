@@ -6,22 +6,23 @@ Estimates assume part-time work. The sequencing matters more than the numbers.
 
 ## M0 — Backend spike · 1–2 weeks
 
-Establish the numbers everything else depends on.
+Establish the numbers everything else depends on. Phone-first (ADR-0004): the
+target is Gemma E2B/E4B on the Pixel 10.
 
 **Work**
-- Stand up all three inference backends on the AGX Orin: `litert-lm serve`, `llama-server` (CUDA), `trtllm-serve`
+- Serve Gemma E2B and E4B on the Pixel 10 and expose to the host with `adb forward` (on-device serving is not one command — see [M0-phone-setup.md](M0-phone-setup.md): llama.cpp/Termux for fast numbers, a LiteRT-LM harness app for production-fidelity latency)
 - Build the 20–40 frame fixture set (see `bench/README.md`) — including the ambiguous frames where `unclear` is correct
-- Run `bench/run_bench.py` across backends and grid configurations
+- Run `bench/run_bench.py` across model sizes and grid configurations
 - Score retained samples by hand for caption usefulness and hallucination
-- Evaluate 30 W power mode: latency penalty, fan noise, temperature drift
+- Evaluate sustained-load thermal and battery drift on the phone (`bench/phone_monitor.py`): does it throttle, how fast does it drain
 
 **Exit criteria**
-- Three-way comparison table exists in `eval/reports/`
-- A backend is chosen and recorded as an ADR
-- **Keyframe budget decided** — calls per second the pipeline can sustain
+- Comparison table (E2B vs E4B, and grids) exists in `eval/reports/`
+- A model size + serving path is chosen and recorded as an ADR
+- **Keyframe budget decided** — calls per second the phone can sustain without throttling
 - Grid question answered: does a 2×2 composite cost less than 2× a single frame?
 
-**Why first:** if p95 latency is 3 s the architecture looks nothing like it does at 12 s. At 12 s, realtime alerting needs a two-model tier — a small model for immediate captions, 12B for periodic depth. That is a structural difference, not a tuning one.
+**Why first:** if p95 latency is 3 s the architecture looks nothing like it does at 12 s. At 12 s, realtime alerting needs a two-model tier — a tiny model for immediate captions, a larger one for periodic depth. That is a structural difference, not a tuning one. On a phone this is more likely, not less, so M0 decides it.
 
 ---
 
@@ -78,10 +79,15 @@ That last criterion is subjective and non-negotiable. If the stream is not legib
 
 **Depends only on M3.** Deliberately sequenced before the realtime pipeline.
 
+Single-node (ADR-0004) makes this *simpler*: the store and the provider are
+co-resident on the same phone, so there is no LAN pairing or gRPC transport to
+build yet. The `core/tools/` contract is still worth extracting now so the
+network transport drops in unchanged when the Jetson two-node topology returns.
+
 **Work**
-- Extract `core/tools/` contract layer — one definition, two transports
-- LAN pairing over mTLS with QR-code exchange; gRPC transport
+- Extract `core/tools/` contract layer — one definition, transports added as needed
 - AppFunctions provider: `getHomeStatus`, `queryKinemes`, `getEthogram`
+- (Deferred to two-node: LAN pairing over mTLS with QR-code exchange; gRPC transport)
 - **Tiered consent UI, caller allowlist, user-visible audit log** — all three ship with the feature, not after it
 - Run the official AppFunctions agent skill first to generate boilerplate and refine KDoc
 
@@ -98,8 +104,8 @@ That last criterion is subjective and non-negotiable. If the stream is not legib
 ## M5 — Realtime pipeline and alerting · 4–5 weeks
 
 **Work**
-- RTSP / CSI ingest, DeepStream multi-stream decode
-- L0 as a resident systemd daemon
+- Phone camera ingest via CameraX (RTSP from a spare phone only if a second source is wanted); DeepStream/CSI is a Jetson-era concern
+- L0 as a resident Android foreground service (the systemd daemon is Jetson-era)
 - L2 dual path: pose heuristic for recall, VLM confirmation for precision
 - Alert suppression: deduplication, per-category rate limiting, post-rejection cooldown
 - Push notification delivery to the Pixel

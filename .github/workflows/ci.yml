@@ -21,7 +21,7 @@ jobs:
         run: ruff check core bench || true
 
       - name: Compile
-        run: python -m py_compile core/domain.py bench/run_bench.py bench/tegra_monitor.py
+        run: python -m py_compile core/domain.py bench/run_bench.py bench/tegra_monitor.py bench/phone_monitor.py
 
       - name: Schema and domain type agreement
         run: python -m unittest discover -s tests -v

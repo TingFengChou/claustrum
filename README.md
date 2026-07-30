@@ -2,7 +2,13 @@
 
 **On-device perception and cognition for embodied AI.** Binds separate sensory modalities — vision, audio, language — into a unified, queryable stream of observed events. Runs entirely on edge hardware.
 
-Jetson AGX Orin · Gemma 4 · LiteRT-LM / TensorRT-LLM · Android AppFunctions
+Pixel 10 · Gemma E2B / E4B · LiteRT-LM · Android AppFunctions
+
+> **Current phase: phone-first, single-node.** Everything runs on one Pixel 10
+> while the Jetson is unavailable. This changes the platform and the privacy
+> topology — see [ADR-0004](docs/adr/0004-phone-first-single-node.md). The Jetson
+> two-node design ([ADR-0003](docs/adr/0003-two-node-topology.md)) is the target
+> to restore later, not the current build.
 
 ---
 
@@ -27,7 +33,7 @@ Continuous camera and microphone streams are cheap to capture and impossible to 
 | Someone falls in the hallway | A push notification within ~5 seconds, with the reason |
 | *(robot)* "Where did I last see the cart?" | A query against semantic spatial memory |
 
-Everything runs on-device. Video frames never leave the sensor node.
+Everything runs on-device. On the phone-first single node, frames stay on the phone by policy; the *structural* "frames cannot leave" guarantee returns with the two-node Jetson topology (ADR-0003).
 
 ## Why the name
 
@@ -91,25 +97,41 @@ Only `ethogram/` is in scope for the current roadmap. The umbrella exists so tha
 
 ## Deployment topology
 
+**Now — phone-first, single node** (ADR-0004):
+
 ```
-┌──────────────────────────────┐        ┌─────────────────────────────┐
-│  Jetson AGX Orin (32 GB)     │  LAN   │  Pixel 10                   │
-│  ─ sensor node ─             │  mTLS  │  ─ query surface ─          │
-│                              │───────▶│                             │
-│  L0 gating (DeepStream)      │  gRPC  │  AppFunctions provider      │
-│  L1 Gemma 4 12B (resident)   │        │  Push notifications         │
-│  L2 alerting                 │        │  Consent tiers · audit log  │
-│  L3 summarize                │        │                             │
-│  L4 KinemeStore on NVMe      │        │  ← called by Gemini         │
-│                              │        │                             │
-│  ★ frames exist only here    │        │  ★ structurally cannot      │
-└──────────────────────────────┘        │    access frames            │
-         ▲ RTSP / CSI                   └─────────────────────────────┘
-         │
-   cameras — IP cam, or a spare phone running an RTSP server app
+┌──────────────────────────────────────────────┐
+│  Pixel 10  ─ single node ─                     │
+│                                                │
+│  camera (on-device)                            │
+│  L0 gating  ·  L1 Gemma E2B/E4B (LiteRT-LM)    │
+│  L2 alerting · L3 summarize · L4 KinemeStore   │
+│  AppFunctions provider · notifications          │
+│  consent tiers · audit log                      │
+│                                                │
+│  ★ frames stay on device by policy             │
+└──────────────────────────────────────────────┘
 ```
 
-The split is a privacy mechanism, not just a performance one. The query surface has no path to image data, so "we choose not to return frames" becomes "we cannot".
+One process holds frames and answers queries, so frame isolation is enforced by
+policy, not topology. That is the deliberate, temporary cost of the phone-first
+pivot; PRIVACY.md is explicit about it.
+
+**Later — two nodes, once a Jetson is available** (ADR-0003, deferred):
+
+```
+┌──────────────────────────────┐        ┌─────────────────────────────┐
+│  Jetson  ─ sensor node ─     │  LAN   │  Pixel 10  ─ query surface ─│
+│  L0–L4 · frames only here    │─mTLS──▶│  AppFunctions · no frame API│
+│  ★ frames exist only here    │  gRPC  │  ★ structurally cannot      │
+└──────────────────────────────┘        │    access frames            │
+                                         └─────────────────────────────┘
+```
+
+The two-node split is a privacy mechanism, not just a performance one: the query
+surface has no path to image data, so "we choose not to return frames" becomes
+"we cannot". Restoring that guarantee is the reason the Jetson topology remains
+the target.
 
 ## Quickstart
 
@@ -117,11 +139,17 @@ The split is a privacy mechanism, not just a performance one. The query surface 
 git clone https://github.com/TingFengChou/claustrum.git
 cd claustrum
 
-# M0 — the only thing that matters right now
+# M0 — the only thing that matters right now.
+# Serve Gemma E2B/E4B on the phone, then expose it to the host over adb.
+# On-device serving is not one command — see docs/M0-phone-setup.md.
+#   adb forward tcp:8082 tcp:8082
 pip install -r bench/requirements.txt
-cp bench/backends.example.yaml bench/backends.yaml   # point at your local servers
+cp bench/backends.example.yaml bench/backends.yaml   # point at 127.0.0.1:<forwarded port>
 python bench/run_bench.py --frames bench/frames --out eval/reports
 ```
+
+The harness runs on your laptop and talks to the phone over `adb forward`; it
+samples the phone's thermal and battery state via `adb` (`bench/phone_monitor.py`).
 
 Nothing downstream can be designed before M0 produces numbers. See [`bench/README.md`](bench/README.md).
 
@@ -129,7 +157,7 @@ Nothing downstream can be designed before M0 produces numbers. See [`bench/READM
 
 | M | Name | Outcome | Est. |
 |---|---|---|---|
-| **M0** | Backend spike | Latency / memory / thermal table for 3 inference backends; keyframe budget decided | 1–2 wk |
+| **M0** | Backend spike | Latency / memory / thermal table for on-device Gemma E2B/E4B on the Pixel 10; keyframe budget decided | 1–2 wk |
 | **M1** | Structured caption | Prompt v1 + Kineme schema; caption acceptability > 70 %, JSON parse > 98 % | 2–3 wk |
 | **M2** | Offline pipeline | L0 gating + L1 batch + KinemeStore; > 100× compression on a 1 h video | 3–4 wk |
 | **M3** | Ethogram + query | L3 hierarchical summary + L4 retrieval | 3 wk |

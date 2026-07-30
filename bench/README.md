@@ -5,6 +5,16 @@ caption stage determines the L0 keyframe budget, whether a two-model tier is
 needed, and the ceiling on realtime alerting. Every architectural decision
 downstream is a guess until these numbers exist.
 
+**Phone-first (ADR-0004).** The model runs on the Pixel 10; this harness runs on
+your laptop and reaches it over `adb forward`. It samples the phone's thermal,
+power and memory state over adb (`phone_monitor.py`). The `--monitor tegra` path
+is kept for the eventual Jetson.
+
+```bash
+adb devices                        # confirm the Pixel 10 is attached
+adb forward tcp:8081 tcp:8081      # once per served port
+```
+
 ## What it measures
 
 | Metric | Why |
@@ -12,10 +22,9 @@ downstream is a guess until these numbers exist.
 | Latency p50 / p95 | Sets the keyframe budget |
 | Time to first token | Relevant if streaming partial captions is ever wanted |
 | Cold start | A service that restarts pays this repeatedly |
-| Peak RAM | 32 GB is shared between the model, the video pipeline and the OS |
-| Peak GPU % | Headroom for L0 running concurrently |
-| Peak temp + **temp drift** | Drift across a run predicts whether a 7-day run throttles |
-| Mean power | Decides whether 30 W mode is viable in a living room |
+| Peak RAM | Phone RAM is shared between the model, the camera pipeline and the OS |
+| Peak temp + **temp drift** | Drift across a run predicts whether a long run throttles |
+| Mean power | Continuous inference drains the battery; sets the sustainability limit |
 | JSON parse rate | Below ~98 % is a prompt problem, not a backend problem |
 
 ## Building the fixture set
@@ -41,12 +50,15 @@ whether the model knows how to decline.
 pip install -r bench/requirements.txt
 cp bench/backends.example.yaml bench/backends.yaml   # edit ports / model names
 
-# start one server, then:
-python bench/run_bench.py --backend llamacpp --repeats 5
+# serve the model on the phone, forward the port, then:
+python bench/run_bench.py --backend gemma-e2b --repeats 5
+
+# the E2B-vs-E4B question -- is the smaller model good enough?
+python bench/run_bench.py --backend gemma-e4b --repeats 5
 
 # the grid experiment -- potentially a 4x reduction in VLM calls
-python bench/run_bench.py --backend llamacpp --grid 1x1
-python bench/run_bench.py --backend llamacpp --grid 2x2
+python bench/run_bench.py --backend gemma-e4b --grid 1x1
+python bench/run_bench.py --backend gemma-e4b --grid 2x2
 ```
 
 ## The grid experiment

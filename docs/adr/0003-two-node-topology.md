@@ -1,6 +1,12 @@
 # ADR-0003 — Two-node topology and the frame isolation boundary
 
-**Status:** accepted · **Date:** 2026-07-30
+**Status:** deferred by [ADR-0004](0004-phone-first-single-node.md) · **Date:** 2026-07-30
+
+> **Deferred, not withdrawn.** Phone-first development runs on a single node
+> (ADR-0004), so the structural frame-isolation boundary described here does not
+> exist yet — during the phone era it is enforced by policy, not by topology.
+> This design is the target to restore once a second node (the Jetson) is
+> available. The rationale below is the reason it remains the target.
 
 ## Context
 
