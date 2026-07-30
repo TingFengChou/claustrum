@@ -19,12 +19,21 @@ Jetson two-node design is a deferred target, not the current build.
 - **Never push to `main` directly.** Branch → commit → push branch → open a PR
   with `gh pr create`.
 - Every PR triggers `.github/workflows/ai-review.yml`, which runs an AI code
-  review (Gemini via `run-gemini-cli`). Let the review and CI complete; address
-  findings before merge.
+  review. Let CI and the review complete before merging.
+- **The AI review is advisory, not authoritative.** Decide whether to merge on
+  **verified fact**, not on the review's verdict:
+  - Examine and **reply to every AI review comment** — either fix it, or explain
+    (in a reply) why, after checking, it does not hold. No comment is left
+    unaddressed.
+  - You may merge over an AI comment when you have verified it is wrong (say so
+    and why), and you may hold a green PR when verification surfaces a real
+    problem the review missed.
+  - Merge is a judgement backed by evidence (tests, reading the code, running
+    it), never rubber-stamping either the AI or the green checkmark.
 - The review workflow needs a `GEMINI_API_KEY` repo secret. Only the user can
   add secrets — do not attempt it; remind them if the review job is skipped.
 - Keep PRs focused and reviewable; prefer several small PRs over one sprawling
-  one so the AI reviewer and CI give sharp signal.
+  one so the reviewer and CI give sharp signal.
 
 ## 2. SA/SD design docs per module
 

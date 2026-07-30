@@ -10,7 +10,12 @@ automatically; this document is the human-readable version.
 - Each PR runs two checks:
   - **`ci.yml`** — tests + schema/identity guards. This is the **hard gate**.
   - **`ai-code-review.yml`** — an advisory Gemini review comment. See below.
-- Merge only after CI is green and review comments are addressed.
+- **Merge is a fact-based decision, not rubber-stamping.** Every AI review
+  comment is examined and **replied to** — fixed, or answered with why it does
+  not hold after checking. Merge over an AI comment only when it is verified
+  wrong (and say so); hold a green PR when verification finds a real problem the
+  review missed. The decision rests on evidence — tests, reading the code,
+  running it — not on the verdict or the checkmark alone.
 
 ### Enabling AI review
 
