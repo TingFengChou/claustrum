@@ -1,37 +1,36 @@
-# ADR-0003 — Two-node topology and the frame isolation boundary
+# ADR-0003 — 雙節點拓撲與影格隔離邊界
 
-**Status:** deferred by [ADR-0004](0004-phone-first-single-node.md) · **Date:** 2026-07-30
+**狀態:** 被 [ADR-0004](0004-phone-first-single-node.md) 延後 · **日期:** 2026-07-30
 
-> **Deferred, not withdrawn.** Phone-first development runs on a single node
-> (ADR-0004), so the structural frame-isolation boundary described here does not
-> exist yet — during the phone era it is enforced by policy, not by topology.
-> This design is the target to restore once a second node (the Jetson) is
-> available. The rationale below is the reason it remains the target.
+> **是延後,不是撤回。** 以手機為先的開發跑在單節點上(ADR-0004),因此這裡所述的
+> 結構性影格隔離邊界目前尚不存在——在手機階段,它是靠政策而非拓撲來落實。此設計
+> 是待第二個節點(Jetson)到位後要恢復的目標。以下的理由,正是它之所以仍是目標的
+> 原因。
 
-## Context
+## 背景
 
-The Pixel 10 satisfies AppFunctions' requirements (Android 16+, and it is among the first devices where the feature is actually available). This makes exposing household queries to Gemini viable now rather than eventually.
+Pixel 10 滿足 AppFunctions 的需求(Android 16+,而且它是該功能真正可用的首批裝置之一)。這使得「現在」就把居家查詢開放給 Gemini 變得可行,而不必等到「日後」。
 
-But AppFunctions' own documentation notes that system agents may process queries server-side. The project's core privacy premise is that video does not leave the device.
+但 AppFunctions 自己的文件指出,系統代理(system agent)可能會在伺服器端處理查詢。而本專案的核心隱私前提是:影像不離開裝置。
 
-## Decision
+## 決策
 
-Split into two nodes with an **asymmetric capability boundary**:
+拆分為兩個節點,並設有一道**不對稱的能力邊界**:
 
-- **Sensor node** (Jetson AGX Orin) — L0 through L4. Frames are stored here and only here.
-- **Query surface** (Pixel 10) — AppFunctions provider, notifications, consent tiers, audit log. Communicates with the sensor node over LAN via mTLS gRPC. Paired by QR code.
+- **感測節點**(Jetson AGX Orin)——L0 到 L4。影格儲存於此,且僅儲存於此。
+- **查詢介面**(Pixel 10)——AppFunctions 提供者、通知、同意層級、稽核紀錄。透過區域網路以 mTLS gRPC 與感測節點通訊。以 QR code 配對。
 
-The query surface is given **no API through which frames can be requested.** Not a disabled endpoint — no endpoint.
+查詢介面**沒有任何可用來索取影格的 API。** 不是一個被停用的端點——而是根本沒有端點。
 
-## Rationale
+## 理由
 
-The split is primarily a privacy mechanism and secondarily a deployment convenience. It converts "we choose not to return frames" into "we cannot return frames" — a guarantee that survives future code changes, careless refactors, and the author's own later convenience.
+這道拆分主要是一種隱私機制,其次才是部署上的便利。它把「我們選擇不回傳影格」轉化為「我們無法回傳影格」——一項能夠挺過未來程式碼變更、隨手的重構,以及作者自己日後圖方便的保證。
 
-Tiered consent, caller allowlisting and audit logging (see PRIVACY.md) protect the *text* channel. This boundary protects the *image* channel, and does so structurally.
+分層同意、呼叫者允許清單與稽核紀錄(參見 PRIVACY.md)保護的是*文字*通道。這道邊界保護的是*影像*通道,而且是以結構性的方式做到。
 
-## Consequences
+## 後果
 
-- LAN discovery, pairing and certificate management to build. mTLS with QR-code pairing.
-- Offline degradation: if the LAN link drops, the query surface cannot answer. Acceptable. If local fallback inference is ever wanted, Android AICore (where Gemma 4 is available as Gemini Nano) is preferable to bundling a `.litertlm` — system-managed memory and versioning.
-- Two deployables instead of one; two release processes.
-- Spare phones are repurposed as RTSP camera sources rather than compute nodes, which suits them better anyway.
+- 需要建置區域網路探索、配對與憑證管理。採用搭配 QR code 配對的 mTLS。
+- 離線降級:若區域網路連線中斷,查詢介面便無法回應。可以接受。若日後真的需要本機備援推論,Android AICore(其上 Gemma 4 以 Gemini Nano 形式提供)會優於自行綑綁一個 `.litertlm`——因為記憶體與版本由系統管理。
+- 要維護兩個可部署單元而非一個;要有兩套發行流程。
+- 備用手機被改用作 RTSP 攝影機來源,而非運算節點,這樣反而更適合它們。

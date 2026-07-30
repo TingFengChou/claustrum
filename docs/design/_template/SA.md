@@ -1,47 +1,43 @@
 # <module> — System Analysis (SA)
 
-**Status:** draft | active | stable · **Last updated:** YYYY-MM-DD · **Owner:** <name>
+**狀態:** draft | active | stable · **最後更新:** YYYY-MM-DD · **負責人:** <name>
 
-## 1. Purpose and scope
+## 1. 目的與範圍
 
-What this module is for, in two or three sentences. What is explicitly **out** of
-scope.
+本模組的用途,用兩三句話說明。哪些明確**不在**範圍內。
 
-## 2. Actors and context
+## 2. 參與者與情境
 
-Who or what interacts with this module (other modules, the model, the user, the
-camera, an external agent). A context sketch if useful.
+哪些人或事物會與本模組互動(其他模組、模型、使用者、攝影機、外部 agent)。有幫助的話
+附上一張情境草圖。
 
-## 3. Functional requirements
+## 3. 功能需求
 
-What the module must do. Number them (FR-1, FR-2, …) so SD and tests can trace
-back to them.
+本模組必須做什麼。為它們編號(FR-1、FR-2、…),讓 SD 與測試能追溯回來。
 
-## 4. Non-functional requirements
+## 4. 非功能需求
 
-Latency, memory, power/thermal, privacy, reliability, testability targets. Number
-them (NFR-1, …). Cite the project's key metrics where relevant.
+延遲、記憶體、功耗/散熱、隱私、可靠性、可測試性目標。為它們編號(NFR-1、…)。相關時
+引用專案的關鍵指標。
 
-## 5. Domain model
+## 5. 領域模型
 
-The `claustrum` domain types this module produces or consumes (`Actant`,
-`Kineme`, `Ethogram`, …) and any module-specific concepts. Note invariants that
-must hold.
+本模組所產出或消費的 `claustrum` 領域型別(`Actant`、`Kineme`、`Ethogram`、…)以及
+任何模組特有的概念。註明必須成立的不變式。
 
-## 6. Constraints and assumptions
+## 6. 限制與假設
 
-Hardware (phone-first, single-node — ADR-0004), platform, dependency and data
-constraints. Assumptions that, if false, change the design.
+硬體(手機優先、單節點 — ADR-0004)、平台、相依項與資料方面的限制。那些一旦不成立就會
+改變設計的假設。
 
-## 7. Acceptance criteria
+## 7. 驗收標準
 
-How we know the module is done and correct — observable, ideally testable,
-statements. These become the module's tests.
+我們如何得知模組已完成且正確 — 可觀察、最好可測試的敘述。它們會成為模組的測試。
 
-## 8. Open questions
+## 8. 未解問題
 
-Unresolved decisions, and what would resolve them.
+尚未拍板的決定,以及什麼能讓它們有解。
 
-## Traceability
+## 追溯
 
-Related ADRs, roadmap milestone(s), and the matching `SD.md`.
+相關的 ADR、roadmap 里程碑,以及對應的 `SD.md`。

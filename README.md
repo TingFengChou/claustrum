@@ -2,62 +2,62 @@
 
 # claustrum
 
-**On-device perception and cognition for embodied AI.** Binds separate sensory modalities — vision, audio, language — into a unified, queryable stream of observed events. Runs entirely on edge hardware.
+**為具身 AI 打造的裝置端感知與認知能力。** 將視覺、音訊、語言等各自獨立的感官模態,綁定為一條統一、可查詢的觀察事件串流。全程在邊緣硬體上執行。
 
-Pixel 10 · Gemma E2B / E4B · LiteRT-LM · Android AppFunctions
+Pixel 10 · Gemma E2B / E4B · LiteRT-LM · 搭配 Android AppFunctions
 
-> **Current phase: phone-first, single-node.** Everything runs on one Pixel 10
-> while the Jetson is unavailable. This changes the platform and the privacy
-> topology — see [ADR-0004](docs/adr/0004-phone-first-single-node.md). The Jetson
-> two-node design ([ADR-0003](docs/adr/0003-two-node-topology.md)) is the target
-> to restore later, not the current build.
-
----
-
-## ⚠️ Read this first
-
-**This is not a medical device and not a substitute for human care.**
-
-Fall detection and hazard alerting in this project will miss events and will produce false positives. Do not rely on it as anyone's only safety net. If you deploy it in a household, tell everyone who lives there, get their informed consent, and give them a working off switch.
-
-See [`docs/PRIVACY.md`](docs/PRIVACY.md) before pointing a camera at anyone.
+> **目前階段:手機優先、單節點。** 在 Jetson 尚未就緒的期間,所有運算都跑在單一
+> 台 Pixel 10 上。這改變了平台與隱私拓撲 —— 詳見
+> [ADR-0004](docs/adr/0004-phone-first-single-node.md)。Jetson 雙節點設計
+> ([ADR-0003](docs/adr/0003-two-node-topology.md)) 是日後要恢復的目標,而非目前
+> 的建置。
 
 ---
 
-## What it does
+## ⚠️ 請先讀這段
 
-Continuous camera and microphone streams are cheap to capture and impossible to review. `claustrum` compresses them into something a human — or a robot — can actually use:
+**這不是醫療器材,也不能取代真人照護。**
 
-| Ask | Get |
+本專案的跌倒偵測與危害警示會漏掉事件,也會產生誤報。請勿將它當成任何人唯一的安全網。若要把它部署在住家中,請告知所有同住者、取得他們的知情同意,並提供一個可正常運作的關閉開關。
+
+在把鏡頭對準任何人之前,請先閱讀 [`docs/PRIVACY.md`](docs/PRIVACY.md)。
+
+---
+
+## 它能做什麼
+
+連續的攝影機與麥克風串流擷取成本低廉,卻幾乎不可能逐一檢視。`claustrum` 把它們壓縮成人類 —— 或機器人 —— 真正能用的東西:
+
+| 你問 | 你得到 |
 |---|---|
-| "What happened at home today?" | A timeline of discrete, timestamped events |
-| "Did anyone go near the medicine box yesterday afternoon?" | A natural-language answer grounded in recorded events |
-| Someone falls in the hallway | A push notification within ~5 seconds, with the reason |
-| *(robot)* "Where did I last see the cart?" | A query against semantic spatial memory |
+| 「今天家裡發生了什麼事?」 | 一條由離散、附時間戳的事件構成的時間軸 |
+| 「昨天下午有人靠近藥盒嗎?」 | 一個以已記錄事件為依據的自然語言回答 |
+| 有人在走廊跌倒 | 約 5 秒內的推播通知,並附上原因 |
+| *(機器人)* 「我上次在哪裡看到那台推車?」 | 一次針對語意空間記憶的查詢 |
 
-Everything runs on-device. On the phone-first single node, frames stay on the phone by policy; the *structural* "frames cannot leave" guarantee returns with the two-node Jetson topology (ADR-0003).
+所有運算都在裝置端執行。在手機優先的單節點上,影格依政策留在手機裡;而「影格無法離開」這項*結構性*保證,會隨著雙節點的 Jetson 拓撲一同回歸 (ADR-0003)。
 
-## Why the name
+## 名字的由來
 
-The **claustrum** is a thin sheet of neurons connected to nearly every cortical region. Crick and Koch proposed it as the structure that binds separate sensory modalities into a single unified experience — they compared it to the conductor of an orchestra.
+**claustrum**(屏狀核)是一薄層神經元,幾乎與每一個大腦皮質區都有連結。Crick 與 Koch 曾提出,它正是把各自獨立的感官模態綁定為單一統一體驗的結構 —— 他們將它比喻為管弦樂團的指揮。
 
-That is the job of this project: take ASR, VLM, and LLM outputs and bind them into one coherent, temporally ordered understanding.
+這正是本專案要做的事:把 ASR、VLM 與 LLM 的輸出綁定為一份連貫、依時間排序的理解。
 
-## Domain vocabulary
+## 領域詞彙
 
-The codebase uses a deliberate, consistent vocabulary drawn from ethology, kinesics, and actor-network theory. All three traditions share a methodological commitment: **record what was observed; do not assume motive.** That commitment is this project's core discipline, so the names carry it.
+這套程式碼刻意採用一組貫徹一致的詞彙,取自動物行為學 (ethology)、身勢學 (kinesics) 與行動者網絡理論 (actor-network theory)。這三個傳統共享同一項方法論承諾:**記錄觀察到的事,不臆測動機。** 這項承諾是本專案的核心紀律,因此這些命名都承載著它。
 
-| Term | Meaning here | Origin |
+| 詞彙 | 在此的意義 | 出處 |
 |---|---|---|
-| **Actant** | A participant in a scene — `person_1`, `cat`, `robot_1`. A **role slot, not an identity.** | Actor-network theory (Latour); structural semiotics (Greimas) |
-| **Kineme** | The smallest recorded unit of observed behaviour. One action, one time span. | Kinesics (Birdwhistell) — the gestural analogue of a phoneme |
-| **Ethogram** | A catalogue of kinemes over a period. The system's primary output. | Ethology — a formal inventory of a species' discrete behaviours |
+| **Actant** | 場景中的一個參與者 —— `person_1`、`cat`、`robot_1`。是一個**角色槽位,而非身分。** | 行動者網絡理論 (Latour);結構符號學 (Greimas) |
+| **Kineme** | 觀察到的行為之最小記錄單位。一個動作、一段時間。 | 身勢學 (Birdwhistell) —— 音素 (phoneme) 在身勢上的類比 |
+| **Ethogram** | 一段期間內眾多 kineme 的目錄。系統的主要輸出。 | 動物行為學 —— 針對某物種各離散行為的正式清單 |
 
-`Actant` being a role slot rather than a person is not incidental — it is the privacy design. This project does no face recognition and no identity attribution. See [`docs/adr/0002-naming-and-domain-language.md`](docs/adr/0002-naming-and-domain-language.md).
+`Actant` 之所以是角色槽位而非某個人,並非偶然 —— 它就是隱私設計本身。本專案不做人臉辨識,也不做身分歸屬。詳見 [`docs/adr/0002-naming-and-domain-language.md`](docs/adr/0002-naming-and-domain-language.md)。
 
-## Architecture
+## 架構
 
-Continuous video cannot be fed to a VLM frame by frame. The core design is a **temporal compression pyramid**:
+連續影片無法逐格餵給 VLM。核心設計是一座**時間壓縮金字塔 (temporal compression pyramid)**:
 
 ```
  30 fps raw stream
@@ -81,25 +81,25 @@ Continuous video cannot be fed to a VLM frame by frame. The core design is a **t
  consumers           push notification · AppFunctions · MCP · ROS 2
 ```
 
-Full detail, including why L2 is split into two paths, in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+完整細節,包含 L2 為何拆成兩條路徑,詳見 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 
-## Modules
+## 模組
 
-| Module | Status | Purpose |
+| 模組 | 狀態 | 用途 |
 |---|---|---|
-| `ethogram/` | 🚧 active | Behaviour perception. Vision → Kineme stream. **Current focus.** |
-| `core/` | 🚧 active | Domain types, tool contracts, shared schemas |
-| `bench/` | ✅ ready | M0 backend benchmark — run this first |
-| `asr/` | planned | Speech recognition → transcript kinemes |
-| `tts/` | planned | Spoken response |
-| `planner/` | planned | LLM orchestration, cloud escalation policy |
-| `bridge/` | planned | AppFunctions provider · MCP server · ROS 2 node |
+| `ethogram/` | 🚧 進行中 | 行為感知。Vision → Kineme 串流。**目前重點。** |
+| `core/` | 🚧 進行中 | 領域型別、工具合約、共用 schema |
+| `bench/` | ✅ 就緒 | M0 後端基準測試 —— 先跑這個 |
+| `asr/` | 規劃中 | 語音辨識 → 逐字稿 kineme |
+| `tts/` | 規劃中 | 語音回應 |
+| `planner/` | 規劃中 | LLM 編排、雲端升級 (escalation) 政策 |
+| `bridge/` | 規劃中 | AppFunctions provider · MCP server · ROS 2 node |
 
-Only `ethogram/` is in scope for the current roadmap. The umbrella exists so that adding a second modality later does not require restructuring.
+目前的路線圖只涵蓋 `ethogram/`。之所以有這個總攬結構,是為了日後加入第二種模態時不必重新調整結構。
 
-## Deployment topology
+## 部署拓撲
 
-**Now — phone-first, single node** (ADR-0004):
+**現在 —— 手機優先、單節點** (ADR-0004):
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -115,11 +115,9 @@ Only `ethogram/` is in scope for the current roadmap. The umbrella exists so tha
 └──────────────────────────────────────────────┘
 ```
 
-One process holds frames and answers queries, so frame isolation is enforced by
-policy, not topology. That is the deliberate, temporary cost of the phone-first
-pivot; PRIVACY.md is explicit about it.
+單一行程同時持有影格並回應查詢,因此影格隔離是靠政策而非拓撲來落實。這是手機優先轉向所必須承擔、且刻意為之的暫時代價;PRIVACY.md 對此有明確說明。
 
-**Later — two nodes, once a Jetson is available** (ADR-0003, deferred):
+**日後 —— 雙節點,一旦 Jetson 就緒** (ADR-0003,已延後):
 
 ```
 ┌──────────────────────────────┐        ┌─────────────────────────────┐
@@ -130,12 +128,9 @@ pivot; PRIVACY.md is explicit about it.
                                          └─────────────────────────────┘
 ```
 
-The two-node split is a privacy mechanism, not just a performance one: the query
-surface has no path to image data, so "we choose not to return frames" becomes
-"we cannot". Restoring that guarantee is the reason the Jetson topology remains
-the target.
+雙節點的切分是一種隱私機制,而不只是效能機制:查詢介面沒有任何通往影像資料的路徑,因此「我們選擇不回傳影格」就變成了「我們無法回傳」。恢復這項保證,正是 Jetson 拓撲仍是目標的原因。
 
-## Quickstart
+## 快速上手
 
 ```bash
 git clone https://github.com/TingFengChou/claustrum.git
@@ -150,59 +145,53 @@ cp bench/backends.example.yaml bench/backends.yaml   # point at 127.0.0.1:<forwa
 python bench/run_bench.py --frames bench/frames --out eval/reports
 ```
 
-The harness runs on your laptop and talks to the phone over `adb forward`; it
-samples the phone's thermal and battery state via `adb` (`bench/phone_monitor.py`).
+這套 harness 跑在你的筆電上,透過 `adb forward` 與手機通訊;它會透過 `adb` 取樣手機的熱狀態與電池狀態 (`bench/phone_monitor.py`)。
 
-Nothing downstream can be designed before M0 produces numbers. See [`bench/README.md`](bench/README.md).
+在 M0 產出數據之前,下游的任何東西都無法設計。詳見 [`bench/README.md`](bench/README.md)。
 
-## Roadmap
+## 路線圖
 
-| M | Name | Outcome | Est. |
+| M | 名稱 | 產出 | 預估 |
 |---|---|---|---|
-| **M0** | Backend spike | Latency / memory / thermal table for on-device Gemma E2B/E4B on the Pixel 10; keyframe budget decided | 1–2 wk |
-| **M1** | Structured caption | Prompt v1 + Kineme schema; caption acceptability > 70 %, JSON parse > 98 % | 2–3 wk |
-| **M2** | Offline pipeline | L0 gating + L1 batch + KinemeStore; > 100× compression on a 1 h video | 3–4 wk |
-| **M3** | Ethogram + query | L3 hierarchical summary + L4 retrieval | 3 wk |
-| **M4** | AppFunctions | Pixel 10 provider, consent tiers, audit log | 3–4 wk |
-| **M5** | Realtime + alerting | L2 dual path; false positives < 3 / 24 h | 4–5 wk |
-| **M6** | Hardening | 7-day continuous run; false positives < 1 / 24 h | 4 wk |
-| **M7** | Robot bridge | MCP server + ROS 2 node + spatial anchoring PoC | 3 wk |
+| **M0** | 後端試點 (Backend spike) | Pixel 10 上裝置端 Gemma E2B/E4B 的延遲 / 記憶體 / 熱狀態一覽表;決定關鍵影格預算 | 1–2 週 |
+| **M1** | 結構化影像描述 | Prompt v1 + Kineme schema;影像描述可接受度 > 70 %、JSON 解析成功率 > 98 % | 2–3 週 |
+| **M2** | 離線管線 | L0 gating + L1 批次 + KinemeStore;1 小時影片達成 > 100× 壓縮 | 3–4 週 |
+| **M3** | Ethogram + 查詢 | L3 階層式摘要 + L4 檢索 | 3 週 |
+| **M4** | AppFunctions | Pixel 10 provider、同意授權分層、稽核紀錄 | 3–4 週 |
+| **M5** | 即時 + 警示 | L2 雙路徑;誤報 < 3 / 24 小時 | 4–5 週 |
+| **M6** | 強化 (Hardening) | 連續執行 7 天;誤報 < 1 / 24 小時 | 4 週 |
+| **M7** | 機器人橋接 | MCP server + ROS 2 node + 空間錨定 PoC | 3 週 |
 
-M4 depends only on M3, not on the realtime pipeline — it is sequenced early because it validates whether kineme quality is good enough to support natural-language querying, before the expensive M5–M6 work begins.
+M4 只相依於 M3,而不相依於即時管線 —— 之所以把它排在前面,是因為它能在開始耗費心力的 M5–M6 工作之前,先驗證 kineme 的品質是否足以支撐自然語言查詢。
 
-Full plan with acceptance criteria: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+含驗收標準的完整計畫:[`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
-## Key metrics
+## 關鍵指標
 
-The project is judged on these, not on demo quality:
+本專案是以這些指標,而非以展示效果,來評斷成敗:
 
-| Metric | Target |
+| 指標 | 目標 |
 |---|---|
-| Keyframe compression ratio | > 100× |
-| Caption hallucination rate | < 5 % |
-| Fall detection recall | > 90 % |
-| **False alerts per 24 h** | **< 1** |
-| End-to-end alert latency (p95) | < 5 s |
-| Continuous uptime without thermal throttle | 7 days |
+| 關鍵影格壓縮比 | > 100× |
+| 影像描述幻覺率 | < 5 % |
+| 跌倒偵測召回率 | > 90 % |
+| **每 24 小時誤報數** | **< 1** |
+| 端到端警示延遲 (p95) | < 5 秒 |
+| 無熱節流的連續運轉時間 | 7 天 |
 
-False alerts per 24 h is the primary metric. A system that cries wolf once a day gets its notifications muted within two weeks, at which point recall is irrelevant.
+每 24 小時誤報數是首要指標。一套每天狼來了一次的系統,兩週內通知就會被靜音,到那時召回率再高也毫無意義。
 
-## Development
+## 開發
 
-Work ships through PRs gated by CI and an advisory AI code review; every module
-keeps SA/SD design docs; modules are built testable; app UI is designed to
-near-production quality; and docs are updated with every milestone. Full process:
-[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md). Design docs: [`docs/design/`](docs/design/)
-(`core` is the worked example). These standards are also encoded as the
-`dev-standards` skill so they apply automatically.
+工作透過 PR 交付,並以 CI 與一道諮詢性質的 AI 程式碼審查作為關卡;每個模組都保有 SA/SD 設計文件;模組以可測試性為前提建置;app UI 設計到接近正式上線的品質;文件則隨每個里程碑一併更新。完整流程:[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。設計文件:[`docs/design/`](docs/design/)(`core` 是已完成的範例)。這些標準也編寫成 `dev-standards` skill,因此會自動套用。
 
-## Decisions
+## 決策
 
-- [ADR-0001 — Platform: Jetson AGX Orin over Android](docs/adr/0001-platform-choice.md)
-- [ADR-0002 — Naming and domain language](docs/adr/0002-naming-and-domain-language.md)
-- [ADR-0003 — Two-node topology and the frame isolation boundary](docs/adr/0003-two-node-topology.md)
-- [ADR-0004 — Phone-first, single-node bring-up](docs/adr/0004-phone-first-single-node.md)
+- [ADR-0001 — 平台:選擇 Jetson AGX Orin 而非 Android](docs/adr/0001-platform-choice.md)
+- [ADR-0002 — 命名與領域語言](docs/adr/0002-naming-and-domain-language.md)
+- [ADR-0003 — 雙節點拓撲與影格隔離邊界](docs/adr/0003-two-node-topology.md)
+- [ADR-0004 — 手機優先、單節點啟動](docs/adr/0004-phone-first-single-node.md)
 
-## Licence
+## 授權
 
-Apache-2.0. See [`LICENSE`](LICENSE).
+Apache-2.0。詳見 [`LICENSE`](LICENSE)。

@@ -1,61 +1,54 @@
-# Development process
+# 開發流程
 
-How work on `claustrum` is done. These rules are also encoded in the
-`dev-standards` agent skill (`.claude/skills/dev-standards/`) so they are applied
-automatically; this document is the human-readable version.
+`claustrum` 的工作方式。這些規則同時編寫在 `dev-standards` 這個 agent skill
+(`.claude/skills/dev-standards/`) 中,因此會被自動套用;本文件是給人閱讀的版本。
 
-## Ship via PR, gated by review
+## 透過 PR 出貨,以審查作為關卡
 
-- No direct pushes to `main`. Branch → commit → push → open a PR.
-- Each PR runs two checks:
-  - **`ci.yml`** — tests + schema/identity guards. This is the **hard gate**.
-  - **`ai-code-review.yml`** — an advisory Gemini review comment. See below.
-- **Merge is a fact-based decision, not rubber-stamping.** Every AI review
-  comment is examined and **replied to** — fixed, or answered with why it does
-  not hold after checking. Merge over an AI comment only when it is verified
-  wrong (and say so); hold a green PR when verification finds a real problem the
-  review missed. The decision rests on evidence — tests, reading the code,
-  running it — not on the verdict or the checkmark alone.
+- 不可直接推送到 `main`。開分支 → commit → push → 開一個 PR。
+- 每個 PR 會跑兩項檢查:
+  - **`ci.yml`** — 測試 + schema/identity 守衛。這是**硬性關卡**。
+  - **`ai-code-review.yml`** — 一則建議性質的 Gemini 審查留言。詳見下文。
+- **合併是基於事實的決定,不是蓋橡皮圖章。** 每一則 AI 審查留言都要被檢視並**回覆** —
+  要嘛修掉,要嘛在查證後說明它為何不成立。只有在確認某則 AI 留言確實有誤時才能無視它
+  逕行合併(並說明原因);當查證發現審查漏掉的真正問題時,即使 PR 已是綠燈也要暫緩。
+  決定建立在證據上 — 測試、閱讀程式碼、實際執行 — 而不是單憑結論或那個勾勾。
 
-### Enabling AI review
+### 啟用 AI 審查
 
-The AI review needs a `GEMINI_API_KEY` repository secret (Settings → Secrets and
-variables → Actions). Only a repo admin can add it. Until it is set, the review
-workflow skips cleanly. Optionally set a `GEMINI_MODEL` repo variable to change
-the model. The review is advisory — it never blocks a merge; the tests do.
+AI 審查需要一個 `GEMINI_API_KEY` 儲存庫密鑰(Settings → Secrets and
+variables → Actions)。只有儲存庫管理員能新增它。在設定之前,審查工作流程會乾淨地跳過。
+可選擇設定一個 `GEMINI_MODEL` 儲存庫變數來更換模型。此審查僅供參考 — 它從不阻擋合併;
+擋關的是測試。
 
-## Design docs per module (SA/SD)
+## 每個模組的設計文件(SA/SD)
 
-Every module keeps a System Analysis and System Design doc under
-[`docs/design/<module>/`](design/). Start from
-[`docs/design/_template/`](design/_template/). Update them in the same PR as the
-code — see [`docs/design/README.md`](design/README.md). `core` is the worked
-example.
+每個模組都在 [`docs/design/<module>/`](design/) 下保有一份 System Analysis 與
+System Design 文件。從 [`docs/design/_template/`](design/_template/) 開始。在與程式碼
+相同的 PR 中一併更新它們 — 見 [`docs/design/README.md`](design/README.md)。`core`
+是完整的示範範例。
 
-## Testability
+## 可測試性
 
-Modules are built to be testable without hardware: dependencies behind
-interfaces, side-effects at the edges, tests shipping with the module and run by
-CI. A module without tests is not done.
+模組的建構方式讓它無需硬體即可測試:相依項置於介面之後、副作用集中在邊界、測試隨模組一起
+出貨並由 CI 執行。沒有測試的模組就不算完成。
 
 ## App UI
 
-Any app UI is designed to near-production quality using Claude's design
-capabilities (load the `artifact-design` skill; Figma / `dataviz` where
-relevant), not default or placeholder widgets. Branding assets live in
-[`assets/`](../assets/).
+任何 app UI 都以 Claude 的設計能力打造到接近正式產品的品質(載入 `artifact-design`
+skill;相關時搭配 Figma / `dataviz`),而不是使用預設或佔位元件。品牌素材放在
+[`assets/`](../assets/)。
 
-## Docs track reality
+## 文件反映現實
 
-Completing a checkpoint or milestone includes updating the README,
-[`ROADMAP.md`](ROADMAP.md) status, [`ARCHITECTURE.md`](ARCHITECTURE.md) if the
-design moved, and the affected SA/SD docs — in the same PR. Docs must not lag the
-code.
+完成一個檢查點或里程碑時,要一併更新 README、[`ROADMAP.md`](ROADMAP.md) 的狀態、
+若設計有變動則更新 [`ARCHITECTURE.md`](ARCHITECTURE.md),以及受影響的 SA/SD 文件 —
+都在同一個 PR 中。文件不可落後於程式碼。
 
-## Definition of done
+## 完成的定義
 
-- [ ] Tests written; `python -m unittest discover -s tests` green
-- [ ] SA/SD updated for touched modules
-- [ ] README / ROADMAP / ARCHITECTURE updated if a milestone or design change
-- [ ] On a branch with an open PR; CI green; review addressed
-- [ ] Any app UI designed to near-production quality
+- [ ] 測試已撰寫;`python -m unittest discover -s tests` 為綠燈
+- [ ] 已為變動到的模組更新 SA/SD
+- [ ] 若涉及里程碑或設計變動,已更新 README / ROADMAP / ARCHITECTURE
+- [ ] 位於已開 PR 的分支上;CI 為綠燈;審查已處理
+- [ ] 任何 app UI 都已設計到接近正式產品的品質

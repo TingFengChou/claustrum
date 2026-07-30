@@ -1,161 +1,157 @@
 # Roadmap
 
-Estimates assume part-time work. The sequencing matters more than the numbers.
+時程估計以兼職投入為前提。排序的重要性高於數字本身。
 
 ---
 
-## M0 — Backend spike · 1–2 weeks
+## M0 — 後端探路 · 1–2 weeks
 
-Establish the numbers everything else depends on. Phone-first (ADR-0004): the
-target is Gemma E2B/E4B on the Pixel 10.
+先把後續一切所仰賴的數字確立下來。以手機為優先(ADR-0004):目標是在 Pixel 10 上跑 Gemma E2B/E4B。
 
-**Work**
-- Serve Gemma E2B and E4B on the Pixel 10 and expose to the host with `adb forward` (on-device serving is not one command — see [M0-phone-setup.md](M0-phone-setup.md): llama.cpp/Termux for fast numbers, a LiteRT-LM harness app for production-fidelity latency)
-- Build the 20–40 frame fixture set (see `bench/README.md`) — including the ambiguous frames where `unclear` is correct
-- Run `bench/run_bench.py` across model sizes and grid configurations
-- Score retained samples by hand for caption usefulness and hallucination
-- Evaluate sustained-load thermal and battery drift on the phone (`bench/phone_monitor.py`): does it throttle, how fast does it drain
+**工作項目**
+- 在 Pixel 10 上服務 Gemma E2B 與 E4B,並透過 `adb forward` 對主機開放(裝置端服務並非一道指令能搞定 — 見 [M0-phone-setup.md](M0-phone-setup.md):以 llama.cpp/Termux 取得快速數據,以 LiteRT-LM 承載應用取得貼近正式環境的延遲)
+- 建立 20–40 影格的樣本集(見 `bench/README.md`)— 包含以 `unclear` 為正解的模稜兩可影格
+- 跨各種模型大小與網格配置執行 `bench/run_bench.py`
+- 以人工為保留下來的樣本評分,判斷影像描述的實用性與幻覺情形
+- 評估手機在持續負載下的熱表現與電量漂移(`bench/phone_monitor.py`):會不會熱節流、電量掉得多快
 
-**Exit criteria**
-- Comparison table (E2B vs E4B, and grids) exists in `eval/reports/`
-- A model size + serving path is chosen and recorded as an ADR
-- **Keyframe budget decided** — calls per second the phone can sustain without throttling
-- Grid question answered: does a 2×2 composite cost less than 2× a single frame?
+**驗收標準**
+- 比較表(E2B vs E4B,以及各網格)存放於 `eval/reports/`
+- 選定一個模型大小 + 服務路徑,並記錄為一則 ADR
+- **關鍵影格預算拍板** — 手機在不觸發熱節流下每秒能撐住的呼叫數
+- 網格問題有解答:2×2 合成影像的成本是否低於 2× 單張影格?
 
-**Why first:** if p95 latency is 3 s the architecture looks nothing like it does at 12 s. At 12 s, realtime alerting needs a two-model tier — a tiny model for immediate captions, a larger one for periodic depth. That is a structural difference, not a tuning one. On a phone this is more likely, not less, so M0 decides it.
-
----
-
-## M1 — Structured caption · 2–3 weeks
-
-**Work**
-- Freeze `schemas/kineme.schema.json`; wire `core/domain.py` validation both ways in CI
-- Iterate `prompts/caption_v1.md` against 100 hand-labelled frames
-- JSON tolerance layer (fences, preamble, trailing commentary)
-- Stand up `eval/harness` skeleton
-
-**Exit criteria**
-- Caption acceptability > 70 %
-- JSON parse rate > 98 %
-- **Hallucination rate < 10 %** (tightens to < 5 % by M6)
-- Harness runs from one command and writes a report
-
-**Freeze the schema here.** Every module downstream depends on it; the cost of changing it compounds weekly.
+**為何先做:** 如果 p95 延遲是 3 s,整體架構會跟延遲 12 s 時長得完全不一樣。在 12 s 的情況下,即時警示需要雙模型分層 — 一個極小模型負責即時影像描述,一個較大模型負責週期性的深度分析。這是結構性差異,不是調參就能解決的。在手機上這種情況更可能發生而非更少發生,所以由 M0 來拍板。
 
 ---
 
-## M2 — Offline pipeline · 3–4 weeks
+## M1 — 結構化影像描述 · 2–3 weeks
 
-**Work**
-- L0 gating: frame differencing, object detection, pose landmarks, frame embedding similarity
-- L1 batch runner over a video file
-- `KinemeStore` — SQLite on NVMe, retention policy, frame encryption
+**工作項目**
+- 凍結 `schemas/kineme.schema.json`;在 CI 中雙向接上 `core/domain.py` 的驗證
+- 以 100 張人工標註影格反覆打磨 `prompts/caption_v1.md`
+- JSON 容錯層(程式碼圍籬、前言、尾端註解)
+- 搭起 `eval/harness` 骨架
 
-**Exit criteria**
-- Feed in a one-hour video, get a kineme stream out
-- Compression > 100×
-- A human reading the kineme stream can tell what happened in that video
+**驗收標準**
+- 影像描述可接受度 > 70 %
+- JSON 解析成功率 > 98 %
+- **幻覺率 < 10 %**(到 M6 收緊至 < 5 %)
+- 測試框架能以一道指令執行並產出報告
 
-That last criterion is subjective and non-negotiable. If the stream is not legible to a person, no amount of downstream summarisation will rescue it.
-
----
-
-## M3 — Ethogram and query · 3 weeks
-
-**Work**
-- L3 hierarchical summarisation: kinemes → 15 min → hour → daily `Ethogram`
-- Anomaly detection by comparison against the subject's own trailing fortnight
-- L4 embedding index and natural-language retrieval
-- Minimal review UI
-
-**Exit criteria**
-- "What happened at home today?" produces a useful timeline
-- "Did anyone go near the medicine box yesterday afternoon?" answers correctly with timestamps
-- Ethogram usefulness > 3.0 (manual, 1–5)
+**schema 在此凍結。** 下游每個模組都相依於它;更動它的成本會逐週累積放大。
 
 ---
 
-## M4 — AppFunctions on Pixel 10 · 3–4 weeks
+## M2 — 離線管線 · 3–4 weeks
 
-**Depends only on M3.** Deliberately sequenced before the realtime pipeline.
+**工作項目**
+- L0 閘控:影格差分、物件偵測、姿態關鍵點、影格嵌入相似度
+- L1 對影片檔進行批次執行
+- `KinemeStore` — NVMe 上的 SQLite、保留政策、影格加密
 
-Single-node (ADR-0004) makes this *simpler*: the store and the provider are
-co-resident on the same phone, so there is no LAN pairing or gRPC transport to
-build yet. The `core/tools/` contract is still worth extracting now so the
-network transport drops in unchanged when the Jetson two-node topology returns.
+**驗收標準**
+- 餵入一小時影片,吐出一串 kineme
+- 壓縮率 > 100×
+- 讀這串 kineme 的人能看懂那段影片發生了什麼
 
-**Work**
-- Extract `core/tools/` contract layer — one definition, transports added as needed
-- AppFunctions provider: `getHomeStatus`, `queryKinemes`, `getEthogram`
-- (Deferred to two-node: LAN pairing over mTLS with QR-code exchange; gRPC transport)
-- **Tiered consent UI, caller allowlist, user-visible audit log** — all three ship with the feature, not after it
-- Run the official AppFunctions agent skill first to generate boilerplate and refine KDoc
-
-**Exit criteria**
-- Ask the phone assistant about the house, get a correct answer sourced from the on-device store
-- `adb shell cmd app_function list-app-functions` shows correct metadata
-- Frames provably unreachable from the query surface — no code path exists
-- Audit screen shows who queried what and when
-
-**Why here:** it validates whether kineme quality is sufficient to support natural-language querying *before* the expensive M5–M6 work. If captions cannot sustain a conversation, that surfaces now rather than in month six. It is also the most demonstrable milestone in the plan.
+最後那條標準是主觀且不容妥協的。如果這串資料對人來說不可讀,再多的下游摘要都救不回來。
 
 ---
 
-## M5 — Realtime pipeline and alerting · 4–5 weeks
+## M3 — Ethogram 與查詢 · 3 weeks
 
-**Work**
-- Phone camera ingest via CameraX (RTSP from a spare phone only if a second source is wanted); DeepStream/CSI is a Jetson-era concern
-- L0 as a resident Android foreground service (the systemd daemon is Jetson-era)
-- L2 dual path: pose heuristic for recall, VLM confirmation for precision
-- Alert suppression: deduplication, per-category rate limiting, post-rejection cooldown
-- Push notification delivery to the Pixel
+**工作項目**
+- L3 階層式摘要:kinemes → 15 min → hour → daily `Ethogram`
+- 異常偵測,方式是與對象自身過去兩週的軌跡做比較
+- L4 嵌入索引與自然語言檢索
+- 最小可用的審閱 UI
 
-**Exit criteria**
-- Staged fall produces a notification within p95 < 5 s
-- Fall recall > 90 %
-- False alerts < 3 per 24 h
-- The three-frame confirmation demonstrably rejects deliberate lying down
+**驗收標準**
+- 「今天家裡發生了什麼?」能產出一份有用的時間軸
+- 「昨天下午有沒有人靠近藥盒?」能正確回答並附上時間戳
+- Ethogram 實用性 > 3.0(人工,1–5)
 
 ---
 
-## M6 — Hardening · 4 weeks
+## M4 — Pixel 10 上的 AppFunctions · 3–4 weeks
 
-**Work**
-- Seven-day continuous run
-- Thermal-aware gating throttle; power mode tuning
-- Drive false alerts below 1 per 24 h against the 72-hour uneventful corpus
-- OpenTelemetry export: latency, calls per hour, temperature, false-alert count
-- Retention and key rotation verified end to end
+**僅相依於 M3。** 刻意排在即時管線之前。
 
-**Exit criteria**
-- Seven days, no crash, no thermal throttle
-- **False alerts < 1 per 24 h**
-- Hallucination rate < 5 %
-- Dashboard shows all primary metrics
+單節點(ADR-0004)讓這件事*更簡單*:store 與 provider 共同駐留在同一支手機上,所以目前還不需要建置 LAN 配對或 gRPC 傳輸。不過現在就把 `core/tools/` 合約抽出來仍然值得,如此一來當 Jetson 雙節點拓撲回歸時,網路傳輸就能原封不動地接上。
 
----
+**工作項目**
+- 抽出 `core/tools/` 合約層 — 單一定義,傳輸方式按需加上
+- AppFunctions provider:`getHomeStatus`、`queryKinemes`、`getEthogram`
+- (延後至雙節點:透過 mTLS 並以 QR code 交換完成 LAN 配對;gRPC 傳輸)
+- **分層同意 UI、呼叫者允許清單、使用者可見的稽核紀錄** — 三者都隨功能一同交付,而非事後補上
+- 先執行官方 AppFunctions agent skill 以產生樣板程式碼並精修 KDoc
 
-## M7 — Robot bridge · 3 weeks
+**驗收標準**
+- 向手機助理詢問這個家的狀況,得到一個來源出自裝置端 store 的正確答案
+- `adb shell cmd app_function list-app-functions` 顯示正確的中繼資料
+- 影格可證明無法從查詢介面觸及 — 根本不存在這樣的程式路徑
+- 稽核畫面顯示誰在何時查詢了什麼
 
-**Work**
-- Network MCP server over the same `core/tools/` contract
-- ROS 2 node publishing `/kinemes`
-- Spatial anchoring proof of concept — odometry and map coordinates attached to kinemes
-
-**Exit criteria**
-- An external agent can query site memory over MCP
-- A ROS 2 subscriber receives kinemes
-- Anchored kinemes render on a map
-
-At which point the event log is a semantic map, and this stops being camera subtitles.
+**為何排在這:** 它在昂貴的 M5–M6 工作*之前*,先驗證 kineme 品質是否足以支撐自然語言查詢。如果影像描述撐不起一段對話,這個問題會現在浮現,而不是等到第六個月。它同時也是整個計畫中最能展示成果的里程碑。
 
 ---
 
-## Second-modality gate
+## M5 — 即時管線與警示 · 4–5 weeks
 
-The `claustrum` umbrella exists for ASR, TTS and LLM orchestration. Do not open those modules until `ethogram` clears M6. Two reasons:
+**工作項目**
+- 透過 CameraX 進行手機相機擷取(只有在需要第二個來源時,才用備用手機的 RTSP);DeepStream/CSI 是 Jetson 時期才要煩惱的事
+- L0 作為常駐的 Android 前景服務(systemd daemon 是 Jetson 時期的做法)
+- L2 雙路徑:以姿態啟發式衝召回率,以 VLM 確認衝精確率
+- 警示抑制:去重、各類別速率限制、被拒後的冷卻期
+- 推播通知送達 Pixel
 
-1. A second modality doubles the eval surface. Doing that before the first one is trustworthy means never knowing which modality is at fault.
-2. The shape of the fusion layer will be much clearer once one modality has been through six milestones of contact with reality.
+**驗收標準**
+- 演練的跌倒能在 p95 < 5 s 內產生通知
+- 跌倒召回率 > 90 %
+- 誤報 < 3 per 24 h
+- 三影格確認能可證明地排除刻意躺下的情況
 
-When the gate opens, the first question is not "which ASR model" but "what does a transcript kineme look like, and does it share `ts_start` semantics with a visual one".
+---
+
+## M6 — 強化 · 4 weeks
+
+**工作項目**
+- 連續執行七天
+- 熱感知的閘控節流;電源模式調校
+- 針對 72 小時無事件語料,把誤報壓到 1 per 24 h 以下
+- OpenTelemetry 匯出:延遲、每小時呼叫數、溫度、誤報數
+- 端到端驗證保留政策與金鑰輪替
+
+**驗收標準**
+- 連續七天,不當機、不熱節流
+- **誤報 < 1 per 24 h**
+- 幻覺率 < 5 %
+- 儀表板呈現所有主要指標
+
+---
+
+## M7 — 機器人橋接 · 3 weeks
+
+**工作項目**
+- 建立在同一套 `core/tools/` 合約之上的網路 MCP server
+- 發布 `/kinemes` 的 ROS 2 節點
+- 空間錨定概念驗證 — 將里程計與地圖座標附加到 kinemes 上
+
+**驗收標準**
+- 外部 agent 能透過 MCP 查詢場域記憶
+- 一個 ROS 2 訂閱者能收到 kinemes
+- 已錨定的 kinemes 能在地圖上呈現
+
+到了這一步,事件記錄就成為一張語意地圖,而這套系統也不再只是相機字幕。
+
+---
+
+## 第二模態閘門
+
+`claustrum` 這個大傘的存在是為了 ASR、TTS 與 LLM 協調。在 `ethogram` 通過 M6 之前,別去動這些模組。有兩個理由:
+
+1. 第二個模態會讓評測面倍增。在第一個模態值得信任之前就這麼做,等於永遠搞不清楚是哪個模態出了錯。
+2. 一旦有一個模態走過六個里程碑、與現實反覆碰撞後,融合層該長什麼樣子就會清楚得多。
+
+當這道閘門開啟時,第一個問題不是「要用哪個 ASR 模型」,而是「一則逐字稿 kineme 長什麼樣,以及它是否與視覺 kineme 共用 `ts_start` 語意」。

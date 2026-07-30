@@ -1,19 +1,19 @@
 ---
 name: Spike
-about: A time-boxed experiment that answers one question
+about: 一個有時間限制、只回答單一問題的實驗
 labels: 'type:spike'
 ---
 
-## Question
+## 問題
 
-<!-- One question, answerable with a number or a yes/no. -->
+<!-- 一個問題,能以一個數字或是/否回答。 -->
 
-## Time box
+## 時間限制
 
-## What we will do with the answer
+## 我們會如何運用這個答案
 
-<!-- If nothing downstream changes based on the result, this is not worth doing. -->
+<!-- 如果結果不會改變任何下游的事情,就不值得做。 -->
 
-## Result
+## 結果
 
-<!-- Fill in when done. Link any report in eval/reports/. -->
+<!-- 完成後填寫。附上 eval/reports/ 中的任何報告連結。 -->

@@ -1,92 +1,72 @@
-# ADR-0004 — Phone-first, single-node bring-up
+# ADR-0004 — 以手機為先、單節點啟用
 
-**Status:** accepted · **Date:** 2026-07-30
-**Supersedes:** [ADR-0001](0001-platform-choice.md) (platform and model choice)
-**Defers:** [ADR-0003](0003-two-node-topology.md) (two-node topology)
+**狀態:** 已接受 · **日期:** 2026-07-30
+**取代:** [ADR-0001](0001-platform-choice.md)(平台與模型選擇)
+**延後:** [ADR-0003](0003-two-node-topology.md)(雙節點拓撲)
 
-## Context
+## 背景
 
-ADR-0001 chose the Jetson AGX Orin and Gemma 4 12B, on the strength of 32 GB of
-unified memory and a Linux edit-and-run loop. That reasoning still holds — for an
-AGX Orin. But the AGX Orin is not in hand, and the hardware that will actually
-arrive is a **Jetson Nano**, not an AGX Orin. Development cannot wait on it, and
-even when it lands it will not run a 12B model.
+ADR-0001 選擇了 Jetson AGX Orin 與 Gemma 4 12B,憑藉的是 32 GB 統一記憶體與 Linux
+的「編輯即執行」迴圈。那套推理依然成立——前提是有一台 AGX Orin。但 AGX Orin 並未
+到手,而實際將會到貨的硬體是一台 **Jetson Nano**,不是 AGX Orin。開發無法等它,而且
+就算它到了,也跑不動 12B 模型。
 
-The available hardware today is the Pixel 10.
+今天現有的硬體是 Pixel 10。
 
-## Decision
+## 決策
 
-**Develop phone-first on a single node.** The Pixel 10 does everything —
-camera capture, L0–L4, and the query surface — in one process space. The model
-is a **bundled Gemma E2B / E4B** served on-device through LiteRT-LM; M0
-benchmarks it over an adb-forwarded OpenAI-compatible endpoint, reusing the
-existing harness.
+**以手機為先,在單節點上開發。** Pixel 10 一手包辦所有事情——攝影機擷取、L0–L4,以及
+查詢介面——全都在同一個行程空間內。模型是一個**綑綁的 Gemma E2B / E4B**,透過
+LiteRT-LM 在裝置端提供服務;M0 會透過一個經 adb 轉發的 OpenAI 相容端點對它做基準
+測試,沿用既有的測試框架(harness)。
 
-The Jetson is deferred to whenever it arrives, at which point ADR-0003's
-two-node split is revisited — as a *second* node behind the phone, not as the
-primary compute.
+Jetson 則延後到它到貨的那一刻,屆時再重新檢視 ADR-0003 的雙節點拆分——把它當成手機
+背後的*第二個*節點,而非主要運算平台。
 
-## Rationale
+## 理由
 
-**Hardware reality overrides the iteration-speed argument.** ADR-0001 rejected
-Android because of the Gradle → APK → adb loop. That cost is real, but it is
-paid against a device that exists; the AGX Orin's edit-and-run loop is worth
-nothing while the AGX Orin is hypothetical. A slower loop on real hardware beats
-a fast loop on none.
+**硬體的現實壓過了迭代速度的論點。** ADR-0001 因為 Gradle → APK → adb 迴圈而否決了
+Android。那項成本是真的,但它是付在一台*確實存在*的裝置上;而只要 AGX Orin 還是假設
+性的,它的「編輯即執行」迴圈就一文不值。在真實硬體上跑一個較慢的迴圈,勝過在不存在的
+硬體上跑一個快迴圈。
 
-**The 12B anti-hallucination argument does not survive the Nano.** ADR-0001's
-load-bearing claim was that moving 2B → 12B is the single most effective defence
-against VLM hallucination. Neither a phone nor a Jetson Nano can hold a 12B
-model, so that lever is gone on *both* the current and the eventual hardware.
-The consequence is not small: **prompt design and eval discipline become the
-primary hallucination defence, not model capacity.** The four structural
-defences in ARCHITECTURE.md (single-instant framing, `unclear` as a valid
-answer, `risk` requires visible evidence, closed risk enumeration) move from
-"second line" to "first line", and the M1 hallucination gate matters more, not
-less.
+**12B 的抗幻覺論點撐不過 Nano。** ADR-0001 承重的主張是:從 2B 換到 12B 是對抗 VLM
+幻覺最有效的單一防線。但無論手機或 Jetson Nano 都容不下 12B 模型,所以在*現有*與
+*最終*的硬體上,那根槓桿都不見了。其後果並不小:**提示詞設計與評測紀律成為抗幻覺的
+首要防線,而非模型容量。** ARCHITECTURE.md 中的四道結構性防線(單一瞬間框限、把
+`unclear` 視為有效答案、`risk` 必須有可見證據、封閉式風險列舉)從「第二道防線」升格為
+「第一道防線」,M1 的幻覺閘門也更加重要,而非更不重要。
 
-**Single node is the fastest path to a first result, and the pivot is honest
-about what it costs.** Collapsing to one device means ADR-0003's *structural*
-frame-isolation boundary cannot exist yet: when one process both holds frames
-and answers queries, "frames cannot leave" downgrades from a guarantee to a
-policy. This is a genuine regression in the privacy model and is recorded as
-such — it is a deliberate, temporary trade for development speed, to be undone
-when a second node exists. See Consequences.
+**單節點是取得第一個成果的最快路徑,而這次轉向對其代價是誠實的。** 收攏到單一裝置意味
+著 ADR-0003 的*結構性*影格隔離邊界目前無法存在:當同一個行程既持有影格又回應查詢,
+「影格無法離開」就從一項保證降級為一項政策。這在隱私模型上是實質的退步,並如實記錄在
+此——它是為了開發速度而做的、刻意且暫時的取捨,待第二個節點存在時就要撤銷。參見「後果」。
 
-**Bundled Gemma over Gemini Nano (AICore).** Bundling a `.litertlm` keeps full
-control of the model, quantisation and prompt, which the eval discipline
-depends on, and keeps the artifact portable to the Jetson later. AICore's
-system-managed model is attractive operationally but constrains us to what it
-exposes and to variable on-device multimodal support — the wrong constraints for
-a project whose core risk is caption quality.
+**選擇綑綁 Gemma 而非 Gemini Nano(AICore)。** 綑綁一個 `.litertlm` 能保有對模型、
+量化與提示詞的完整掌控,這正是評測紀律所仰賴的,同時讓產物日後可攜到 Jetson。AICore
+由系統管理的模型在維運上很吸引人,但會把我們限制在它所暴露的功能,以及變動不定的裝置端
+多模態支援上——對於一個核心風險就是影像描述品質的專案而言,這些都是錯誤的約束。
 
-## Consequences
+## 後果
 
-- **Frame isolation is policy, not structure, during the phone era.** The README
-  and PRIVACY.md must say so plainly rather than implying the ADR-0003 guarantee
-  is in force. The "we cannot return frames" claim returns only with a second
-  node.
-- **M0 changes shape.** Backends become on-device LiteRT-LM (and optionally a
-  MediaPipe LLM Inference shim), not Jetson's llama.cpp / TensorRT-LLM. Thermal
-  and power sampling moves from `tegrastats` to an Android sampler
-  (`bench/phone_monitor.py`). The HTTP harness itself is unchanged — it talks to
-  `127.0.0.1:<port>` over `adb forward`.
-- **Model size is now a hard ceiling on both platforms.** Plan for E2B/E4B
-  quality for the foreseeable future; do not design anything that only works if a
-  12B model appears.
-- **Thermal and battery, not fan noise, are the sustainability limits.** A phone
-  running continuous inference will throttle and drain. The 7-day continuous-run
-  target (M6) is harder on a phone than it would have been on an AGX Orin; it may
-  need a mains-powered, actively-cooled phone rig, or it waits for the Jetson.
-- **AppFunctions (M4) gets simpler, not harder.** With a single node the store
-  and the provider are co-resident; there is no LAN pairing to build yet. The
-  mTLS gRPC work from ADR-0003 is deferred with the topology.
-- **The domain model, schema, pyramid and eval harness are untouched.** The
-  pivot is a platform and topology decision; nothing above L0 changes.
+- **在手機階段,影格隔離是政策,而非結構。** README 與 PRIVACY.md 必須明白這樣寫,而不是
+  暗示 ADR-0003 的保證仍然生效。「我們無法回傳影格」這項主張,唯有在第二個節點出現時才
+  會回歸。
+- **M0 的形貌改變。** 後端改為裝置端的 LiteRT-LM(以及選擇性的一個 MediaPipe LLM
+  Inference 墊片),而非 Jetson 的 llama.cpp / TensorRT-LLM。熱與功耗取樣從 `tegrastats`
+  改為一個 Android 取樣器(`bench/phone_monitor.py`)。HTTP 測試框架本身不變——它透過
+  `adb forward` 對 `127.0.0.1:<port>` 通訊。
+- **模型大小現在是兩個平台上的硬上限。** 在可預見的未來都以 E2B/E4B 的品質來規劃;不要
+  設計任何唯有出現 12B 模型才成立的東西。
+- **熱與電池,而非風扇噪音,才是永續運行的限制。** 一支持續推論的手機會熱節流並耗盡電量。
+  7 天連續運行的目標(M6)在手機上比在 AGX Orin 上更難達成;它可能需要一套市電供電、
+  主動散熱的手機裝置,否則就得等 Jetson。
+- **AppFunctions(M4)變得更簡單,而非更難。** 在單節點下,儲存與提供者共同駐留;目前
+  還沒有區域網路配對要建。ADR-0003 的 mTLS gRPC 工作隨拓撲一併延後。
+- **領域模型、schema、金字塔與評測框架維持不動。** 這次轉向是平台與拓撲的決策;L0 以上
+  的一切都不變。
 
-## Revisit criteria
+## 重新檢視條件
 
-Reopen this decision when a Jetson (any model) is physically available. At that
-point: re-run M0 on it, decide whether it becomes the sensor node with the phone
-demoted to query surface (restoring ADR-0003), and record the outcome as a new
-ADR that supersedes this one.
+當任何一款 Jetson(不論型號)實體到位時,重新開啟本決策。屆時:在其上重跑 M0,決定它是否
+成為感測節點、而手機降級為查詢介面(恢復 ADR-0003),並將結果記錄為一份取代本決策的新 ADR。

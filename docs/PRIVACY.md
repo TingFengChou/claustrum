@@ -1,65 +1,65 @@
-# Privacy and compliance
+# 隱私與合規
 
-This is a design constraints document, not a disclaimer. If you are about to point a camera at your family, read it.
+這是一份設計約束文件,不是免責聲明。如果你正打算把攝影機對準自己的家人,請讀它。
 
-## Design commitments
+## 設計承諾
 
-These are enforced structurally where possible, by policy where not.
+這些承諾在可能之處以結構性方式強制執行,無法做到之處則以政策約束。
 
-| Commitment | Enforcement |
+| 承諾 | 執行方式 |
 |---|---|
-| Video frames never leave the device | **Phone era: policy** (single node — one process holds frames and answers queries, so there is no structural boundary). **Two-node era: structural** — the query surface has no code path to frame storage. See [ADR-0004](adr/0004-phone-first-single-node.md). |
-| No face recognition, no identity attribution | **Structural** — `Actant` is a role slot; no identity field exists in the schema |
-| Frames encrypted at rest, deleted after 7 days | Policy — retention job, configurable |
-| Kineme text retained 90 days | Policy — configurable |
-| Cloud escalation off by default | Policy — per-instance consent required |
-| Camera has a physical cover and an in-app pause | Hardware + policy |
-| Pause state is visibly indicated | Persistent notification / LED |
+| 影片影格絕不離開裝置 | **手機時代:政策**(單節點 — 同一個行程持有影格並回答查詢,因此不存在結構性邊界)。**雙節點時代:結構性** — 查詢介面沒有任何通往影格儲存的程式碼路徑。見 [ADR-0004](adr/0004-phone-first-single-node.md)。 |
+| 不做臉部辨識、不做身分歸屬 | **結構性** — `Actant` 是一個角色槽位;schema 中根本不存在身分欄位 |
+| 影格靜態加密,7 天後刪除 | 政策 — 保留政策工作排程,可設定 |
+| Kineme 文字保留 90 天 | 政策 — 可設定 |
+| 雲端升級預設關閉 | 政策 — 需逐次同意授權 |
+| 攝影機具備實體遮蓋與 App 內暫停 | 硬體 + 政策 |
+| 暫停狀態有可見的指示 | 常駐通知 / LED |
 
-Bathrooms and bedrooms are out of scope by default. If deployed there at all, only in text-only mode with no frame retention.
+浴室與臥室預設不在範圍內。若真要部署於此,也僅限純文字模式且不保留任何影格。
 
-## The AppFunctions problem
+## AppFunctions 的難題
 
-This is the sharpest tension in the project and it deserves to be stated plainly.
+這是本專案中最尖銳的張力,值得被直白地說清楚。
 
-Android's AppFunctions documentation notes that **system agents may process user queries on the server** in order to use larger models. So when the household query surface is exposed to Gemini:
+Android 的 AppFunctions 文件指出,**系統 agent 為了使用更大的模型,可能會在伺服器上處理使用者查詢**。因此,當家庭端的查詢介面被開放給 Gemini 時:
 
-- Video frames stay on device ✓
-- **The user's question and the returned kineme text may leave the device** ✗
+- 影片影格留在裝置上 ✓
+- **使用者的問題與回傳的 Kineme 文字可能離開裝置** ✗
 
-Structured text about household activity is, in some respects, a worse exposure than video: it is searchable, comparable, and cheap to retain indefinitely.
+關於家庭活動的結構化文字,在某些方面比影片更糟糕的暴露:它可被搜尋、可被比對,而且要無限期保留的成本極低。
 
-### Consequence: tiered exposure, default closed
+### 後果:分層暴露,預設關閉
 
-| Tier | Tools exposed | Payload | Default |
+| 層級 | 暴露的工具 | 酬載(Payload) | 預設 |
 |---|---|---|---|
-| **T0** | none | — | ✅ default |
-| T1 | `getHomeStatus` | very coarse — "someone home / nobody home", "no anomalies today" | opt-in |
-| T2 | `queryKinemes`, `getEthogram` | kineme text, timestamps | opt-in, with explicit warning |
-| T3 | frame URIs | images | ❌ never exposed externally |
+| **T0** | 無 | — | ✅ 預設 |
+| T1 | `getHomeStatus` | 極為粗略 —「有人在家 / 沒人在家」、「今天無異常」 | 選擇加入(opt-in) |
+| T2 | `queryKinemes`、`getEthogram` | Kineme 文字、時間戳記 | 選擇加入,並附明確警告 |
+| T3 | 影格 URI | 影像 | ❌ 絕不對外暴露 |
 
-Implemented per-function with `AppFunctionManager.setAppFunctionEnabled()`. Each function has its own ID and can be toggled independently.
+以 `AppFunctionManager.setAppFunctionEnabled()` 逐一函式實作。每個函式都有自己的 ID,可獨立切換。
 
-### Required, not optional
+### 必備,而非可選
 
-Three things ship *with* the AppFunctions provider, never after it:
+有三件事會**隨著** AppFunctions provider 一同出貨,絕不在它之後才補上:
 
-1. **Tiered consent UI** with the server-processing warning in plain language, on the settings screen — not buried in a policy document.
-2. **Caller allowlist.** Reject any calling package that is not expected. Log rejections.
-3. **User-visible audit log.** A screen showing who queried what, and when.
+1. **分層同意授權 UI**,在設定畫面上以白話文載明伺服器處理的警告 — 而不是埋在一份政策文件裡。
+2. **呼叫端允許清單(allowlist)。**拒絕任何非預期的呼叫封包。記錄被拒的紀錄。
+3. **對使用者可見的稽核紀錄。**一個顯示「誰在何時查詢了什麼」的畫面。
 
-The audit log is the only thing that makes the toggle trustworthy. And all three must exist before the feature is usable, because once the household starts depending on it, the will to retrofit restrictions evaporates.
+稽核紀錄是唯一讓那個切換開關值得信任的東西。而這三者都必須在功能可用之前就存在,因為一旦家庭開始依賴它,事後補上限制的意願就會蒸發殆盡。
 
-## Legal (Taiwan)
+## 法律(台灣)
 
-Not legal advice. Consult a lawyer before anything beyond personal use.
+非法律意見。在超出個人使用的任何用途之前,請諮詢律師。
 
-- **個人資料保護法 (PDPA):** purely domestic personal use has room for exemption, but the moment a visitor is captured, or the system is offered to anyone else, it falls within scope.
-- **Informed consent** from every co-resident, obtained in advance. For minors, from a guardian.
-- Any commercial or internal-product use requires legal review first. Semantic summaries of household activity processed via a cloud agent are not within the domestic-use exemption.
+- **個人資料保護法 (PDPA):**純屬家庭內的個人使用有豁免的空間,但只要一位訪客被拍到、或這套系統被提供給任何其他人,它就落入了適用範圍。
+- **知情同意**須事先取得自每一位共同居住者。若涉及未成年人,則須取得自監護人。
+- 任何商業或內部產品用途,都須先經法律審查。透過雲端 agent 處理的家庭活動語意摘要,不在家庭使用豁免的範圍內。
 
-## Not a medical device
+## 不是醫療器材
 
-Fall detection will miss events. Hazard detection will produce false positives. This system must not be anyone's sole safety net, and must not be presented as care provision.
+跌倒偵測會漏掉事件。危害偵測會產生誤報。這套系統絕不該是任何人唯一的安全網,也絕不該被當作照護服務來呈現。
 
-This statement belongs at the top of the README, not the bottom of a document. It is in both places on purpose.
+這段聲明該放在 README 的最上方,而不是一份文件的最下方。它被刻意放在兩處。

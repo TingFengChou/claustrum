@@ -1,50 +1,41 @@
-# M0 — backend benchmark
+# M0 — 後端基準測試
 
-**Run this before writing anything else.** The p95 single-call latency of the L1
-caption stage determines the L0 keyframe budget, whether a two-model tier is
-needed, and the ceiling on realtime alerting. Every architectural decision
-downstream is a guess until these numbers exist.
+**在動手寫任何其他東西之前,先跑這個。** L1 影像描述階段的單次呼叫 p95 延遲,決定了 L0 的關鍵影格預算、是否需要雙模型分層,以及即時警示的上限。在這些數字出現之前,下游的每一個架構決策都只是猜測。
 
-**Phone-first (ADR-0004).** The model runs on the Pixel 10; this harness runs on
-your laptop and reaches it over `adb forward`. It samples the phone's thermal,
-power and memory state over adb (`phone_monitor.py`). The `--monitor tegra` path
-is kept for the eventual Jetson.
+**手機優先(ADR-0004)。** 模型跑在 Pixel 10 上;這套測試工具跑在你的筆電上,透過 `adb forward` 連到手機。它會透過 adb(`phone_monitor.py`)取樣手機的溫度、功耗與記憶體狀態。`--monitor tegra` 這條路徑保留給日後的 Jetson 使用。
 
 ```bash
 adb devices                        # confirm the Pixel 10 is attached
 adb forward tcp:8081 tcp:8081      # once per served port
 ```
 
-## What it measures
+## 測量哪些項目
 
-| Metric | Why |
+| 指標 | 原因 |
 |---|---|
-| Latency p50 / p95 | Sets the keyframe budget |
-| Time to first token | Relevant if streaming partial captions is ever wanted |
-| Cold start | A service that restarts pays this repeatedly |
-| Peak RAM | Phone RAM is shared between the model, the camera pipeline and the OS |
-| Peak temp + **temp drift** | Drift across a run predicts whether a long run throttles |
-| Mean power | Continuous inference drains the battery; sets the sustainability limit |
-| JSON parse rate | Below ~98 % is a prompt problem, not a backend problem |
+| 延遲 p50 / p95 | 決定關鍵影格預算 |
+| 首個 token 時間 | 若未來想串流部分影像描述,這項才有意義 |
+| 冷啟動 | 會重啟的服務要一再付出這個代價 |
+| 記憶體峰值 | 手機記憶體由模型、相機管線與作業系統共用 |
+| 溫度峰值 + **溫度漂移** | 一次執行過程中的漂移可預測長時間執行是否會熱節流 |
+| 平均功耗 | 持續推論會耗盡電池;決定可持續運作的上限 |
+| JSON 解析成功率 | 低於約 98 % 是提示詞的問題,不是後端的問題 |
 
-## Building the fixture set
+## 建立樣本集
 
-Put 20–40 frames in `bench/frames/`, named so they sort chronologically
-(`0001.jpg`, `0002.jpg`, ...). Cover the cases that matter:
+在 `bench/frames/` 放入 20–40 張影格,命名方式須能依時間順序排序(`0001.jpg`、`0002.jpg`、……)。涵蓋真正重要的情境:
 
-- ordinary activity — someone walking through, sitting, eating
-- **deliberate lying down / sitting** — the false-positive case that must be
-  distinguished from a fall
-- a staged fall, captured before / during / after
-- an empty room
-- poor lighting, and near-darkness
-- a pet doing something
-- an ambiguous frame where "unclear" is the correct answer
+- 日常活動 — 有人走過、坐著、進食
+- **刻意躺下 / 坐下** — 必須與跌倒區分開來的偽陽性案例
+- 一次演練的跌倒,拍下之前 / 過程中 / 之後
+- 空房間
+- 光線不佳,以及接近全黑
+- 寵物在做某件事
+- 一張模稜兩可、正確答案就是「不清楚」的影格
 
-That last category is the one people skip. Without it there is no way to tell
-whether the model knows how to decline.
+最後一類正是大家會略過的。少了它,就無從得知模型是否懂得拒答。
 
-## Running it
+## 執行方式
 
 ```bash
 pip install -r bench/requirements.txt
@@ -61,22 +52,16 @@ python bench/run_bench.py --backend gemma-e4b --grid 1x1
 python bench/run_bench.py --backend gemma-e4b --grid 2x2
 ```
 
-## The grid experiment
+## 網格實驗
 
-Gemma 4's variable-aspect-ratio vision handling means several frames composited
-into one image may still be legible as a temporal sequence. If a `2x2` call costs
-less than twice a `1x1` call, the effective VLM call budget stretches by up to
-four times, and the entire power and latency envelope changes.
+Gemma 4 對可變長寬比的視覺處理能力,意味著把數張影格拼成一張影像後,仍可能被讀成一段時間序列。若一次 `2x2` 呼叫的成本低於兩次 `1x1` 呼叫,實際可用的 VLM 呼叫預算最多可延展到四倍,整個功耗與延遲的範圍都會隨之改變。
 
-Run both and compare. This is the highest-leverage single experiment in M0.
+兩種都跑一次並比較。這是 M0 中單一槓桿最大的實驗。
 
-## After the run
+## 執行之後
 
-Reports land in `eval/reports/`. Then, by hand:
+報告會產生在 `eval/reports/`。接著,手動進行:
 
-1. Open the JSON, score each retained sample: `manual_score` 1–5 for caption
-   usefulness, `hallucinated` true/false.
-2. Hallucination rate is the number that decides whether the project is viable.
-   Anything above ~5 % means the safety alerting path cannot be trusted and the
-   prompt or model needs work before M1 proceeds.
-3. Record the chosen backend and keyframe budget as an ADR.
+1. 打開 JSON,替每個保留下來的樣本評分:`manual_score` 針對影像描述的實用性給 1–5 分,`hallucinated` 給 true/false。
+2. 幻覺率是決定專案是否可行的那個數字。任何高於約 5 % 的數值,都代表安全警示路徑無法信任,必須在 M1 進行之前改進提示詞或模型。
+3. 將選定的後端與關鍵影格預算記錄成一份 ADR。

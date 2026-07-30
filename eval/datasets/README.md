@@ -1,4 +1,3 @@
-Datasets are not committed. This directory is gitignored.
+資料集不會提交到儲存庫。此目錄已設為 gitignore。
 
-Store household recordings encrypted, retain only as long as needed for the
-current evaluation, and document consent. See docs/PRIVACY.md.
+家庭錄影請加密儲存,僅保留當前評估所需的時間長度,並記錄同意授權。請參閱 docs/PRIVACY.md。
