@@ -1,22 +1,22 @@
-# Architecture
+# 架構
 
-## The one design decision that matters
+## 唯一真正重要的設計決策
 
-On-device VLMs consume **images**, not video streams. Feeding 30 fps to a VLM is not a tuning problem; it is arithmetic that never closes. Every other decision in this project follows from how aggressively the temporal axis is compressed before inference.
+裝置端的 VLM 吃的是**影像**,而不是影片串流。把 30 fps 直接餵給 VLM 不是調參問題,而是一道永遠算不平的算術。本專案其餘每一個決策,都源自於在推論之前,時間軸被壓縮得多麼激進。
 
-## Layers
+## 分層
 
-### L0 — Gating
+### L0 — 閘控(Gating)
 
-Cheap, always-on, millisecond-scale. Decides which instants deserve an expensive call.
+成本低、永遠開著、毫秒級。決定哪些瞬間值得付出昂貴的一次呼叫。
 
-Signals:
-- Frame differencing — is anything moving at all
-- Object detection — person / animal / relevant object present
-- Pose landmarks — skeletal keypoints, feeding both gating and L2's fast path
-- Frame embedding — cosine similarity against the last captioned frame
+訊號:
+- 影格差分(Frame differencing)— 到底有沒有任何東西在動
+- 物件偵測(Object detection)— 是否有人 / 動物 / 相關物件出現
+- 姿態關鍵點(Pose landmarks)— 骨架關鍵點,同時餵給閘控與 L2 的快速路徑
+- 影格嵌入(Frame embedding)— 與上一張已描述影格的餘弦相似度
 
-Policy:
+策略:
 
 ```
 if no motion and last kineme < 15 min ago:        skip, record "quiet"
@@ -26,31 +26,28 @@ elif pose matches hazard pattern:                 → L2 fast path, highest prio
 else:                                             → L1 caption
 ```
 
-The similarity check exists because a person sitting still watching television for twenty minutes must not produce twenty identical kinemes. Without it, L3 summaries drown in restatements of nothing.
+相似度檢查之所以存在,是因為一個人靜靜坐著看電視二十分鐘,不該產生二十個一模一樣的 Kineme。少了它,L3 的摘要會被一堆「什麼都沒發生」的重述給淹沒。
 
-Target: 0.05–0.5 keyframes per second — 60× to 600× compression.
+目標:每秒 0.05–0.5 個關鍵影格 — 60 倍到 600 倍的壓縮。
 
-### L1 — Caption
+### L1 — 影像描述(Caption)
 
-Gemma E2B / E4B on the phone (LiteRT-LM), resident in memory, one call per selected keyframe (or per 2×4 temporal grid — see the M0 spike). The 12B model assumed in ADR-0001 does not fit a phone or a Jetson Nano; see [ADR-0004](adr/0004-phone-first-single-node.md).
+手機上的 Gemma E2B / E4B(LiteRT-LM),常駐記憶體,每個被選中的關鍵影格呼叫一次(或每個 2×4 時間網格一次 — 見 M0 spike)。ADR-0001 假設的 12B 模型塞不進手機,也塞不進 Jetson Nano;見 [ADR-0004](adr/0004-phone-first-single-node.md)。
 
-Input: keyframe(s) + a one-line summary of the previous kineme, for continuity.
-Output: a structured `Kineme` conforming to [`schemas/kineme.schema.json`](../schemas/kineme.schema.json).
+輸入:關鍵影格 + 前一個 Kineme 的一行摘要,用以維持連續性。
+輸出:一個符合 [`schemas/kineme.schema.json`](../schemas/kineme.schema.json) 的結構化 `Kineme`。
 
-The model reports `confidence` but **not** `novelty`. Novelty is a property of a
-kineme relative to its neighbours, which a model shown a single instant cannot
-compute; the pipeline fills it from the L0 frame-embedding distance. Anything
-requiring comparison across kinemes is the pipeline's job, not the model's.
+模型會回報 `confidence`,但**不會**回報 `novelty`。novelty 是一個 Kineme 相對於其鄰居的性質,而只看到單一瞬間的模型無從計算;這個值由管線根據 L0 的影格嵌入距離填入。任何需要跨 Kineme 比較的工作,都是管線的職責,不是模型的。
 
-Model choice is a hallucination-control decision, not a performance one. See ADR-0001.
+模型選擇是抗幻覺(hallucination-control)的決策,不是效能決策。見 ADR-0001。
 
-### L2 — Alerting
+### L2 — 警示(Alerting)
 
-**Split into two paths, deliberately.**
+**刻意拆成兩條路徑。**
 
-A VLM call takes seconds. As the sole judge of a fall, that latency is unacceptable. A pose heuristic responds in milliseconds but fires on sitting down, bending to pick something up, and lying on a sofa — its false positive rate makes it unusable alone.
+一次 VLM 呼叫要花上數秒。若讓它獨自判定一次跌倒,這樣的延遲無法接受。姿態啟發式(pose heuristic)可以在毫秒內回應,但只要有人坐下、彎腰撿東西、躺在沙發上,它都會誤觸發 — 它的誤報率高到單獨使用毫無用處。
 
-So:
+所以:
 
 ```
 L0 pose heuristic detects candidate
@@ -65,23 +62,23 @@ L0 pose heuristic detects candidate
               └── rejected   → record silently, do not notify the user
 ```
 
-**The heuristic owns recall. The VLM owns precision.** This is the project's principal technical contribution and the main thing distinguishing it from off-the-shelf AI cameras.
+**啟發式(heuristic)負責召回率(recall),VLM 負責精確率(precision)。**這是本專案主要的技術貢獻,也是它與現成 AI 攝影機最大的區別所在。
 
-Suppression rules on top: deduplicate within a window, rate-limit per category, and require a cooldown after a rejected candidate in the same location.
+上層再疊加抑制(suppression)規則:在一個時間窗內去重、依類別做速率限制、並要求在同一地點出現一次被否決的候選之後有一段冷卻期。
 
-### L3 — Summarize
+### L3 — 摘要(Summarize)
 
-Text-only LLM, run in batches during idle periods. Hierarchical: kinemes → 15-minute windows → hours → a daily `Ethogram`.
+純文字 LLM,在閒置期間以批次執行。階層式:Kineme → 15 分鐘窗格 → 小時 → 每日的 `Ethogram`。
 
-Kinemes are weighted for inclusion by `novelty` and `confidence`. Anomalies are detected by comparison against the subject's **own** history over the preceding fortnight, not against absolute rules. This is a cheap way to move the system from "rule-based alarm" to "observer with memory".
+Kineme 依 `novelty` 與 `confidence` 加權,決定是否納入。異常(Anomaly)是透過與觀察對象**自身**前兩週的歷史比較來偵測,而不是對照絕對規則。這是一種低成本的做法,能把系統從「基於規則的警報器」推進到「有記憶的觀察者」。
 
-### L4 — Query
+### L4 — 查詢(Query)
 
-Kinemes and their embeddings in SQLite on NVMe. Natural-language retrieval over the event log, returning text and timestamps.
+Kineme 及其嵌入存放在 NVMe 上的 SQLite。以自然語言檢索事件日誌,回傳文字與時間戳記。
 
-## Domain types
+## 領域型別(Domain types)
 
-Defined once in [`core/domain.py`](../core/domain.py), mirrored by JSON Schema in [`schemas/`](../schemas/).
+在 [`core/domain.py`](../core/domain.py) 中定義一次,並由 [`schemas/`](../schemas/) 中的 JSON Schema 對應。
 
 ```
 Actant    a participant — role slot, never an identity
@@ -89,33 +86,28 @@ Kineme    one observed behaviour, one time span
 Ethogram  a catalogue of kinemes over a period
 ```
 
-Schema and dataclass drifting apart is the most common invisible bug in this kind of pipeline. CI validates both directions.
+Schema 與 dataclass 逐漸分歧,是這類管線中最常見的隱形 bug。CI 會雙向驗證兩者。
 
-## Anti-hallucination
+## 抗幻覺(Anti-hallucination)
 
-A small model shown a single static frame will invent causal narrative — "he fell and then got up to fetch his medicine", from one photograph. For a safety alerting system this is not a quality issue, it is a correctness failure.
+一個看到單一靜態影格的小模型,會自行編造因果敘事 —「他跌倒了,然後爬起來去拿藥」,單憑一張照片。對一個安全警示系統而言,這不是品質問題,而是正確性的失敗。
 
-Model capacity used to be the first-line defence — ADR-0001 leaned on 12B for
-exactly this. On a phone (and on the eventual Jetson Nano) that lever is gone: an
-E2B/E4B model confabulates *more* than a 12B one, not less. So the structural and
-prompt-level defences carry the load, and they are now the first line, not the
-second — see [ADR-0004](adr/0004-phone-first-single-node.md).
+模型容量過去是第一線防線 — ADR-0001 正是為此仰賴 12B。在手機上(以及最終的 Jetson Nano 上)這個槓桿已不復存在:E2B/E4B 模型的虛構比 12B 模型**更多**,而非更少。因此結構性與提示層級的防禦扛起了重擔,而且它們如今是第一線,不再是第二線 — 見 [ADR-0004](adr/0004-phone-first-single-node.md)。
 
-Defences, in order of effectiveness on a small model:
+各項防禦,依其在小模型上的有效程度排序:
 
-1. **Explicit single-instant framing.** The prompt states that the model is seeing one moment and must not infer off-frame events.
-2. **`unclear` is a valid answer.** Give the model an exit that is not fabrication.
-3. **`risk` requires evidence of occurrence.** "Could be dangerous" does not qualify. Without this, a knife resting on a counter is reported as a child hazard.
-4. **Closed risk enumeration.** A fixed `RiskCategory` set stops the model inventing categories the L2 rules will silently never match.
+1. **明確的單一瞬間框定。**提示明白告知模型它只看到一個瞬間,不得推論畫面外的事件。
+2. **`unclear` 是有效答案。**給模型一個不是靠捏造的出口。
+3. **`risk` 必須有事件實際發生的證據。**「可能有危險」不算數。少了這一條,一把擱在流理台上的刀會被回報成孩童的危害。
+4. **封閉的風險列舉。**固定的 `RiskCategory` 集合,能阻止模型發明出 L2 規則將永遠默默無法匹配的類別。
 
-Because the model is small, the M1 hallucination gate is more load-bearing, not
-less. Treat a regression there as a release blocker.
+正因為模型很小,M1 的幻覺閘門更為吃重,而非更輕。把那裡的退步視為發布的阻擋項(release blocker)。
 
-Hallucination rate is a tracked regression metric, not an aspiration. See [`eval/`](../eval/).
+幻覺率是一項被追蹤的退步指標,不是一個口號式的期望。見 [`eval/`](../eval/)。
 
-## Cloud escalation
+## 雲端升級(Cloud escalation)
 
-Default: fully offline. One optional path exists:
+預設:完全離線。存在一條可選路徑:
 
 ```
 L1 confidence < 0.5 and risk != none
@@ -126,25 +118,25 @@ L1 confidence < 0.5 and risk != none
            precise spatial reasoning, pointing, multi-view success detection
 ```
 
-Constraints: user-visible, disabled by default, single de-identified frame only, never video.
+限制:對使用者可見、預設關閉、僅單一張去識別化影格、絕不上傳影片。
 
-## Robot extension
+## 機器人延伸
 
-The home deployment is the first vertical. The durable assets are L1 perception and L4 semantic memory.
+家庭部署是第一個垂直領域。可長期沿用的資產是 L1 感知與 L4 語意記憶。
 
-| Home | Robot |
+| 家庭 | 機器人 |
 |---|---|
-| L0 gating | Perception resource scheduling |
-| L1 Kineme | Semantic annotation stream of the environment |
-| L2 alerting | Safety supervision layer |
-| L3 Ethogram | Long-term site memory — what this space normally looks like |
-| L4 query | "Where did I last see the cart?" |
+| L0 閘控 | 感知資源排程 |
+| L1 Kineme | 環境的語意標註串流 |
+| L2 警示 | 安全監督層 |
+| L3 Ethogram | 長期場域記憶 — 這個空間平常長什麼樣子 |
+| L4 查詢 |「我上次是在哪裡看到那台推車的?」|
 
-Integration order: MCP server first (lowest cost, highest reuse — any agent can query), then ROS 2 node, then spatial anchoring. Attaching odometry and map coordinates to kinemes turns the event log into a semantic map, which is the point at which this becomes site understanding rather than camera subtitles.
+整合順序:先做 MCP server(成本最低、重用度最高 — 任何 agent 都能查詢),接著是 ROS 2 節點,再來是空間錨定(spatial anchoring)。把里程計與地圖座標附加到 Kineme 上,能把事件日誌變成一張語意地圖,而正是在那一刻,這套系統才從「攝影機字幕」變成對場域的理解。
 
-## Tool contract layer
+## 工具合約層(Tool contract layer)
 
-AppFunctions and the network MCP server are two transports over one contract:
+AppFunctions 與網路 MCP server 是同一份合約之上的兩種傳輸方式:
 
 ```
 core/tools/           single definition and implementation
@@ -156,4 +148,4 @@ bridge/appfunctions/   bridge/mcp/
 (Android, on-device)   (network — robots, desktop agents)
 ```
 
-Robots generally run Linux rather than Android, so they use the network MCP path. AppFunctions earns its place through the household user experience — asking a phone assistant about the house directly.
+機器人通常跑 Linux 而非 Android,因此走網路 MCP 路徑。AppFunctions 則靠家庭端的使用者體驗贏得一席之地 — 直接向手機助理詢問家裡的狀況。

@@ -1,6 +1,5 @@
-Drop benchmark frames here, named to sort chronologically (0001.jpg, 0002.jpg, ...).
+將基準測試影格放在這裡,命名方式須能依時間順序排序(0001.jpg、0002.jpg、……)。
 
-See ../README.md for which cases the fixture set must cover.
+樣本集必須涵蓋哪些情境,請參閱 ../README.md。
 
-Frames of real people are not committed to this repository. Keep this directory
-gitignored except for this file.
+真實人物的影格不會提交到這個儲存庫。請將此目錄設為 gitignore,僅保留本檔案。

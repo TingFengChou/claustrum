@@ -1,36 +1,33 @@
 # <module> — System Design (SD)
 
-**Status:** draft | active | stable · **Last updated:** YYYY-MM-DD · **Owner:** <name>
-**Implements:** [`SA.md`](SA.md)
+**狀態:** draft | active | stable · **最後更新:** YYYY-MM-DD · **負責人:** <name>
+**實作:** [`SA.md`](SA.md)
 
-## 1. Overview
+## 1. 概觀
 
-How the module is built, in brief. The one design idea that matters most.
+模組如何建構,簡述之。那個最重要的單一設計想法。
 
-## 2. Components and responsibilities
+## 2. 元件與職責
 
-Each internal component/class/file and what it is responsible for. A component
-diagram if it helps:
+每個內部元件/類別/檔案,以及它負責什麼。有幫助的話附上一張元件圖:
 
 ```mermaid
 flowchart LR
   A[Component A] --> B[Component B]
 ```
 
-## 3. Interfaces and contracts
+## 3. 介面與合約
 
-Public functions, types, schemas, and endpoints the module exposes or depends on.
-Keep dependencies behind interfaces so they can be faked in tests (testability is
-a project rule).
+模組對外提供或所相依的公開函式、型別、schema 與端點。將相依項置於介面之後,以便在測試中
+被替身取代(可測試性是專案規則)。
 
-## 4. Data structures
+## 4. 資料結構
 
-Key types, schemas, and storage. Reference `core/domain.py` and `schemas/` rather
-than duplicating them.
+關鍵型別、schema 與儲存。引用 `core/domain.py` 與 `schemas/`,而不是複製它們。
 
-## 5. Key flows
+## 5. 關鍵流程
 
-The important sequences, with diagrams:
+重要的序列,附圖:
 
 ```mermaid
 sequenceDiagram
@@ -40,22 +37,22 @@ sequenceDiagram
   Y-->>X: response
 ```
 
-## 6. Error handling and failure modes
+## 6. 錯誤處理與失效模式
 
-What can fail, how it is detected, and what the module does about it (degrade,
-retry, record, alert). For the pipeline: what happens to a kineme on failure.
+什麼會失敗、如何偵測,以及模組對此做什麼(降級、重試、記錄、警示)。就 pipeline 而言:
+kineme 在失敗時會發生什麼。
 
-## 7. Dependencies
+## 7. 相依性
 
-Internal and external dependencies, and why each is needed.
+內部與外部相依項,以及每一項為何需要。
 
-## 8. Testing strategy  *(required)*
+## 8. 測試策略  *(必要)*
 
-- What is unit-tested, and with what fakes/fixtures (no hardware in unit tests).
-- What needs integration or on-device testing, and how.
-- How the acceptance criteria in SA map to tests.
-- Which metrics/regressions CI guards.
+- 哪些做單元測試,以及用什麼替身/樣本(單元測試中不含硬體)。
+- 哪些需要整合或裝置端測試,以及如何進行。
+- SA 中的驗收標準如何對應到測試。
+- CI 守衛哪些指標/回歸。
 
-## Traceability
+## 追溯
 
-Requirements from `SA.md` this design satisfies (FR-*, NFR-*), and related ADRs.
+本設計所滿足的 `SA.md` 需求(FR-*、NFR-*),以及相關的 ADR。

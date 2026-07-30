@@ -1,49 +1,49 @@
-# ADR-0002 — Naming and domain language
+# ADR-0002 — 命名與領域語言
 
-**Status:** accepted · **Date:** 2026-07-30
+**狀態:** 已接受 · **日期:** 2026-07-30
 
-## Context
+## 背景
 
-The project needs a name that survives its own scope. The near-term deliverable is behaviour perception from video; the stated long-term goal is a complete embodied cognition stack — ASR, TTS, VLM, LLM — for a robot.
+本專案需要一個能承受自身範疇變化的名字。近期的交付目標是從影像進行行為感知;而所陳述的長期目標,是為機器人打造一套完整的具身認知堆疊——ASR、TTS、VLM、LLM。
 
-A name chosen for what a project will become in two years is usually wrong for what it is now. A name chosen only for what it is now has to be abandoned later.
+依「兩年後會變成什麼」來取的名字,通常不適合「現在是什麼」;只依「現在是什麼」來取的名字,日後又必須被拋棄。
 
-## Decision
+## 決策
 
-**Two-layer naming.**
+**兩層式命名。**
 
-- `claustrum` — the umbrella. The structure Crick and Koch proposed as the binder of separate sensory modalities into unified experience; they likened it to an orchestra conductor. Its function *is* multimodal binding, which is what the umbrella does.
-- `ethogram` — the behaviour perception module, and the current focus. In ethology, an ethogram is a formal catalogue of a species' discrete behaviours, compiled through systematic observation. It is the literal name of this system's output artifact.
+- `claustrum`——總括層(umbrella)。這是 Crick 與 Koch 提出、用以將各自獨立的感覺模態綁定為統一經驗的結構;他們把它比喻為管弦樂團的指揮。它的功能*就是*多模態綁定,這正是總括層所做的事。
+- `ethogram`——行為感知模組,也是目前的焦點。在動物行為學(ethology)中,ethogram 是透過系統性觀察所彙編、關於某物種各項離散行為的正式目錄。它字面上就是本系統輸出產物的名稱。
 
-**Domain vocabulary**, used consistently in code, schemas and documentation:
+**領域詞彙**,在程式碼、schema 與文件中一致使用:
 
-| Term | Meaning | Origin |
+| 詞彙 | 意義 | 出處 |
 |---|---|---|
-| `Actant` | A scene participant. A role slot, not an identity. | Actor-network theory (Latour); structural semiotics (Greimas) |
-| `Kineme` | Smallest recorded unit of observed behaviour. | Kinesics (Birdwhistell) |
-| `Ethogram` | A catalogue of kinemes over a period. | Ethology |
+| `Actant` | 場景中的參與者。是一個角色槽位,而非身分。 | 行動者網絡理論(Latour);結構符號學(Greimas) |
+| `Kineme` | 所觀察行為中最小的記錄單位。 | 身體動作學 / Kinesics(Birdwhistell) |
+| `Ethogram` | 一段期間內眾多 kineme 的目錄。 | 動物行為學 |
 
-## Rationale
+## 理由
 
-The three terms come from three traditions but share one methodological commitment: **systematically record observed behaviour without asserting motive.** An ethologist writes "individual A approached B and vocalised", not "A wanted to greet B".
+這三個詞來自三種傳統,卻共享同一項方法論上的承諾:**系統性地記錄所觀察到的行為,而不斷言其動機。** 動物行為學家會寫「個體 A 靠近 B 並發出叫聲」,而不寫「A 想向 B 打招呼」。
 
-That is precisely this project's anti-hallucination discipline. The vocabulary therefore carries the design principle, which is cheaper than explaining it repeatedly.
+這恰恰就是本專案的抗幻覺紀律。因此這套詞彙本身就承載了設計原則,這比反覆解釋來得省事。
 
-Two specific alignments:
-- `Actant` as role-slot rather than person is the privacy design expressed as a type. Greimas's point is that narrative structure is analysable without knowing who anyone is — which is exactly what doing no face recognition forces, and gets for free.
-- `Ethogram` contains no reference to vision, camera or home, so extending to audio, radar, or robot site perception does not invalidate it.
+有兩處具體的對應:
+- 將 `Actant` 視為角色槽位而非某個人,是把隱私設計表達成一種型別。Greimas 的論點是:敘事結構無需知道任何人是誰即可分析——這正是「不做人臉辨識」所強制達成、且免費獲得的結果。
+- `Ethogram` 完全不涉及視覺、攝影機或居家,因此擴展到音訊、雷達或機器人現場感知時,並不會使它失效。
 
-## Alternatives rejected
+## 被否決的替代方案
 
-| Candidate | Reason |
+| 候選名稱 | 原因 |
 |---|---|
-| `saccade` | Excellent mechanism metaphor for L0 gating, but bound to ocular imagery — poor fit once audio and language are in scope. |
-| `actant` (as repo name) | Names an element of the input data, not the system. Also reads as an actor-model or agent framework in 2026 — a crowded, misleading semantic space. Retained as a type name. |
-| `theia`, `kairos`, `mnemosyne`, `tarsier`, `metis`, `nous` | Semantically apt but each collides with an established project (Eclipse Theia 21.6k★, Nous Research, etc.). |
-| `viscribe`, `sightlog` | Clean and discoverable, but vision-scoped. |
+| `saccade` | 對 L0 閘控而言是絕佳的機制隱喻,但綁定於眼球意象——一旦音訊與語言納入範疇便不合適。 |
+| `actant`(作為 repo 名稱) | 指的是輸入資料的一個元素,而非整個系統。在 2026 年也容易被讀成 actor-model 或 agent 框架——一個擁擠且易誤導的語意空間。保留作為型別名稱。 |
+| `theia`、`kairos`、`mnemosyne`、`tarsier`、`metis`、`nous` | 語意上都貼切,但各自都與既有專案撞名(Eclipse Theia 21.6k★、Nous Research 等)。 |
+| `viscribe`、`sightlog` | 乾淨且易被搜尋到,但範疇僅限於視覺。 |
 
-## Consequences
+## 後果
 
-- The name is undiscoverable by search. Mitigation: descriptive keywords carry in the repository description and topics, which GitHub indexes.
-- `claustrum` and `ethogram` both need pronouncing at least once for any new collaborator: CLAW-strum, ETH-o-gram.
-- Build `ethogram` now. Open the `claustrum` umbrella structure but leave sibling modules empty until a second modality is genuinely being integrated — at which point their shape will be better understood.
+- 這個名字無法透過搜尋被發現。緩解方式:讓描述性關鍵字承載在儲存庫的 description 與 topics 中,GitHub 會為其建立索引。
+- `claustrum` 與 `ethogram` 對任何新協作者都至少需要念一次發音:CLAW-strum、ETH-o-gram。
+- 現在先建 `ethogram`。開出 `claustrum` 的總括結構,但把同層的其他模組留空,直到第二個模態真的要整合時再說——屆時它們的形貌會更清楚。

@@ -1,41 +1,35 @@
-# Evaluation
+# 評估
 
-Most projects of this kind fail here, not at the model.
+這類專案多半失敗在這裡,而不是模型。
 
-## Datasets
+## 資料集
 
-| Source | Purpose | Note |
+| 來源 | 用途 | 備註 |
 |---|---|---|
-| Self-recorded household video, including staged falls **and deliberate lying down** | Primary | Written consent from everyone on camera |
-| UP-Fall Detection Dataset | Fall benchmark | Public, multi-view |
-| Charades / ActivityNet Captions | Everyday action caption quality | Public |
-| **72 hours of real, uneventful footage** | **False-alert rate** | The most important and most skipped |
+| 自行錄製的家庭影片,包含演練的跌倒**以及刻意躺下** | 主要 | 需取得所有入鏡者的書面同意 |
+| UP-Fall Detection Dataset | 跌倒基準 | 公開、多視角 |
+| Charades / ActivityNet Captions | 日常動作的影像描述品質 | 公開 |
+| **72 小時真實、平淡無事的影片** | **偽警示率** | 最重要、也最常被略過 |
 
-That last row is the one that decides the project. A system running twenty-four
-hours a day needs to be measured on how much it interrupts when nothing is
-happening. Start recording it now — it is the longest-lead asset here.
+最後一列正是決定專案成敗的那一項。一套一天二十四小時運作的系統,必須以「無事發生時它打斷你多少次」來衡量。現在就開始錄製 — 它是這裡前置時間最長的資產。
 
-## Metrics and targets
+## 指標與目標
 
-| Layer | Metric | M6 target |
+| 層級 | 指標 | M6 目標 |
 |---|---|---|
-| L0 | Keyframe compression / miss rate | > 100x, < 5 % of salient events missed |
-| L1 | Caption acceptability (LLM-as-judge + manual sample) | > 80 % |
-| L1 | **Hallucination rate** (describes something not in frame) | **< 5 %** |
-| L2 | Fall recall | > 90 % |
-| L2 | **False alerts per 24 h** | **< 1** |
-| L2 | End-to-end alert latency p95 | < 5 s |
-| L3 | Ethogram usefulness (manual, 1–5) | > 3.5 |
-| System | 7-day continuous run | No crash, no thermal throttle |
+| L0 | 關鍵影格壓縮率 / 漏失率 | > 100x,顯著事件漏失 < 5 % |
+| L1 | 影像描述可接受度(LLM-as-judge + 人工抽樣) | > 80 % |
+| L1 | **幻覺率**(描述了影格中不存在的東西) | **< 5 %** |
+| L2 | 跌倒召回率 | > 90 % |
+| L2 | **每 24 小時偽警示數** | **< 1** |
+| L2 | 端到端警示延遲 p95 | < 5 秒 |
+| L3 | Ethogram 實用性(人工,1–5) | > 3.5 |
+| 系統 | 連續執行 7 天 | 不崩潰、不熱節流 |
 
-False alerts per 24 h is the primary metric. Recall is worthless once the user
-has muted notifications.
+每 24 小時偽警示數是主要指標。一旦使用者把通知靜音,召回率就毫無價值。
 
-## Regression harness
+## 回歸測試工具
 
-`eval/harness/` runs against fixed fixtures and writes results to
-`eval/reports/{timestamp}_{prompt_version}_{model}.json`.
+`eval/harness/` 會針對固定的樣本執行,並將結果寫入 `eval/reports/{timestamp}_{prompt_version}_{model}.json`。
 
-Any change to a prompt, a model, or a gating parameter requires a run, with the
-before/after comparison pasted into the pull request. Pull requests carrying the
-`prompt-change` label are blocked until this exists.
+對提示詞、模型或閘控參數的任何變更,都需要執行一次,並將前後比較貼進 pull request。帶有 `prompt-change` 標籤的 pull request 在此資料出現前一律封鎖。

@@ -1,37 +1,37 @@
-## What and why
+## 內容與原因
 
-<!-- One or two sentences. -->
+<!-- 一到兩句話。 -->
 
-## Type
+## 類型
 
 - [ ] feature
 - [ ] fix
 - [ ] spike / experiment
-- [ ] prompt or model change  ← **requires the eval table below**
+- [ ] prompt 或 model 變更  ← **需要下方的 eval 表格**
 - [ ] docs
 
-## Eval regression (required for prompt / model / gating changes)
+## Eval 回歸(prompt / model / gating 變更必填)
 
-Run `eval/harness` before and after. Paste the comparison:
+在變更前後各執行一次 `eval/harness`。貼上比較結果:
 
-| Metric | Before | After |
+| 指標 | 前 | 後 |
 |---|---|---|
-| Caption acceptability | | |
-| **Hallucination rate** | | |
-| JSON parse rate | | |
-| Keyframe compression | | |
-| Fall recall | | |
-| **False alerts / 24 h** | | |
-| Latency p95 | | |
+| 影像描述可接受度 | | |
+| **幻覺率** | | |
+| JSON 解析成功率 | | |
+| 關鍵影格壓縮率 | | |
+| 跌倒召回率 | | |
+| **每 24 小時偽警示數** | | |
+| 延遲 p95 | | |
 
-Report link: `eval/reports/...`
+報告連結:`eval/reports/...`
 
-## Privacy check
+## 隱私檢查
 
-- [ ] No new path by which frames could leave the sensor node
-- [ ] No identity attribution introduced into `Actant` or anywhere else
-- [ ] Any newly exposed tool is behind the correct consent tier and is logged
+- [ ] 沒有新增任何讓影格得以離開感測節點的路徑
+- [ ] 沒有在 `Actant` 或其他任何地方引入身分歸屬
+- [ ] 任何新曝露的工具都位於正確的同意授權分層之後,且會被記錄
 
-## Domain language
+## 領域用語
 
-- [ ] Uses `Actant` / `Kineme` / `Ethogram` consistently; no synonyms introduced
+- [ ] 一致使用 `Actant` / `Kineme` / `Ethogram`;未引入同義詞
