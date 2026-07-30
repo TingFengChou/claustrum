@@ -1,0 +1,38 @@
+# Never commit imagery of real people
+bench/frames/*
+!bench/frames/README.md
+eval/datasets/*
+!eval/datasets/README.md
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.mkv
+
+# Local config
+bench/backends.yaml
+*.env
+.env
+
+# Models
+*.litertlm
+*.gguf
+*.engine
+models/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# tests
+tests/__pycache__/

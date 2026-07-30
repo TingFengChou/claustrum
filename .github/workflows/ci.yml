@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: pip install jsonschema pyyaml requests ruff
+
+      - name: Lint
+        run: ruff check core bench || true
+
+      - name: Compile
+        run: python -m py_compile core/domain.py bench/run_bench.py bench/tegra_monitor.py
+
+      - name: Schema and domain type agreement
+        run: python -m unittest discover -s tests -v
+
+      - name: No committed imagery
+        run: |
+          if git ls-files | grep -Ei '\.(jpg|jpeg|png|mp4|mkv)$' | grep -v README; then
+            echo "::error::image or video files must not be committed (see docs/PRIVACY.md)"
+            exit 1
+          fi
+          echo "clean"
+
+      - name: No identity fields in schema
+        run: |
+          if grep -Eiq '"(name|face|identity|person_name|age|gender)"' schemas/*.json; then
+            echo "::error::schema must not contain identity fields (ADR-0002)"
+            exit 1
+          fi
+          echo "clean"

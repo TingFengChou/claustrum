@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/TingFengChou/claustrum/schemas/kineme.schema.json",
+  "title": "Kineme",
+  "description": "The smallest recorded unit of observed behaviour: one action over one time span, as reported by the L1 caption stage. Records what was observed; asserts nothing about motive.",
+  "type": "object",
+  "required": ["id", "ts_start", "ts_end", "source_id", "actants", "action", "risk", "confidence", "model", "prompt_version"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^kin_[0-9]{8}_[0-9]{6}_[0-9a-f]{3,8}$",
+      "description": "kin_YYYYMMDD_HHMMSS_<hex>"
+    },
+    "ts_start": { "type": "string", "format": "date-time" },
+    "ts_end": { "type": "string", "format": "date-time" },
+    "source_id": {
+      "type": "string",
+      "description": "Logical sensor identifier, e.g. living_room. Not a device serial."
+    },
+    "actants": {
+      "type": "array",
+      "description": "Scene participants as role slots. Never an identity.",
+      "items": { "$ref": "#/$defs/actant" }
+    },
+    "objects": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Salient inanimate objects involved in the action."
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "One short sentence describing only what is visible. 'unclear' is a valid value."
+    },
+    "location_hint": {
+      "type": ["string", "null"],
+      "description": "Coarse within-frame region, e.g. 'near the dining table'."
+    },
+    "risk": { "$ref": "#/$defs/risk" },
+    "confidence": {
+      "type": "number", "minimum": 0, "maximum": 1,
+      "description": "Model confidence in this description. Below 0.5 should be treated as uncertain."
+    },
+    "novelty": {
+      "type": "number", "minimum": 0, "maximum": 1,
+      "description": "Divergence from recent kinemes, computed by the pipeline from the L0 frame-embedding distance. Not reported by the model. Used as an inclusion weight by L3 summarisation."
+    },
+    "keyframe_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Local paths on the sensor node only. Never transmitted off-node."
+    },
+    "spatial_anchor": {
+      "$ref": "#/$defs/spatial_anchor",
+      "description": "Optional map coordinates. Populated only in robot deployments."
+    },
+    "model": {
+      "type": "string",
+      "description": "Model identifier and version, e.g. gemma-4-12b-it@trtllm-0.1. Required for regression comparison."
+    },
+    "prompt_version": {
+      "type": "string",
+      "description": "Prompt template version, e.g. caption_v1. Required for regression comparison."
+    }
+  },
+  "$defs": {
+    "actant": {
+      "type": "object",
+      "required": ["type", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["person", "animal", "robot", "vehicle", "unknown"]
+        },
+        "label": {
+          "type": "string",
+          "pattern": "^[a-z_]+(_[0-9]+)?$",
+          "description": "Anonymous role slot, e.g. person_1, cat, robot_1. MUST NOT encode identity."
+        },
+        "count": { "type": "integer", "minimum": 1, "default": 1 }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "required": ["level", "category"],
+      "additionalProperties": false,
+      "properties": {
+        "level": { "type": "string", "enum": ["none", "low", "medium", "high"] },
+        "category": {
+          "type": "string",
+          "description": "Closed enumeration. An open string makes downstream rules unmaintainable.",
+          "enum": ["none", "fall", "fire_smoke", "water_leak", "intrusion", "child_hazard", "medical", "unknown"]
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "Evidence visible in frame. Required when level != none. Anticipated risk does not qualify; the hazard must be occurring."
+        }
+      }
+    },
+    "spatial_anchor": {
+      "type": "object",
+      "required": ["frame_id", "x", "y"],
+      "additionalProperties": false,
+      "properties": {
+        "frame_id": { "type": "string", "description": "Reference frame, e.g. map" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+# Copy to backends.yaml and edit. All three candidates expose an
+# OpenAI-compatible /v1/chat/completions endpoint, which is why one client
+# serves all of them.
+#
+# Start ONE server at a time -- a 12B model plus a video pipeline will contend
+# for the 32 GB of unified memory otherwise.
+
+backends:
+  # litert-lm serve
+  #   litert-lm import --from-huggingface-repo=litert-community/gemma-4-12B-it-litert-lm \
+  #                    gemma-4-12B-it.litertlm gemma4-12b
+  #   litert-lm serve --port 8081
+  - name: litertlm
+    base_url: http://127.0.0.1:8081
+    model: gemma4-12b
+    notes: "same .litertlm format and quantisation as the Android path -- keeps a phone build portable"
+
+  # llama.cpp
+  #   llama-server -m gemma-4-12b-Q4_K_M.gguf --mmproj mmproj.gguf -ngl 99 --port 8082
+  - name: llamacpp
+    base_url: http://127.0.0.1:8082
+    model: gemma-4-12b
+    notes: "most mature CUDA path on Jetson; easiest to get running"
+
+  # TensorRT-LLM
+  #   trtllm-serve <engine_dir> --port 8083
+  - name: trtllm
+    base_url: http://127.0.0.1:8083
+    model: gemma-4-12b
+    notes: "usually fastest on Jetson, longest to set up (engine build)"
