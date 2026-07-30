@@ -1,0 +1,45 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="claustrum app icon">
+  <title>claustrum</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1c1436"/>
+      <stop offset="0.55" stop-color="#0f0c1c"/>
+      <stop offset="1" stop-color="#070610"/>
+    </linearGradient>
+    <radialGradient id="bloom" cx="0.55" cy="0.5" r="0.4">
+      <stop offset="0" stop-color="#8be9ff" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#5566ff" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#5566ff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="squircle">
+      <rect x="0" y="0" width="1024" height="1024" rx="230" ry="230"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#bloom)"/>
+
+    <!-- the claustrum: a thin curved sheet the modalities are bound through -->
+    <path d="M470 342 C 426 428 426 596 470 682" stroke="#aeb8ff" stroke-opacity="0.28" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="M501 352 C 461 432 461 592 501 672" stroke="#aeb8ff" stroke-opacity="0.13" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+    <!-- three modality strands (vision · audio · language) sweeping in -->
+    <g stroke-linecap="round" fill="none" stroke-width="27">
+      <path d="M214 404 C 356 414 434 456 516 512" stroke="#ffb054"/>
+      <path d="M202 512 C 342 512 434 512 516 512" stroke="#ff5c8a"/>
+      <path d="M214 620 C 356 610 434 568 516 512" stroke="#43e0d0"/>
+    </g>
+
+    <!-- bound into one crisp unified stream -->
+    <path d="M512 512 L 766 512" stroke="#ffffff" stroke-width="26" stroke-linecap="round" fill="none"/>
+
+    <!-- the fusion point -->
+    <circle cx="512" cy="512" r="27" fill="#ffffff" filter="url(#glow)"/>
+    <circle cx="512" cy="512" r="13" fill="#eaf7ff"/>
+  </g>
+</svg>

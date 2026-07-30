@@ -1,3 +1,5 @@
+<img src="assets/icon/claustrum.svg" width="88" align="right" alt="claustrum app icon"/>
+
 # claustrum
 
 **On-device perception and cognition for embodied AI.** Binds separate sensory modalities — vision, audio, language — into a unified, queryable stream of observed events. Runs entirely on edge hardware.
@@ -185,11 +187,21 @@ The project is judged on these, not on demo quality:
 
 False alerts per 24 h is the primary metric. A system that cries wolf once a day gets its notifications muted within two weeks, at which point recall is irrelevant.
 
+## Development
+
+Work ships through PRs gated by CI and an advisory AI code review; every module
+keeps SA/SD design docs; modules are built testable; app UI is designed to
+near-production quality; and docs are updated with every milestone. Full process:
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md). Design docs: [`docs/design/`](docs/design/)
+(`core` is the worked example). These standards are also encoded as the
+`dev-standards` skill so they apply automatically.
+
 ## Decisions
 
 - [ADR-0001 — Platform: Jetson AGX Orin over Android](docs/adr/0001-platform-choice.md)
 - [ADR-0002 — Naming and domain language](docs/adr/0002-naming-and-domain-language.md)
 - [ADR-0003 — Two-node topology and the frame isolation boundary](docs/adr/0003-two-node-topology.md)
+- [ADR-0004 — Phone-first, single-node bring-up](docs/adr/0004-phone-first-single-node.md)
 
 ## Licence
 
