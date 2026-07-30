@@ -28,7 +28,10 @@ jobs:
 
       - name: No committed imagery
         run: |
-          if git ls-files | grep -Ei '\.(jpg|jpeg|png|mp4|mkv)$' | grep -v README; then
+          # The rule protects against committing camera frames (see docs/PRIVACY.md).
+          # Legitimate app resources (app/) and design assets (assets/) are allowed;
+          # captured frames would land in bench/ or eval/, which stay covered.
+          if git ls-files | grep -Ei '\.(jpg|jpeg|png|mp4|mkv)$' | grep -Ev 'README|^app/|^assets/'; then
             echo "::error::image or video files must not be committed (see docs/PRIVACY.md)"
             exit 1
           fi

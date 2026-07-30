@@ -85,17 +85,18 @@ Pixel 10 · Gemma E2B / E4B · LiteRT-LM · 搭配 Android AppFunctions
 
 ## 模組
 
-| 模組 | 狀態 | 用途 |
-|---|---|---|
-| `ethogram/` | 🚧 進行中 | 行為感知。Vision → Kineme 串流。**目前重點。** |
-| `core/` | 🚧 進行中 | 領域型別、工具合約、共用 schema |
-| `bench/` | ✅ 就緒 | M0 後端基準測試 —— 先跑這個 |
-| `asr/` | 規劃中 | 語音辨識 → 逐字稿 kineme |
-| `tts/` | 規劃中 | 語音回應 |
-| `planner/` | 規劃中 | LLM 編排、雲端升級 (escalation) 政策 |
-| `bridge/` | 規劃中 | AppFunctions provider · MCP server · ROS 2 node |
+**產品主體是一支 React Native App**(ADR-0005);Python 是離線工具,不是產品。
 
-目前的路線圖只涵蓋 `ethogram/`。之所以有這個總攬結構,是為了日後加入第二種模態時不必重新調整結構。
+| 模組 | 語言 | 狀態 | 用途 |
+|---|---|---|---|
+| `app/` | React Native + TS(+ 原生 Rust/C++ · Kotlin) | 🚧 進行中 | **產品本體** —— 裝置端感知 App(UI + 協調殼)。**目前重點。** |
+| `schemas/` | JSON Schema | ✅ 就緒 | 領域型別的**單一真實來源**(跨 TS / Kotlin / Python) |
+| `core/` | Python | 🚧 進行中 | 領域型別參考實作,供離線 eval/bench 使用 |
+| `bench/` | Python | ✅ 就緒 | M0 後端基準測試(離線工具)—— 先跑這個 |
+| `eval/` | Python | 🚧 進行中 | 離線評測評分(離線工具) |
+| `asr/` `tts/` `planner/` `bridge/` | — | 規劃中 | 第二模態、LLM 編排、AppFunctions/MCP/ROS 2 橋接 |
+
+裝置端的重負載(L0 閘控、影格串流、on-device VLM)以原生 **Rust/C++** 核心 + **Kotlin** 平台膠合實作,透過 NDK/JNI 橋接給 RN(ADR-0005)。**即時串流辨識**是終極目標。
 
 ## 部署拓撲
 
@@ -191,6 +192,7 @@ M4 只相依於 M3,而不相依於即時管線 —— 之所以把它排在前�
 - [ADR-0002 — 命名與領域語言](docs/adr/0002-naming-and-domain-language.md)
 - [ADR-0003 — 雙節點拓撲與影格隔離邊界](docs/adr/0003-two-node-topology.md)
 - [ADR-0004 — 手機優先、單節點啟動](docs/adr/0004-phone-first-single-node.md)
+- [ADR-0005 — 產品主體為 React Native app,Python 降為離線工具](docs/adr/0005-react-native-app.md)
 
 ## 授權
 
