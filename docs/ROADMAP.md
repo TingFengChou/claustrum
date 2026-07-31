@@ -2,6 +2,14 @@
 
 時程估計以兼職投入為前提。排序的重要性高於數字本身。
 
+## 進度附註(2026-07-31)
+
+- React Native app 為產品本體已建立並實機運行於 Pixel 10(ADR-0005)。
+- 裝置端 VLM 執行期 **llama.rn / llama.cpp** 已接入並建置成功(APK 內含 `librnllama.so`)——
+  等於把 M0/M1 的「裝置端推論可行性」往前推進。
+- 首個應用**藥單辨識**的軟體層(schema、prompt、安全解析、單元測試、SA/SD)完成;
+  待:裝置端模型檔(GGUF+mmproj)、藥單 UI、實機 e2e。
+
 ---
 
 ## M0 — 後端探路 · 1–2 weeks

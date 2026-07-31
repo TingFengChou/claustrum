@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/TingFengChou/claustrum/schemas/medication.schema.json",
+  "title": "MedicationReading",
+  "description": "Structured reading of a medication label / prescription image, produced on-device by the VLM. EDUCATIONAL INFORMATION ONLY, NOT MEDICAL ADVICE. Records only what is visible; never guesses drug names or dosages.",
+  "type": "object",
+  "required": ["items", "unreadable", "disclaimer", "model", "prompt_version"],
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "type": "array",
+      "description": "One entry per distinct medication legible in the image. Empty if none are legible.",
+      "items": { "$ref": "#/$defs/medication_item" }
+    },
+    "unreadable": {
+      "type": "boolean",
+      "description": "true if the image is not a legible medication label/prescription at all. When true, items should be empty."
+    },
+    "overall_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "disclaimer": {
+      "type": "string",
+      "description": "Fixed safety disclaimer, always present and shown to the user."
+    },
+    "model": { "type": "string" },
+    "prompt_version": { "type": "string" }
+  },
+  "$defs": {
+    "medication_item": {
+      "type": "object",
+      "required": ["name", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": ["string", "null"],
+          "description": "Drug name exactly as visible on the label, or null if not legible. MUST NOT be guessed or inferred."
+        },
+        "dosage": { "type": ["string", "null"], "description": "e.g. '500 mg', as visible. null if not legible." },
+        "frequency": { "type": ["string", "null"], "description": "e.g. '每日三次', as visible. null if not legible." },
+        "appearance": { "type": ["string", "null"], "description": "Visible appearance, e.g. '白色圓形錠劑'." },
+        "purpose_general": {
+          "type": ["string", "null"],
+          "description": "General, educational description of what this class of drug is commonly used for. NOT personalized advice, NOT a diagnosis. null if the drug is not clearly identified."
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "unclear_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of fields that were not legible in the image."
+        }
+      }
+    }
+  }
+}
