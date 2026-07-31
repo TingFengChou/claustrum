@@ -74,6 +74,6 @@ function strOrNull(v: any): string | null {
 }
 
 function clamp01(v: any): number {
-  const n = typeof v === 'number' ? v : 0;
-  return Math.max(0, Math.min(1, n));
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
 }

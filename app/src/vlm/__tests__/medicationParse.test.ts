@@ -67,4 +67,10 @@ describe('parseMedicationResult', () => {
     const r = parseMedicationResult(raw, MODEL);
     expect(r.items[0].confidence).toBe(1);
   });
+
+  it('tolerates a stringified confidence', () => {
+    const raw = JSON.stringify({items: [{name: 'Z', confidence: '0.8'}], unreadable: false});
+    const r = parseMedicationResult(raw, MODEL);
+    expect(r.items[0].confidence).toBeCloseTo(0.8);
+  });
 });

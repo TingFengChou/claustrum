@@ -13,7 +13,7 @@ Rules:
 3. For each clearly identified drug, "purpose_general" may give a short, general, educational note about what that class of drug is commonly used for — in Traditional Chinese. This is general knowledge, not advice for this person. If the drug is not clearly identified, set "purpose_general" to null.
 4. List any fields you could not read in that item's "unclear_fields".
 5. Do not diagnose, do not recommend taking/stopping/changing any medication, and do not estimate anything not visible.
-6. Output only a JSON object matching this shape. No markdown, no preamble:
+6. Output only a JSON object matching the schema below. No markdown, no preamble:
 {
   "items": [
     {
