@@ -24,9 +24,12 @@ description: claustrum 專案的開發規範 — PR + AI 審查品質關卡、�
   - 當你已查證某則意見有誤時,可以無視它照常 merge(並說明原因);當查證發現審查漏掉的
     真實問題時,即使 CI 全綠也可以先擋著不 merge。
   - Merge 是有證據支撐的判斷(測試、讀程式、實際執行),絕不是對 AI 或綠勾勾的橡皮圖章。
-- AI 審查工作流程需要 `GEMINI_API_KEY` repo secret。只有使用者能新增 secret — 不要嘗試
-  代勞;若審查工作被略過,提醒使用者。本機若有已登入的 Gemini CLI,可在缺 secret 時用它
-  在本地對 PR diff 做審查、逐條回覆,再做 merge 判斷。
+- **本機審查(主要路徑):`scripts/ai-review.sh [base]`** —— 用 Antigravity CLI(`agy`,
+  訂閱制)對 diff 做唯讀審查。**不需要任何 secret。** 這是預設的 AI 審查方式:每個 PR
+  merge 前跑一次,逐則回覆,再依查證事實決定 merge。
+- 雲端路徑(可選):`.github/workflows/ai-review.yml` 需要 `GEMINI_API_KEY` repo secret
+  才會自動審查。只有使用者能新增 secret — 不要代勞。未設時該 job 會乾淨略過,由本機
+  `agy` 審查即可涵蓋。
 - PR 保持聚焦、易審;寧可拆成多個小 PR,也不要一個龐雜的大 PR,好讓審查與 CI 給出銳利的訊號。
 
 ## 2. 每個模組都要有 SA/SD 設計文件

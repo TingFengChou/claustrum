@@ -14,12 +14,15 @@
   逕行合併(並說明原因);當查證發現審查漏掉的真正問題時,即使 PR 已是綠燈也要暫緩。
   決定建立在證據上 — 測試、閱讀程式碼、實際執行 — 而不是單憑結論或那個勾勾。
 
-### 啟用 AI 審查
+### AI 審查:本機(主要)與雲端(可選)
 
-AI 審查需要一個 `GEMINI_API_KEY` 儲存庫密鑰(Settings → Secrets and
-variables → Actions)。只有儲存庫管理員能新增它。在設定之前,審查工作流程會乾淨地跳過。
-可選擇設定一個 `GEMINI_MODEL` 儲存庫變數來更換模型。此審查僅供參考 — 它從不阻擋合併;
-擋關的是測試。
+- **本機(主要):`scripts/ai-review.sh [base]`** —— 用 Antigravity CLI(`agy`,訂閱制)
+  對 diff 做唯讀審查,**不需要任何 secret**。每個 PR merge 前跑一次,逐則回覆。
+- **雲端(可選):** `.github/workflows/ai-review.yml` 需要 `GEMINI_API_KEY` 儲存庫密鑰
+  (Settings → Secrets and variables → Actions;只有管理員能新增)。未設時該 job 乾淨略過,
+  由本機 `agy` 涵蓋。可選 `GEMINI_MODEL` 變數更換模型。
+
+此審查僅供參考 —— 它從不阻擋合併;擋關的是測試,merge 由查證事實決定。
 
 ## 每個模組的設計文件(SA/SD)
 
