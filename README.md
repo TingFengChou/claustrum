@@ -33,6 +33,7 @@ Pixel 10 · Gemma E2B / E4B · LiteRT-LM · 搭配 Android AppFunctions
 | 「今天家裡發生了什麼事?」 | 一條由離散、附時間戳的事件構成的時間軸 |
 | 「昨天下午有人靠近藥盒嗎?」 | 一個以已記錄事件為依據的自然語言回答 |
 | 有人在走廊跌倒 | 約 5 秒內的推播通知,並附上原因 |
+| *(藥單)* 拍一張藥袋 | 裝置端讀出藥名與一般用途(教育性,非醫療建議;看不清不臆測) |
 | *(機器人)* 「我上次在哪裡看到那台推車?」 | 一次針對語意空間記憶的查詢 |
 
 所有運算都在裝置端執行。在手機優先的單節點上,影格依政策留在手機裡;而「影格無法離開」這項*結構性*保證,會隨著雙節點的 Jetson 拓撲一同回歸 (ADR-0003)。
@@ -96,7 +97,7 @@ Pixel 10 · Gemma E2B / E4B · LiteRT-LM · 搭配 Android AppFunctions
 | `eval/` | Python | 🚧 進行中 | 離線評測評分(離線工具) |
 | `asr/` `tts/` `planner/` `bridge/` | — | 規劃中 | 第二模態、LLM 編排、AppFunctions/MCP/ROS 2 橋接 |
 
-裝置端的重負載(L0 閘控、影格串流、on-device VLM)以原生 **Rust/C++** 核心 + **Kotlin** 平台膠合實作,透過 NDK/JNI 橋接給 RN(ADR-0005)。**即時串流辨識**是終極目標。
+裝置端的重負載(L0 閘控、影格串流、on-device VLM)以原生 **Rust/C++** 核心 + **Kotlin** 平台膠合實作,透過 NDK/JNI 橋接給 RN(ADR-0005)。**即時串流辨識**是終極目標。裝置端 VLM(**llama.rn / llama.cpp**)已接入並建置於 Pixel 10(APK 內含 `librnllama.so`);首個應用:**藥單辨識**(見 [`docs/design/medication/`](docs/design/medication/))。
 
 ## 部署拓撲
 

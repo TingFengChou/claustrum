@@ -13,4 +13,19 @@ Rules:
 3. For each clearly identified drug, "purpose_general" may give a short, general, educational note about what that class of drug is commonly used for — in Traditional Chinese. This is general knowledge, not advice for this person. If the drug is not clearly identified, set "purpose_general" to null.
 4. List any fields you could not read in that item's "unclear_fields".
 5. Do not diagnose, do not recommend taking/stopping/changing any medication, and do not estimate anything not visible.
-6. Output only a JSON object with keys: items (array of {name, dosage, frequency, appearance, purpose_general, confidence, unclear_fields}), unreadable (boolean), overall_confidence (number). No markdown, no preamble.`;
+6. Output only a JSON object matching this shape. No markdown, no preamble:
+{
+  "items": [
+    {
+      "name": "藥品名 or null",
+      "dosage": "500 mg or null",
+      "frequency": "每日三次 or null",
+      "appearance": "白色圓形錠劑 or null",
+      "purpose_general": "一般用途說明(繁中)or null",
+      "confidence": 0.0,
+      "unclear_fields": ["dosage"]
+    }
+  ],
+  "unreadable": false,
+  "overall_confidence": 0.0
+}`;

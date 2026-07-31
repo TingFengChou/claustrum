@@ -29,8 +29,16 @@ export async function loadVlm(
   // CPU inference by default (n_gpu_layers: 0) for reliability across devices;
   // GPU/NPU offload is a later optimisation. The vision encoder uses GPU by
   // default via initMultimodal.
-  ctx = await initLlama({model: paths.model, n_ctx: 4096, n_gpu_layers: 0}, onProgress);
-  await ctx.initMultimodal({path: paths.mmproj});
+  const c = await initLlama({model: paths.model, n_ctx: 4096, n_gpu_layers: 0}, onProgress);
+  try {
+    await c.initMultimodal({path: paths.mmproj});
+  } catch (e) {
+    // Do not leave a half-initialised context: release and stay unloaded so a
+    // retry starts clean rather than short-circuiting on a non-null ctx.
+    await c.release();
+    throw e;
+  }
+  ctx = c;
 }
 
 /** Run a single multimodal completion over one image. Requires loadVlm() first. */
