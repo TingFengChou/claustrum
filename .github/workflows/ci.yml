@@ -37,10 +37,14 @@ jobs:
           fi
           echo "clean"
 
-      - name: No identity fields in schema
+      - name: No person-identity fields in schema
         run: |
-          if grep -Eiq '"(name|face|identity|person_name|age|gender)"' schemas/*.json; then
-            echo "::error::schema must not contain identity fields (ADR-0002)"
+          # No PERSON identity fields anywhere (ADR-0002). Bare "name" is allowed
+          # (e.g. a drug name in medication.schema.json is not a person identity);
+          # the Kineme schema's stricter no-"name" rule is enforced by
+          # tests/test_domain.py::test_schema_has_no_identity_field.
+          if grep -Eiq '"(face|identity|person_name|age|gender)"' schemas/*.json; then
+            echo "::error::schema must not contain person-identity fields (ADR-0002)"
             exit 1
           fi
           echo "clean"
