@@ -138,8 +138,9 @@ class LiteRtCaptioner(
             val text = CaptionText.clean(synchronized(out) { out.toString() })
             Log.i(TAG, "describe @${ms()}ms done=${modelDone.get()} capped=${cappedEarly.get()} finished=$finished len=${text.length}")
             if (!finished && text.isEmpty()) return "L1 逾時"
-            return error?.takeIf { text.isEmpty() }?.let { "L1 錯誤:$it" }
-                ?: text.ifEmpty { "（無描述）" }
+            // Empty → "" (model produced nothing usable for this frame); the pipeline
+            // keeps the last meaningful caption rather than showing a blank.
+            return error?.takeIf { text.isEmpty() }?.let { "L1 錯誤:$it" } ?: text
         } catch (t: Throwable) {
             Log.e(TAG, "describe failed", t)
             return "L1 錯誤:${t.message}"

@@ -43,9 +43,15 @@ class PerceptionPipeline<F>(
         return admitted
     }
 
-    /** L1 — run the captioner and store the result. Call OFF the analyzer thread. */
-    fun describe(frame: F) {
-        lastCaption = captioner.describe(frame)
+    /**
+     * L1 — run the captioner and return its result. Call OFF the analyzer thread.
+     * [lastCaption] is only updated when the result is non-blank, so a frame the model
+     * can't caption keeps the last meaningful description on screen (no flicker to blank).
+     */
+    fun describe(frame: F): String {
+        val r = captioner.describe(frame)
+        if (r.isNotBlank()) lastCaption = r
+        return r
     }
 
     /**

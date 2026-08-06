@@ -29,6 +29,14 @@ class CaptionTextTest {
         assertEquals("", CaptionText.clean("A person lying on the road."))
     }
 
+    @Test fun tinyHanFragmentRejected() {
+        // The model sometimes emits a 1-2 char fragment on a frame it can't parse.
+        assertEquals("", CaptionText.clean("程程"))
+        assertEquals("", CaptionText.clean("車"))
+        // A real (>= MIN_HAN) short sentence is kept.
+        assertEquals("有人倒地。", CaptionText.clean("有人倒地。"))
+    }
+
     @Test fun stripSymbolsRemovesPictographs() {
         assertEquals("車子", CaptionText.stripSymbols("車🚗子"))
         assertFalse(CaptionText.stripSymbols("🚗").isNotEmpty())

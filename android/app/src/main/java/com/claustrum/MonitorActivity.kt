@@ -165,13 +165,13 @@ class MonitorActivity : ComponentActivity() {
                     val bmp = android.graphics.BitmapFactory.decodeFile(f.absolutePath) ?: continue
                     val case = ModelEval.caseFromFileName(f.name)
                     val t0 = System.currentTimeMillis()
-                    try { p?.describe(bmp) } catch (t: Throwable) { Log.e(TAG, "eval ${f.name} failed", t) }
+                    var caption = ""
+                    try { caption = p?.describe(bmp) ?: "" } catch (t: Throwable) { Log.e(TAG, "eval ${f.name} failed", t) }
                     finally { bmp.recycle() }
                     val dt = System.currentTimeMillis() - t0
-                    val caption = p?.lastCaption ?: ""
                     val r = ModelEval.evaluate(caption, dt, case)
                     results.add(r)
-                    CaptionLog.add(System.currentTimeMillis(), caption, "驗證:${case.label}${if (r.pass) " ✓" else " ✗"}", dt)
+                    CaptionLog.add(System.currentTimeMillis(), caption.ifBlank { "(無有效描述)" }, "驗證:${case.label}${if (r.pass) " ✓" else " ✗"}", dt)
                 }
                 val s = ModelEval.summarize(results)
                 Log.i(TAG, "MODELEVAL ${p?.backend} pass=${s.passed}/${s.total} (${"%.0f".format(s.passRate)}%) avg=${s.avgLatencyMs}ms p50=${s.p50LatencyMs}ms")
@@ -350,9 +350,10 @@ class MonitorActivity : ComponentActivity() {
             var cur: Bitmap? = first
             while (cur != null) {
                 val t0 = System.currentTimeMillis()
-                try { pipeline?.describe(cur) } catch (t: Throwable) { Log.e(TAG, "describe failed", t) }
+                var r = ""
+                try { r = pipeline?.describe(cur) ?: "" } catch (t: Throwable) { Log.e(TAG, "describe failed", t) }
                 finally { cur.recycle() }
-                pipeline?.let { CaptionLog.add(System.currentTimeMillis(), it.lastCaption, l1Source, System.currentTimeMillis() - t0) }
+                CaptionLog.add(System.currentTimeMillis(), r.ifBlank { "(此幀模型未產生有效描述)" }, l1Source, System.currentTimeMillis() - t0)
                 pushState()
                 cur = pending.getAndSet(null)
                 if (cur == null) {

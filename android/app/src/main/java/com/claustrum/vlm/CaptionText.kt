@@ -19,17 +19,23 @@ internal object CaptionText {
         return buf[n - 1] in TERMINATORS
     }
 
+    /** Minimum Han characters for a caption to count as a real scene description. */
+    const val MIN_HAN = 4
+
     /**
      * Tidy a caption: strip symbols/emoji, keep the first sentence. Returns "" if what
-     * remains isn't real Chinese (pure emoji / latin / punctuation) so the caller can
+     * remains isn't a real Chinese description — pure emoji/latin/punctuation, or a tiny
+     * fragment like 「程程」 the model emits on a frame it can't parse — so the caller can
      * show a fallback instead of garbage.
      */
     fun clean(raw: String): String {
         var t = stripSymbols(raw).trim()
         val end = t.indexOfFirst { it in TERMINATORS }
         if (end >= 0) t = t.substring(0, end + 1)
-        return if (hasHan(t)) t else ""
+        return if (hanCount(t) >= MIN_HAN) t else ""
     }
+
+    private fun hanCount(s: String): Int = s.count { it.code in 0x4E00..0x9FFF }
 
     /** Strip emoji / pictographic symbols the model sometimes emits. */
     fun stripSymbols(s: String): String {
