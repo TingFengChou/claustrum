@@ -194,6 +194,7 @@ M4 只相依於 M3,而不相依於即時管線 —— 之所以把它排在前�
 - [ADR-0003 — 雙節點拓撲與影格隔離邊界](docs/adr/0003-two-node-topology.md)
 - [ADR-0004 — 手機優先、單節點啟動](docs/adr/0004-phone-first-single-node.md)
 - [ADR-0005 — 產品主體為 React Native app,Python 降為離線工具](docs/adr/0005-react-native-app.md)
+- [ADR-0006 — MVP 重新聚焦:多模態主動安全告警(社區跌倒、幼兒園暴力)](docs/adr/0006-safety-alert-mvp.md)
 
 ## 授權
 
