@@ -1,0 +1,12 @@
+[package]
+name = "claustrum-core"
+version = "0.1.0"
+edition = "2021"
+description = "claustrum perception core: L0 gating, frame pipeline, L2/L3 event engine (Rust)."
+license = "Apache-2.0"
+
+[lib]
+# rlib for host `cargo test`; cdylib is added in the JNI/NDK step (P0 android glue).
+crate-type = ["rlib"]
+
+[dependencies]
