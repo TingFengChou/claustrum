@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark, graphite-grounded launch theme. The guardian instrument is always
+         dark (Tesla/Optimus) — a dark windowBackground kills the white launch
+         flash before Compose's ClaustrumTheme composes. -->
+    <style name="Theme.Claustrum" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/claustrum_ground</item>
+        <item name="android:colorBackground">@color/claustrum_ground</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

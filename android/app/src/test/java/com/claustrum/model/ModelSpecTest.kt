@@ -11,7 +11,7 @@ class ModelSpecTest {
     @Test fun resolveUrlIsHuggingFaceResolvePath() {
         val s = ModelSpec.GEMMA_3N_E2B_VISION
         assertEquals(
-            "https://huggingface.co/google/gemma-3n-E2B-it-litert-preview/resolve/main/gemma-3n-E2B-it-int4.task",
+            "https://huggingface.co/google/gemma-3n-E2B-it-litert-lm/resolve/main/gemma-3n-E2B-it-int4.litertlm",
             s.resolveUrl(),
         )
     }
