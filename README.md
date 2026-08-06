@@ -116,6 +116,18 @@ flowchart TD
 
 L1 推論用 **llama.cpp**(via Rust FFI),已在 Pixel 10 驗證 on-device 多模態(SmolVLM / Gemma)。影格與像素只在原生層流動。
 
+### 設計文件(SA/SD)
+
+每個模組完成即保有一份完整的 **SA**(做什麼/為什麼)與 **SD**(如何做,含測試策略)——常設規則,過時即視為 bug。索引與慣例見 [`docs/design/README.md`](docs/design/README.md)。
+
+| 模組 | 狀態 | 設計文件 |
+|---|---|---|
+| `core-rs/`(Rust 感知核心) | 🟢 P0 | [SA](docs/design/core-rs/SA.md) · [SD](docs/design/core-rs/SD.md) |
+| `android/`(Kotlin 裝置外殼) | 🟢 P0/P1 | [SA](docs/design/android/SA.md) · [SD](docs/design/android/SD.md) |
+| `events/`(時序事件引擎) | 📐 P3 規劃 | 與實作 PR 一併補上 SA/SD |
+| `schemas/` 領域型別 | ✅ | 型別即 SoT;參考 [`core/`](docs/design/core/SD.md) |
+| `app/`(舊 RN)· `medication/` | 🗄️ 參考 | [app SD](docs/design/app/SD.md) · [medication SD](docs/design/medication/SD.md)(ADR-0007 前) |
+
 ## 快速上手
 
 架構重建中(ADR-0007)。目標建置流程:Rust 感知核心 → `.so`(cargo-ndk),再由 Android(Gradle)打包。
@@ -173,7 +185,7 @@ MVP 以這些指標評斷成敗,而非展示效果:
 
 ## 開發
 
-工作透過 **PR** 交付,合併前以 **AI 程式碼審查**(本機 Antigravity CLI `agy`)與 CI 把關;merge 依查證事實決定。每個模組保有 SA/SD 設計文件;模組以可測試性為前提建置;App UI 以 Claude 設計;文件隨里程碑一併更新。完整流程:[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。這些標準也編寫成 `dev-standards` skill。
+工作透過 **PR** 交付,合併前以 **AI 程式碼審查**(本機 Antigravity CLI `agy`)與 CI 把關;merge 依查證事實決定。每個模組保有 [SA/SD 設計文件](docs/design/README.md);模組以可測試性為前提建置;App UI 以 Claude 設計;文件隨里程碑一併更新。完整流程:[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。這些標準也編寫成 `dev-standards` skill。
 
 ## 決策
 

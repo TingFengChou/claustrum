@@ -17,8 +17,16 @@ docs/design/
     SD.md              它如何做到
 ```
 
-模組對應頂層配置:`core/`、`bench/`、`ethogram/`,以及之後的 `asr/`、`planner/`、
-`bridge/`,還有手機 app(當它存在時)。
+## 模組索引(對應 ADR-0007 Rust 重建)
+
+| 模組 | 狀態 | 文件 |
+|---|---|---|
+| [`core-rs/`](core-rs/) | 🟢 P0(L0 閘控 + JNI) | [SA](core-rs/SA.md) · [SD](core-rs/SD.md) |
+| [`android/`](android/) | 🟢 P0/P1(外殼 + CameraX×L0) | [SA](android/SA.md) · [SD](android/SD.md) |
+| `events/` | 📐 P3 規劃(L2/L3 時序事件) | 與實作 PR 一併補上 |
+| [`core/`](core/) · [`medication/`](medication/) · [`app/`](app/) | 🗄️ ADR-0007 前的參考 | 各 SA/SD |
+
+新模組:複製 [`_template/`](_template/) 開始。此索引隨模組里程碑更新(見 dev-standards skill)。
 
 ## SA 與 SD — 分工
 
