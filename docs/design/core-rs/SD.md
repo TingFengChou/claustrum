@@ -62,6 +62,8 @@ Signature vs 上次已放行 Signature 的 Hamming 距離 ≥ threshold ? 放行
 - `gate` 以合成 luma `cargo test`(Host,無硬體):identical/noise → 略過、真實變化 → 放行、
   首幀放行、畸形輸入安全。**P0:6 tests 綠。**
 - CI(`.github/workflows/ci.yml`)執行 `cargo test --manifest-path core-rs/Cargo.toml`。
+- JNI `ffi` 為薄包裝(僅 `convert_byte_array` → 已測的 `gate::frame_signature`,含長度/零維度
+  防呆),以裝置端**整合測試**(Android app 載入 `.so` 呼叫)覆蓋;可測的純邏輯已在 host 測。
 - 後續 pipeline/events 同樣以合成序列測試;llama.cpp FFI 以整合測試(裝置)覆蓋。
 
 ## 追溯

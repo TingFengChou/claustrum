@@ -35,9 +35,14 @@ pub extern "system" fn Java_com_claustrum_core_NativeCore_frameSignature(
     width: jint,
     height: jint,
 ) -> jlong {
+    if width <= 0 || height <= 0 {
+        return 0;
+    }
     let bytes = match env.convert_byte_array(&luma) {
         Ok(b) => b,
         Err(_) => return 0,
     };
-    frame_signature(&bytes, width.max(0) as usize, height.max(0) as usize).0 as jlong
+    // frame_signature is bounds-safe (returns Signature(0) if luma.len() < w*h),
+    // so a mismatched array cannot cause an out-of-bounds panic.
+    frame_signature(&bytes, width as usize, height as usize).0 as jlong
 }
