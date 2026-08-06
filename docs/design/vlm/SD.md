@@ -18,7 +18,7 @@ llama.cpp 路線)。L1 執行所在的層 = Kotlin,因為 LiteRT/LLM Inference �
 | `PlaceholderCaptioner` | 誠實診斷:尺寸 + 平均亮度 + 2×2 亮度網格;標示「未載入 VLM」 | ✅ |
 | `LumaStats` | 從 luma 算整體與 2×2 象限平均亮度(純函式) | ✅ |
 | `ffi::…_describe` | JNI:`convert_byte_array` → `PlaceholderCaptioner.describe` → `new_string` | ✅(android only) |
-| `LiteRtCaptioner`(Kotlin) | LiteRT-LM SDK `litertlm-android`:`Engine`(backend fallback GPU/GPU→CPU/GPU→CPU/CPU)+ 每放行幀新 `Conversation`;`Content.ImageBytes(png)`+`Text` → 描述;`enable_thinking=false`;穩定 cache 目錄 | ✅ 引擎裝置端初始化(GPU/GPU);推論完成待調(見下) |
+| `LiteRtCaptioner`(Kotlin) | LiteRT-LM SDK `litertlm-android`:`Engine`(backend fallback GPU/GPU→CPU/GPU→CPU/CPU)+ 每放行幀新 `Conversation`;`Content.ImageBytes(png)`+`Text` → 描述;`enable_thinking=false`;穩定 cache 目錄;`maxNumImages=1` + 文字由 `Content.Text` 取出 + client 端輸出上限 | ✅ 引擎初始化(GPU/GPU)+ 有界輸出(~10s);⚠️ 但 `.task` 格式下模型只吐 `<pad>`(文字亦然)→ 待改 `.litertlm` 或 MediaPipe(見 §6.1) |
 
 ## 3. 介面與合約
 
@@ -70,7 +70,13 @@ maxNumTokens)`)**載入一次**(初始化成本高)、跨放行幀重用,`onDest
 - **GPU delegate 需在 manifest 宣告 `libOpenCL.so`(`uses-native-library`,required=false)**,否則 GPU backend 初始化失敗(`vision_litert_compiled_model_executor` / `delegate_kernel_litert` INTERNAL error)。宣告後 **`Engine`(backend=GPU/GPU)初始化成功**。
 - **maxNumTokens 需容納輸入**:影像約 256 vision tokens + 提示詞 ≈ 299,故不可設 256(會 `Input token ids too long`);用 1024。
 - 編譯後的 vision/program cache 持久化於穩定目錄(`<externalFiles>/litert-cache/`,約 1.4GB + 166MB),跨重裝保留。
-- **待調:** 單張放行幀 `describe()` 目前逾時(即使暖 cache)。已加 `enable_thinking=false`(比照 AI Edge Gallery)以避免長思考鏈;若仍逾時,續查 litertlm 串流回呼(`onMessage`/`onDone`)語意或改用同步 API。此為 L1 最後一哩,追蹤於任務。UI 端需搭配載入動畫(Lottie)呈現初始化/推論等待。
+- **已根因(2026-08-07,關鍵發現):** 逾時的**真因不是延遲,而是模型只吐 `<pad>` token**。裝置端逐字量測:首 token @~3.8s、之後穩定串流,但**每個 chunk 都是字面 `"<pad>"`,模型永不吐 EOS**,故 60s 逾時只是症狀。已驗證:
+  - 修好三件周邊(皆為必要前置,已保留):`EngineConfig.maxNumImages=1`(否則不配置影像槽,影像被丟棄);串流文字改由 `Message.contents` 取 `Content.Text.text`(非 `toString()` 的 token dump);**client 端輸出上限**(一句話結束或 140 字即 `cancelProcess`,把不收斂的生成收束為 ~10s 有界結果)+ 影像 downscale ≤768 + 依 rotation 旋正 + 提示詞要求「一句話 30 字內」。
+  - **決定性測試:純文字提示(不含影像)同樣只回 `<pad>`** → 問題**與視覺無關**,是 **litertlm 0.11.0 無法正確解碼 `gemma-3n-E2B-it-int4.task`(MediaPipe `.task` 格式)**:引擎能載入 tflite 子圖與 vision_adapter、能跑生成,但 detokenizer/LM head 對不上,每步都解成 pad。
+- **待決策(L1 最後一哩,擋在此):** 需二擇一——
+  1. **改用 `.litertlm`-native 模型**(litertlm SDK 的原生格式;Google 於 HF/Kaggle 有發佈 Gemma 3n `.litertlm`)。合 ADR-0009(LiteRT-LM),但需**重新下載** 多 GB 模型並改 `model` 目錄格式/URL。
+  2. **改用 MediaPipe LLM Inference API**(`com.google.mediapipe.tasks.genai`,Google AI Edge Gallery 採用,原生吃 `.task`)。**可重用現有已下載的 `.task`**,為已驗證路徑;需在 vlm 加一個 MediaPipe 後端(與 `LiteRtCaptioner` 並列於 `Captioner` 介面後)。
+  - 兩者皆屬「Google AI Edge」範疇。**目前 `FallbackCaptioner` 首次失敗即降級 placeholder,App 不成死路**;此決策不阻擋其餘開發。追蹤於任務 #2/#9。UI 端已有 Lottie 載入動畫呈現初始化/等待。
 
 **LiteRtCaptioner 實作守則(穩健性,必守):**
 - **生命週期競態:** `sendMessageAsync` 為非同步;`onDestroy` 前須先 `conversation.cancelProcess()`

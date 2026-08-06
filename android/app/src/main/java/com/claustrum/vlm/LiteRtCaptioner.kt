@@ -36,6 +36,11 @@ class LiteRtCaptioner(
     private val temperature: Double = 1.0,
     maxTokens: Int = 1024, // context budget: image (~256 vision tokens) + prompt + output
     private val timeoutSec: Long = 60, // runs off the analyzer thread (single-flight), so fail fast
+    // The model streams reliably but rarely emits EOS for a short caption (it keeps
+    // generating). We cap output client-side: stop at the first sentence end past
+    // [softMinChars], or a hard [maxChars], then cancel — a bounded ~1-sentence caption.
+    private val softMinChars: Int = 16,
+    private val maxChars: Int = 140,
 ) : Captioner<Bitmap>, AutoCloseable {
 
     private val engine = createEngine(modelPath, cacheDir, maxTokens)
@@ -56,6 +61,9 @@ class LiteRtCaptioner(
                         backend = be.first,
                         visionBackend = be.second,
                         maxNumTokens = maxTokens,
+                        // MUST allocate image slots or the vision input is dropped and
+                        // the model attends to padding → emits only <pad> tokens.
+                        maxNumImages = 1,
                         cacheDir = cacheDir,
                     )
                 )
@@ -81,25 +89,40 @@ class LiteRtCaptioner(
         val out = StringBuilder()
         val latch = CountDownLatch(1)
         var error: String? = null
+        val modelDone = java.util.concurrent.atomic.AtomicBoolean(false)
+        val cappedEarly = java.util.concurrent.atomic.AtomicBoolean(false)
+        // Downscale before inference: a phone-GPU vision prefill of a full camera
+        // frame is costly; the model re-grids internally anyway.
+        val small = frame.downscaled(maxEdge = 768)
+        val png = small.toPngBytes()
+        val t0 = System.nanoTime()
+        fun ms() = (System.nanoTime() - t0) / 1_000_000
         try {
             conversation.sendMessageAsync(
                 Contents.of(
                     listOf(
-                        Content.ImageBytes(frame.toPngBytes()),
+                        Content.ImageBytes(png),
                         Content.Text(prompt),
                     )
                 ),
                 object : MessageCallback {
                     override fun onMessage(message: Message) {
-                        out.append(message.toString())
+                        synchronized(out) { out.append(message.text()) }
+                        // Stop as soon as we have one complete sentence (or hit the hard
+                        // cap): the model won't stop on its own for short captions.
+                        if (!cappedEarly.get() && out.reachedCaptionEnd(softMinChars, maxChars)) {
+                            cappedEarly.set(true)
+                            latch.countDown()
+                        }
                     }
 
                     override fun onDone() {
+                        modelDone.set(true)
                         latch.countDown()
                     }
 
                     override fun onError(throwable: Throwable) {
-                        error = throwable.message
+                        if (!cappedEarly.get()) error = throwable.message
                         latch.countDown()
                     }
                 },
@@ -107,29 +130,63 @@ class LiteRtCaptioner(
                 // long chain-of-thought (which otherwise runs for many tokens → timeout).
                 mapOf("enable_thinking" to false),
             )
-            if (!latch.await(timeoutSec, TimeUnit.SECONDS)) {
+            val finished = latch.await(timeoutSec, TimeUnit.SECONDS)
+            // We stopped early (or timed out): tell the engine to stop generating.
+            if (!modelDone.get()) {
                 try { conversation.cancelProcess() } catch (_: Exception) {}
-                return "L1 逾時"
             }
+            val text = synchronized(out) { out.toString() }.cleanCaption()
+            Log.i(TAG, "describe @${ms()}ms done=${modelDone.get()} capped=${cappedEarly.get()} finished=$finished len=${text.length}")
+            if (!finished && text.isEmpty()) return "L1 逾時"
+            return error?.takeIf { text.isEmpty() }?.let { "L1 錯誤:$it" }
+                ?: text.ifEmpty { "（無描述）" }
         } catch (t: Throwable) {
             Log.e(TAG, "describe failed", t)
             return "L1 錯誤:${t.message}"
         } finally {
             try { conversation.close() } catch (_: Exception) {}
+            if (small !== frame) small.recycle()
         }
-        return error?.let { "L1 錯誤:$it" } ?: out.toString().trim().ifEmpty { "（無描述）" }
+    }
+
+    /** True once the buffer holds a full sentence past [softMin], or reaches [max]. */
+    private fun StringBuilder.reachedCaptionEnd(softMin: Int, max: Int): Boolean {
+        val n = length
+        if (n >= max) return true
+        if (n < softMin) return false
+        val last = this[n - 1]
+        return last == '。' || last == '！' || last == '？' || last == '!' || last == '?' || last == '\n'
+    }
+
+    /** Trim to the first sentence for a tidy one-line caption. */
+    private fun String.cleanCaption(): String {
+        val t = trim()
+        val end = t.indexOfFirst { it == '。' || it == '！' || it == '？' || it == '!' || it == '?' || it == '\n' }
+        return if (end >= 0) t.substring(0, end + 1) else t
     }
 
     override fun close() {
         try { engine.close() } catch (t: Throwable) { Log.e(TAG, "engine close failed", t) }
     }
 
+    /** Extract just the decoded text from a streamed message (not the raw token dump). */
+    private fun Message.text(): String =
+        contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
+
     private fun Bitmap.toPngBytes(): ByteArray =
         ByteArrayOutputStream().use { compress(Bitmap.CompressFormat.PNG, 100, it); it.toByteArray() }
+
+    /** Scale so the longest edge ≤ [maxEdge]; returns the original if already small. */
+    private fun Bitmap.downscaled(maxEdge: Int): Bitmap {
+        val longEdge = maxOf(width, height)
+        if (longEdge <= maxEdge) return this
+        val s = maxEdge.toFloat() / longEdge
+        return Bitmap.createScaledBitmap(this, (width * s).toInt(), (height * s).toInt(), true)
+    }
 
     companion object {
         private const val TAG = "LiteRtCaptioner"
         const val DEFAULT_PROMPT =
-            "請客觀描述畫面中可見的人物、姿態與動作,只描述看得到的事實,不要臆測或推論意圖。"
+            "用一句話(30 字以內)客觀描述畫面中可見的人物、姿態與動作。只描述看得到的事實,不要臆測意圖,不要分點或延伸說明。"
     }
 }
