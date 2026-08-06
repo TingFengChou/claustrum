@@ -1,0 +1,23 @@
+# Gemini Code Assist (GitHub App) — 每個 PR 自動審查的設定。
+# 安裝 App:https://github.com/apps/gemini-code-assist(owner 在 GitHub 授權)。
+# 審查規則見 .gemini/styleguide.md;與 docs/DEVELOPMENT.md / dev-standards 一致。
+have_fun: false
+
+code_review:
+  # 逐則回覆並查證後才 merge(DEVELOPMENT.md);先聚焦中等以上嚴重度。
+  comment_severity_threshold: MEDIUM
+  max_review_comments: -1
+  pull_request_opened:
+    summary: true
+    code_review: true
+    help: false
+    include_drafts: false
+
+# 不審查建置產物 / 二進位 / 資產(降噪)。
+ignore_patterns:
+  - "**/*.png"
+  - "**/*.jpg"
+  - "**/*.svg"
+  - "android/app/src/main/jniLibs/**"
+  - "**/build/**"
+  - "core-rs/target/**"
