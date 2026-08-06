@@ -16,15 +16,23 @@
 | `gate` | L0 變化閘控:`Signature`(8×8 aHash)、`frame_signature`、`distance`、`ChangeGate` | ✅ P0 |
 | `pipeline`(規劃) | 閘控 → L1(llama.cpp FFI)→ Kineme | P2 |
 | `events`(規劃) | L2/L3 detector 狀態機(見 events 設計) | P3 |
-| `ffi`(規劃) | JNI 入口(jni / uniffi) | P0/後續 |
+| `ffi` | JNI 入口(`jni` crate);android target only | ✅ P0 |
 
 ## 3. 介面與合約
 
 - `ChangeGate::new(threshold: u32)` / `admit(&mut self, luma: &[u8], w, h) -> bool` —— 有狀態閘控;
   只在放行時更新 prev(慢速漂移對照上次「已處理」幀)。
 - `frame_signature(luma, w, h) -> Signature` / `distance(a, b) -> u32` —— 純函式。
-- (後續)JNI:`extern "C"` 或 uniffi 生成的入口,傳 luma、回布林/Kineme/Event。
+- **JNI**(`src/ffi.rs`,android target only):`com.claustrum.core.NativeCore` 對應
+  `nativeHello(): String`、`frameSignature(luma: ByteArray, w, h): Long`(回 aHash;Kotlin 端
+  以 `Long.bitCount(prev xor cur)` 做閘控)。傳 luma、回結果;**影格不過橋**。
 - **影格不留**:只從 luma 算 signature。
+
+`.so` 建置(cargo-ndk):
+```bash
+export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006
+cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release
+```
 
 ## 4. 資料結構
 
