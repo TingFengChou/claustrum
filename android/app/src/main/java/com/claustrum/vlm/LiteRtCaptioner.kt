@@ -187,6 +187,8 @@ class LiteRtCaptioner(
     companion object {
         private const val TAG = "LiteRtCaptioner"
         const val DEFAULT_PROMPT =
-            "用一句話(30 字以內)客觀描述畫面中可見的人物、姿態與動作。只描述看得到的事實,不要臆測意圖,不要分點或延伸說明。"
+            "請務必用「繁體中文」以一句話(30 字以內)客觀描述畫面中可見的人物、姿態與動作。" +
+                "只描述看得到的事實,不要臆測意圖,不要分點或延伸說明。" +
+                "禁止使用英文、拼音或表情符號(emoji),句末以句號結束。"
     }
 }
