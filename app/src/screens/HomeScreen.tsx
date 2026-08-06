@@ -30,7 +30,11 @@ function StatusPill({label}: {label: string}): React.JSX.Element {
   );
 }
 
-export default function HomeScreen(): React.JSX.Element {
+export default function HomeScreen({
+  onStartMonitoring,
+}: {
+  onStartMonitoring?: () => void;
+}): React.JSX.Element {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
@@ -64,8 +68,9 @@ export default function HomeScreen(): React.JSX.Element {
 
         <Pressable
           style={({pressed}) => [styles.cta, pressed && styles.ctaPressed]}
-          accessibilityRole="button">
-          <Text style={styles.ctaText}>詢問家中狀況</Text>
+          accessibilityRole="button"
+          onPress={onStartMonitoring}>
+          <Text style={styles.ctaText}>開始監測</Text>
         </Pressable>
 
         <Text style={styles.footer}>影格僅留存於此裝置 · Edge AI · 離線優先</Text>
