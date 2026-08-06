@@ -177,24 +177,65 @@ App 啟動 → 進入**模型目錄**下載一顆多模態 Gemma(見「Edge AI �
 
 > L1(場景描述/VLM)的**推論引擎採 Google AI Edge / LiteRT,不自建 llama.cpp**([ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md),取代 ADR-0008)。理由:Gemma 3n 多模態只在 LiteRT 跑得動、走 Tensor G5 的 GPU/NPU 比 CPU 版 llama.cpp 快、跨平台(Android/iOS/macOS)、且 [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery) 為 Apache-2.0 開源可直接沿用——**善用而非重造**。
 
-### 這在感知管線的哪一層
+### 感知管線:擷取頻率 · 各模組職責 · 與 AI Edge Gallery 的差異
 
-```
-CameraX(Kotlin)每幀 luma
-  → L0 變化閘控(Rust core-rs,每幀)           只有「場景有變」才放行
-  → [僅放行幀] L1 場景描述(LiteRT / Kotlin)    多模態 Gemma:圖+文 → 一句描述
-  → L2 事件(Rust,規劃)                        跌倒/離開/暴力 → 告警
+```mermaid
+flowchart TB
+  subgraph CAP["① 影像擷取 · CameraX 1.4.1(Kotlin)"]
+    direction TB
+    PV["Preview UseCase<br/>~30 fps → 機器之眼 visor 顯示<br/>(手動啟動守護後才開)"]
+    IA["ImageAnalysis UseCase<br/>KEEP_ONLY_LATEST · ~30 fps<br/>YUV_420_888 → 取 Y/luma 平面"]
+  end
+
+  subgraph L0["② L0 變化閘控 · claustrum-core(Rust,經 JNI)· 每幀 ~30 fps"]
+    direction TB
+    SIG["frameSignature()<br/>64-bit aHash(luma 縮圖)"]
+    GATE["ChangeGate.admit()<br/>Hamming 距離 ≥ 閾值(8)?<br/>靜態場景 → 略過(實測省 ~98%)"]
+  end
+
+  subgraph L1["③ L1 場景描述 · litertlm-android 0.11.0(LiteRT-LM SDK)· 僅放行幀"]
+    direction TB
+    PREP["旋正 + downscale≤768 + PNG<br/>單飛 single-flight · 背景 executor(非 analyzer)"]
+    ENG["Engine(.litertlm, GPU/GPU)<br/>載入一次 · 每放行幀開新 Conversation"]
+    GEN["Content.ImageBytes + Text → 串流 token<br/>client 端一句話上限 → caption(~6.5s)"]
+  end
+
+  FB["FallbackCaptioner<br/>逾時/錯誤即降級 PlaceholderCaptioner(不成死路)"]
+  L2["④ L2 事件引擎(Rust · 規劃 P3)<br/>跌倒/離開/暴力 → 告警"]
+
+  IA --> SIG --> GATE
+  GATE -- "放行(僅場景變化,~2%)" --> PREP --> ENG --> GEN --> L2
+  GATE -- "略過(~98%,回到取幀)" --> IA
+  GEN -. "逾時/錯誤" .-> FB
 ```
 
-每幀的熱路徑(L0)在 Rust;重模型(L1)只在**變化時**被喚醒,交給裝置 NPU 上的 LiteRT——這就是「省算力 + 用對工具」。
+**每幀熱路徑(L0)在 Rust**;重模型(L1)只在**場景變化時**被喚醒、交給裝置 GPU 上的 LiteRT——「省算力 + 用對工具」。頻率一覽:CameraX 取幀 ~30 fps → L0 aHash+閘控每幀 → L1 僅在放行幀(靜態場景幾近 0 次)、單次 ~6.5s。
+
+**MediaPipe 在哪?** MediaPipe LLM Inference(`tasks-genai`)是 Gallery **早期**採用、吃 `.task` 的路徑;本專案改用**更新的 LiteRT-LM SDK(`litertlm-android`)吃 `.litertlm` 原生檔**——因為同一顆 Gemma 的 MediaPipe `.task` 在 litertlm 0.11.0 只會吐 `<pad>`(格式不相容,見 [vlm/SD §6.1](docs/design/vlm/SD.md))。兩者皆屬「Google AI Edge / LiteRT」家族。
+
+#### 與 Google AI Edge Gallery 的關鍵差異
+
+| 面向 | **claustrum(本專案)** | Google AI Edge Gallery |
+|---|---|---|
+| 定位 | **即時串流守護者**——相機持續「看」、主動偵測告警 | 能力展示 App / 手動問答 demo |
+| 觸發 | CameraX 連續串流 → **L0 自動放行** | 使用者每次**手動**選圖 / 打字 |
+| 省算力層 | **L0 Rust 變化閘控(實測省 ~98%)** | 無(每次查詢都全量推論) |
+| L1 SDK | LiteRT-LM `litertlm-android` 0.11.0 | 早期 MediaPipe `tasks-genai` → 近期亦轉 LiteRT-LM |
+| 模型格式 | **`.litertlm` 原生**(`.task` 在 litertlm 只吐 `<pad>`) | `.task`(MediaPipe Task Bundle) |
+| 提示詞 | **固定客觀場景描述**(一句、防臆測、抗誤報) | 使用者自由輸入 |
+| 輸出處理 | **client 端一句話上限 + 逾時降級後備** | 完整多輪對話串流 |
+| 影像來源 | 相機即時幀(旋正 + downscale) | 相簿選圖 / 拍照 |
+| 隱私 | **影格不離裝置**,只外傳文字描述 / 事件 | 本機推論(展示用途) |
+
+> 一句話:claustrum **沿用** Gallery 的下載/LiteRT 推論做法(善用而非重造),但在其前面加上 **Rust L0 變化閘控**把它變成**省算力的即時串流守護者**,而非手動問答。
 
 ### 引擎與模型
 
 | 項目 | 選用 |
 |---|---|
 | 執行期 | **LiteRT-LM SDK**(`com.google.ai.edge.litertlm:litertlm-android`;AI Edge Gallery 現行採用)。舊路徑 MediaPipe LLM Inference(`tasks-genai`)已進維護模式 |
-| 模型 | LiteRT 社群的**多模態 Gemma**——Gemma 3n E2B/E4B(或 AI Edge 目前主打的 Gemma 4 E2B/E4B) |
-| 格式 | **`.litertlm`** / `.task`(Task Bundle) |
+| 模型 | **多模態 Gemma 3n**——`google/gemma-3n-E2B-it-litert-lm`(預設 L1)/ E4B |
+| 格式 | **`.litertlm`(原生,實測可用)**;MediaPipe `.task` 在 litertlm 0.11.0 只吐 `<pad>`、不採用 |
 | 能力 | 圖+文 → 文("Ask Image");日後音+文 |
 | 加速 | Tensor G5 GPU / NPU(LiteRT delegate) |
 
