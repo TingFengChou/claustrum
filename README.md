@@ -4,7 +4,7 @@
 
 **把攝影機從「事後回看」變成「主動防護」的即時守護者。** 在裝置端(edge AI)即時融合視覺與音訊,主動偵測跌倒、暴力等安全事件,並在當下告警——而不是事發後才調閱錄影。全程在邊緣硬體上執行,影像不外傳。
 
-Pixel 10 · **Rust 感知核心** · llama.cpp · Kotlin / Jetpack Compose · Edge AI
+Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack Compose · Edge AI
 
 > **核心命題:** 相機是主動防護的守護者,不是事後回看的記錄器——這正是為什麼整個系統必須**即時 · 串流 · 裝置端**(詳見 [ADR-0006](docs/adr/0006-safety-alert-mvp.md))。目前**手機優先、單節點**([ADR-0004](docs/adr/0004-phone-first-single-node.md))。
 >
@@ -30,14 +30,14 @@ Pixel 10 · **Rust 感知核心** · llama.cpp · Kotlin / Jetpack Compose · Ed
 | 層 | 技術 | 說明 |
 |---|---|---|
 | 感知核心(L0 閘控 · 影格管線 · L2/L3 事件引擎) | **Rust**(cargo-ndk → `.so`,JNI) | 記憶體安全 + 接近 C 的效能;逐幀比較與狀態機的家 |
-| L1 VLM 推論 | **llama.cpp(C/C++)** via Rust FFI(`llama-cpp-2`) | on-device 多模態(SmolVLM / Gemma),已裝置驗證 |
+| L1 VLM 推論 | **Google AI Edge / LiteRT**(Kotlin;LLM Inference,`.litertlm`) | on-device 多模態 Gemma,走 Tensor G5 NPU;沿用 AI Edge Gallery(Apache-2.0),不自建 llama.cpp(ADR-0009) |
 | 相機擷取 | **CameraX(Kotlin)** | 影格交給 Rust,**永不進 UI 層** |
 | 平台 / UI | **Kotlin + Jetpack Compose**(原生 Android) | 預覽 / 字幕 / 告警 / 控制;**無 React Native** |
 | 領域契約 | **JSON Schema** | 跨 Rust / Kotlin / Python 單一真實來源 |
 | 離線工具 | **Python**(bench / eval) | 基準測試、評測 |
 | 建置 | Gradle + cargo-ndk(NDK 27) | Rust `.so` 隨 App 打包 |
 
-資料流:`CameraX →(JNI)Rust:L0 閘控 → 變化才叫 VLM(llama.cpp)→ Kineme → L2 事件 →(JNI)→ Compose UI`。**影格與像素只在原生層流動**(隱私 + 效能)。設計詳見 [ADR-0007](docs/adr/0007-rust-first-redesign.md)。
+資料流:`CameraX → Rust L0 閘控(每幀)→ 變化才喚醒 L1 VLM(Google AI Edge / LiteRT,只在放行幀)→ 描述 → Rust L2 事件 → UI`。**影格只在裝置端流動,只有文字描述進入後續判斷**(隱私 + 效能)。設計詳見 [ADR-0007](docs/adr/0007-rust-first-redesign.md)、[ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md)。
 
 ## 路線圖與現階段重點
 
@@ -91,7 +91,7 @@ flowchart TD
  L0  閘控        motion diff · pose landmarks · 音訊事件 · frame embedding
      │           → 決定哪些瞬間值得一次昂貴推論(目標 100×+ 壓縮)
      ▼
- L1  感知        裝置端 VLM(llama.cpp via Rust FFI;SmolVLM / Gemma)→ 結構化 Kineme
+ L1  感知        裝置端 VLM(Google AI Edge / LiteRT;多模態 Gemma)→ 結構化 Kineme
      │
      ▼
  L2  告警        快路徑:pose / 音訊啟發式(recall)★ MVP 核心
@@ -114,7 +114,7 @@ flowchart TD
 | `core/` `bench/` `eval/` | Python | ✅ 就緒 | 領域型別參考、離線基準測試 / 評測(工具) |
 | `app/`(舊) | React Native | 🗄️ 已淘汰 | 概念驗證(即時字幕 on-device 已驗證);保留於 git 歷史,ADR-0007 取代 |
 
-L1 推論用 **llama.cpp**(via Rust FFI),已在 Pixel 10 驗證 on-device 多模態(SmolVLM / Gemma)。影格與像素只在原生層流動。
+L1 推論採 **Google AI Edge / LiteRT**(多模態 Gemma,`.litertlm`),走 Tensor G5 NPU;不自建 llama.cpp(ADR-0009)。用法見下方「Edge AI 模型使用」。影格只在裝置端流動。
 
 ### 設計文件(SA/SD)
 
@@ -142,6 +142,86 @@ cd claustrum
 ```
 
 離線工具(bench/eval,Python)見 [`bench/README.md`](bench/README.md)。
+
+## Edge AI 模型使用(Google AI Edge / LiteRT)
+
+> L1(場景描述/VLM)的**推論引擎採 Google AI Edge / LiteRT,不自建 llama.cpp**([ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md),取代 ADR-0008)。理由:Gemma 3n 多模態只在 LiteRT 跑得動、走 Tensor G5 的 GPU/NPU 比 CPU 版 llama.cpp 快、跨平台(Android/iOS/macOS)、且 [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery) 為 Apache-2.0 開源可直接沿用——**善用而非重造**。
+
+### 這在感知管線的哪一層
+
+```
+CameraX(Kotlin)每幀 luma
+  → L0 變化閘控(Rust core-rs,每幀)           只有「場景有變」才放行
+  → [僅放行幀] L1 場景描述(LiteRT / Kotlin)    多模態 Gemma:圖+文 → 一句描述
+  → L2 事件(Rust,規劃)                        跌倒/離開/暴力 → 告警
+```
+
+每幀的熱路徑(L0)在 Rust;重模型(L1)只在**變化時**被喚醒,交給裝置 NPU 上的 LiteRT——這就是「省算力 + 用對工具」。
+
+### 引擎與模型
+
+| 項目 | 選用 |
+|---|---|
+| 執行期 | **LiteRT / LiteRT-LM**(經 MediaPipe **LLM Inference** API,Android `com.google.mediapipe:tasks-genai`) |
+| 模型 | LiteRT 社群的**多模態 Gemma**——Gemma 3n E2B/E4B(或 AI Edge 目前主打的 Gemma 4 E2B/E4B) |
+| 格式 | **`.litertlm`** / `.task`(Task Bundle) |
+| 能力 | 圖+文 → 文("Ask Image");日後音+文 |
+| 加速 | Tensor G5 GPU / NPU(LiteRT delegate) |
+
+### 取得模型(二選一)
+
+**A. 用 Google AI Edge Gallery App(最簡單)** — 裝置上安裝 [AI Edge Gallery](https://github.com/google-ai-edge/gallery)(Google Play / APK),在 App 內從 Hugging Face **LiteRT Community** 下載多模態 Gemma,驗證「Ask Image」可跑,確認裝置吃得下該模型。
+
+**B. 手動下載 + 推送到本 App** — 從 HF LiteRT Community 取得 `.litertlm`(或 `.task`),推到 App 的模型目錄:
+
+```bash
+# 例(實際檔名以 LiteRT Community 頁面為準)
+adb push gemma-3n-E2B-it-int4.litertlm \
+  /sdcard/Android/data/com.claustrum/files/models/
+# adb 建立的目錄若 App uid 無法存取,補一次權限:
+adb shell chmod -R 0777 /sdcard/Android/data/com.claustrum/files/models
+```
+
+> 模型檔通常數百 MB~數 GB;E2B 較輕、E4B 較準。第一版建議先用較小的 E2B 版本確認即時性,再視延遲換 E4B。
+
+### App 端如何載入與推論(規劃中的接法)
+
+Android 端以 MediaPipe **LLM Inference** 載入模型並啟用視覺模態,對**放行幀**做一次「圖+文 → 描述」:
+
+```kotlin
+// 1) 載入一次,跨放行幀重用(初始化成本高)
+val llm = LlmInference.createFromOptions(
+    context,
+    LlmInferenceOptions.builder()
+        .setModelPath("/sdcard/Android/data/com.claustrum/files/models/<model>.litertlm")
+        .setMaxTokens(512)
+        .build())
+
+// 2) 每個「放行幀」開一個啟用視覺的 session,送圖+提示詞;用 .use {} 確保釋放(否則會洩漏/OOM)
+val caption = LlmInferenceSession.createFromOptions(
+    llm,
+    LlmInferenceSessionOptions.builder()
+        .setGraphOptions(GraphOptions.builder().setEnableVisionModality(true).build())
+        .build()
+).use { session ->
+    // 只要客觀描述「看得到的」——風險判斷是 L2 的事,且必須有畫面內可見證據,VLM 不臆測。
+    session.addQueryChunk("請客觀描述畫面中可見的人物、姿態與動作,只描述看得到的事實,不要臆測或推論意圖。")
+    session.addImage(BitmapImageBuilder(admittedFrameBitmap).build())
+    session.generateResponse()              // 客觀描述 → 交給 L2 依可見證據判斷事件/風險
+}   // session 於此自動關閉;llm 本身跨幀重用,於 onDestroy 才 close()
+```
+
+實作落在 Kotlin 的 `LiteRtCaptioner`,實作一個**純 Kotlin `Captioner` 介面**(對應 [`vlm`](docs/design/vlm/SD.md) 邊界)——如此 L0→L1 觸發邏輯可用假的 `Captioner` 在 Host 端單元測試,不綁硬體。詳細 API 與版本以官方指南為準:[LLM Inference for Android](https://ai.google.dev/edge/mediapipe/solutions/genai/llm_inference/android)。
+
+> **不變式:L1 只做客觀描述,不判風險、不臆測。** 風險/事件判斷是 **L2** 的職責,且 `risk.level != none` 必須有**畫面內可見證據**——所以提示詞嚴格限制在「描述看得到的」,避免 VLM 幻覺出不存在的威脅(誤報是本專案的頭號敵人)。
+
+### 現況
+
+L1 目前為 `core-rs` 的**佔位後端**(誠實診斷:尺寸/亮度/2×2 網格,標示「未載入 VLM」,不偽造理解),證明 L0→L1 觸發管線在 Pixel 10 端到端可跑。**`LiteRtCaptioner`(真多模態)接入中**——見 [ROADMAP](docs/ROADMAP.md) P2、[ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md)。
+
+### 隱私
+
+影格只在裝置端流動、用完即刪(手機優先單節點,[ADR-0004](docs/adr/0004-phone-first-single-node.md));只有 L1 產出的**文字描述**進入後續 L2 判斷——不外傳、不落地、不留人物身分特徵。
 
 ## 部署拓撲
 
@@ -197,7 +277,8 @@ MVP 以這些指標評斷成敗,而非展示效果:
 - [ADR-0005 — 產品主體為 React Native app](docs/adr/0005-react-native-app.md)(已被 ADR-0007 取代)
 - [ADR-0006 — MVP 重新聚焦:多模態主動安全告警](docs/adr/0006-safety-alert-mvp.md)
 - [ADR-0007 — 打掉重練:Rust 優先、效能優先的原生架構](docs/adr/0007-rust-first-redesign.md)
-- [ADR-0008 — L1 場景描述引擎:llama.cpp(Rust FFI)+ 可抽換 Captioner](docs/adr/0008-l1-caption-engine.md)
+- [ADR-0008 — L1 場景描述引擎:可抽換 Captioner 邊界](docs/adr/0008-l1-caption-engine.md)(llama.cpp 後端已被 ADR-0009 取代;邊界/佔位仍有效)
+- [ADR-0009 — L1 改用 Google AI Edge / LiteRT(不自建 llama.cpp)](docs/adr/0009-edge-ai-litert-ai-edge.md)
 
 ## 授權
 

@@ -15,8 +15,8 @@ Pixel 10(Tensor G5 / Android 17)上經 JNI 回話並跑 L0 閘控**。
   與 `frameSignature()`、以合成幀做裝置端自我測試並顯示結果。
 - **P1(✅):** CameraX `ImageAnalysis` 取每幀 Y(luma)→ `frameSignature`(Rust)→
   Kotlin `ChangeGate` 閘控(持有上次放行 hash,Hamming 距離門檻)→ 即時顯示放行/略過與省算力比。
-- **後續:**(P2)放行幀送 llama.cpp L1 字幕 →(P3)L2 事件告警;Jetpack Compose UI
-  取代程式化 View。
+- **後續:**(P2)放行幀送 L1 場景描述(Kotlin 端 Google AI Edge / LiteRT,ADR-0009)→
+  (P3)L2 事件告警;Jetpack Compose UI 取代程式化 View。
 - **不在範圍內:** 影格離開裝置、雲端上傳、人物身分特徵。
 
 ## 3. 需求

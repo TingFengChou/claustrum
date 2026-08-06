@@ -5,14 +5,16 @@
 
 ## 1. 目的
 
-L1:把 L0 **放行**的幀變成一句場景描述,供 L2 事件判斷(跌倒/暴力…)使用。引擎為
-on-device VLM(llama.cpp),但 L1 對外只暴露一個可抽換的 `Captioner` 邊界(見 ADR-0008)。
+L1:把 L0 **放行**的幀變成一句場景描述,供 L2 事件判斷(跌倒/暴力…)使用。引擎採
+**Google AI Edge / LiteRT**(多模態 Gemma;**不自建 llama.cpp** — ADR-0009,取代 ADR-0008),
+但 L1 對外只暴露一個可抽換的 `Captioner` 邊界。L1 執行落在 **Kotlin 層**(LiteRT/LLM Inference),
+Rust 只保留過渡佔位後端。
 
 ## 2. 範圍
 
 - **在範圍內(已落地):** `Captioner` trait、佔位後端 `PlaceholderCaptioner`(誠實診斷)、
   JNI `describe(...)`;放行幀 → 描述字串。
-- **在範圍內(待實作):** `LlamaCaptioner`(llama.cpp + mmproj,SmolVLM/Gemma)。
+- **在範圍內(待實作):** `LiteRtCaptioner`(Kotlin;Google AI Edge / LiteRT LLM Inference,多模態 Gemma `.litertlm`,圖+文 → 描述)。
 - **不在範圍內:** L0 閘控(見 [`core-rs` gate](../core-rs/SA.md))、L2 事件(見 [`events`](../../ROADMAP.md))、影格回傳/落地。
 
 ## 3. 需求
@@ -30,8 +32,9 @@ on-device VLM(llama.cpp),但 L1 對外只暴露一個可抽換的 `Captioner` �
 ## 4. 相依與假設
 
 - 上游:L0 放行決策(Kotlin `ChangeGate`)。輸入為單通道 luma。
-- 真後端相依:llama.cpp(cmake + NDK 建置)、模型 GGUF + mmproj、可能的 `libmtmd`。
-  **這些前置尚未滿足**(見 ADR-0008 §4),需下載授權與選型。
+- 真後端相依:Google AI Edge / LiteRT(MediaPipe `tasks-genai`)、多模態 Gemma `.litertlm`。
+  沿用 [AI Edge Gallery](https://github.com/google-ai-edge/gallery)(Apache-2.0)的下載/載入模式。
+  模型需下載到裝置(見 README「Edge AI 模型使用」)。
 
 ## 5. 驗收
 
