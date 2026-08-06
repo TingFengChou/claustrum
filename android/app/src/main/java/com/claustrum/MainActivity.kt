@@ -124,10 +124,10 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(Color.parseColor("#FFF6E5"))
-            setPadding(28, 20, 20, 20)
+            setPadding(dp(16), dp(12), dp(12), dp(12))
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, 0, 0, 20) }
+            ).apply { setMargins(0, 0, 0, dp(12)) }
             layoutParams = lp
         }
         val label = TextView(this).apply {
@@ -145,18 +145,21 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showTokenDialog() {
+        val pad = dp(20)
+        // Masked, and never pre-filled with the stored secret (Codex review):
+        // a set token is only indicated by the hint, not revealed.
         val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-            hint = "hf_xxx 存取權杖"
-            setText(tokenStore.hfToken() ?: "")
-            setPadding(40, 30, 40, 30)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            hint = if (tokenStore.hasHfToken()) "已設定 · 輸入新權杖以覆蓋" else "hf_xxx 存取權杖"
+            setPadding(pad, dp(14), pad, dp(14))
         }
         AlertDialog.Builder(this)
             .setTitle("Hugging Face 存取權杖")
-            .setMessage("下載 gated Gemma 模型需要。權杖以加密方式儲存於裝置,僅作為下載請求的授權標頭,不外傳。可於 huggingface.co/settings/tokens 產生(read 權限即可)。")
+            .setMessage("下載 gated Gemma 模型需要。權杖以加密方式儲存於裝置,僅作為下載請求的授權標頭,不外傳、不顯示、不寫入紀錄。可於 huggingface.co/settings/tokens 產生(read 權限即可)。")
             .setView(input)
             .setPositiveButton("儲存") { _, _ ->
-                tokenStore.setHfToken(input.text?.toString())
+                val entered = input.text?.toString()
+                if (!entered.isNullOrBlank()) tokenStore.setHfToken(entered)
                 showModelGate() // rebuild to reflect new state
             }
             .setNeutralButton("清除") { _, _ ->
@@ -165,6 +168,9 @@ class MainActivity : ComponentActivity() {
             .setNegativeButton("取消", null)
             .show()
     }
+
+    /** dp → px for programmatic views (avoids hard-coded pixels across densities). */
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     private fun modelCard(spec: ModelSpec): View {
         val caps = spec.capabilities.joinToString(" · ") { it.label }
@@ -203,14 +209,14 @@ class MainActivity : ComponentActivity() {
         val button = Button(this).apply {
             text = if (ModelRepository.isPresent(this@MainActivity, spec)) "重新下載" else "下載"
             setOnClickListener {
-                val token = if (spec.gated) tokenStore.hfToken() else null
-                if (spec.gated && token == null) {
+                if (spec.gated && !tokenStore.hasHfToken()) {
                     status.text = "🔒 需先設定上方 HF 權杖才能下載此 gated 模型"
                     return@setOnClickListener
                 }
                 isEnabled = false
                 status.text = "排入下載…"
-                ModelRepository.enqueueDownload(this@MainActivity, spec, token)
+                // Token is NOT passed here; the worker reads it from TokenStore.
+                ModelRepository.enqueueDownload(this@MainActivity, spec)
             }
         }
         card.addView(button)

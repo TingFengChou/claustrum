@@ -35,8 +35,11 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) :
         val destPath = inputData.getString(KEY_DEST) ?: return@withContext fail("缺少目的路徑")
         val tmpPath = inputData.getString(KEY_TMP) ?: return@withContext fail("缺少暫存路徑")
         val totalBytes = inputData.getLong(KEY_TOTAL, 0L)
-        val token = inputData.getString(KEY_TOKEN)
         val modelName = inputData.getString(KEY_NAME) ?: "model"
+        // SECURITY: read the HF token from encrypted storage at runtime — never
+        // pass it through WorkManager's persisted job input (would land on disk
+        // unencrypted). See Codex review / TokenStore.
+        val token = TokenStore(applicationContext).hfToken()
 
         val destFile = java.io.File(destPath)
         val tmpFile = java.io.File(tmpPath)
@@ -64,8 +67,11 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) :
             connection.connect()
 
             val code = connection.responseCode
-            if (code == HttpURLConnection.HTTP_UNAUTHORIZED || code == HttpURLConnection.HTTP_FORBIDDEN) {
-                return@withContext fail("需要授權($code):此模型在 Hugging Face 為 gated,需 HF 存取權杖")
+            if (code == HttpURLConnection.HTTP_UNAUTHORIZED) {
+                return@withContext fail("HF 權杖無效或未設定(401):請於上方設定有效的 read 權杖")
+            }
+            if (code == HttpURLConnection.HTTP_FORBIDDEN) {
+                return@withContext fail("已帶權杖,但此帳號尚未取得此模型存取權(403):請至該模型的 Hugging Face 頁面登入並接受 Gemma 授權/申請存取,核准後再下載")
             }
             if (code != HttpURLConnection.HTTP_OK && code != HttpURLConnection.HTTP_PARTIAL) {
                 return@withContext fail("HTTP 錯誤:$code")
@@ -157,7 +163,6 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) :
         const val KEY_DEST = "dest"
         const val KEY_TMP = "tmp"
         const val KEY_TOTAL = "total"
-        const val KEY_TOKEN = "token"
         const val KEY_NAME = "name"
 
         const val KEY_P_RECEIVED = "p_received"
