@@ -6,6 +6,8 @@ appId: com.claustrum
 ---
 - launchApp:
     clearState: true
+    permissions:
+      camera: allow          # 預先授權,避免旅程卡在系統權限對話框
 - assertVisible: "claustrum · Edge AI 模型"
 - assertVisible: "Gemma-3n-E2B-it-int4"
 - assertVisible:
@@ -14,6 +16,8 @@ appId: com.claustrum
 - tapOn: "設定"
 - assertVisible: "Hugging Face 存取權杖"
 - tapOn: "取消"
-# 可進入即時偵測(L0→L1)畫面
-- assertVisible:
+# 真正走過 L0→L1 旅程:進入即時偵測並斷言偵測畫面出現
+- tapOn:
     text: "進入即時偵測.*"
+- assertVisible:
+    text: "L1 後端.*"        # 偵測畫面覆蓋層(相機啟動中/L0→L1 管線)的穩定元素

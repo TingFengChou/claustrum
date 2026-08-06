@@ -265,6 +265,25 @@ L1 目前為 `core-rs` 的**佔位後端**(誠實診斷:尺寸/亮度/2×2 網�
 
 CI(`.github/workflows/ci.yml`)硬性關卡跑上述單元測試 + schema/identity 守衛;Maestro journey 於裝置/模擬器執行。Maestro flow 不驗證任何真實機密(如 HF 權杖)。
 
+## 協作與 CI 流程
+
+我們用 **Claude Code 驅動開發 + GitHub PR 關卡**協作。每個功能/phase 都走同一條路,方便分享與交接:
+
+<img src="assets/design/ci-flow.png" width="100%" alt="協作與 CI 流程:Claude Code 分支開發(邊補單元/Maestro 測試)→ commit/PR → GitHub Actions(CI 硬關卡 + Codex/Gemini AI 審查)→ Claude 查證回覆 → 合併並更新 Milestones;有真問題則回到開發"/>
+
+**規則(硬性,見 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)):**
+
+- **不直接推 `main`**;一律分支 → PR。CI(`.github/workflows/ci.yml`)是**硬關卡**(測試 + schema/身分/影像守衛),紅燈不得合併。
+- **AI 助理審查**於 GitHub Actions 上跑:**Codex**(`AGENTS.md` 規則)與 **Gemini Code Assist**(`.gemini/`)為固定 reviewer;另有本機 `agy`。安裝方式見下。
+- **合併前先諮詢 AI 審查**:逐則檢視並**回覆**,經**查證事實**(讀程式、跑測試、Pixel 10 實機)確認不是真問題後才 merge —— 不看綠勾蓋章。
+- 完成里程碑同步更新 README/ROADMAP/SA-SD 與 **GitHub Milestones**;交接記於 [`docs/HANDOFF.md`](docs/HANDOFF.md)。
+
+**把 AI reviewer 變成固定 reviewer(owner 一次性設定):**
+
+- **Gemini Code Assist** —— 安裝 [GitHub App](https://github.com/apps/gemini-code-assist) 並選本 repo;依 [`.gemini/config.yaml`](.gemini/config.yaml) + [`.gemini/styleguide.md`](.gemini/styleguide.md) 自動審查每個 PR。
+- **OpenAI Codex** —— 於 [Codex GitHub 整合](https://developers.openai.com/codex/integrations/github) 連結 repo 並開 **Automatic reviews**;依 [`AGENTS.md`](AGENTS.md) 的 Code Review Rules 審查(或留言 `@codex review`)。
+- 我們自建的 `ai-review.yml`(需 `GEMINI_API_KEY` secret)為備援;裝上官方 App 後可退役。
+
 ## Firebase(規劃)
 
 雲端後端採 Firebase,但**感知全在裝置端、影格永不上雲**([ADR-0010](docs/adr/0010-firebase-architecture.md)):
