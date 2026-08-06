@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -70,17 +71,19 @@ data class MonitorUi(
  * sees (L1) and hears reads out below. Design: docs/design/ui.
  */
 @Composable
-fun LiveMonitorScreen(ui: MonitorUi, previewView: View, active: Boolean, onActivate: () -> Unit) {
+fun LiveMonitorScreen(ui: MonitorUi, previewView: View, active: Boolean, onActivate: () -> Unit, dev: DevUi = DevUi()) {
     val c = ClaustrumTheme.colors
+    val videoMode = dev.videoFrame != null
     Column(
         Modifier.fillMaxSize().background(c.ground).statusBarsPadding().padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(14.dp))
-        AppBar(active = active, guarding = ui.guarding)
+        AppBar(active = active || videoMode, guarding = ui.guarding || videoMode)
         Spacer(Modifier.height(12.dp))
-        RobotEye(previewView, resolution = ui.resolution, active = active, onActivate = onActivate)
+        RobotEye(previewView, resolution = ui.resolution, active = active, onActivate = onActivate, videoFrame = dev.videoFrame)
         Text(
             when {
+                videoMode -> "機器之眼 · 測試影片 · 過 L0→L1 管線"
                 !active -> "機器之眼 · 待命 · 點擊上方開啟"
                 ui.guarding -> "機器之眼 · 守護中 · 影格不離裝置"
                 else -> "機器之眼 · 啟動中… · 影格不離裝置"
@@ -89,15 +92,19 @@ fun LiveMonitorScreen(ui: MonitorUi, previewView: View, active: Boolean, onActiv
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
         )
+        if (dev.enabled) {
+            DevControls(dev)
+            Spacer(Modifier.height(10.dp))
+        }
         SenseCard(
             label = "看到 · L1 ${ui.backend}",
-            body = if (active) ui.caption else "待命中──尚未開始守護。點擊上方「啟動守護」開啟機器之眼。",
+            body = if (active || videoMode) ui.caption else "待命中──尚未開始守護。點擊上方「啟動守護」開啟機器之眼。",
             eye = true,
         )
         Spacer(Modifier.height(8.dp))
         SenseCard(label = "聽到 · 音訊(規劃)", body = ui.audio, eye = false)
         Spacer(Modifier.height(12.dp))
-        TelemetryRow(ui, active = active)
+        TelemetryRow(ui, active = active || videoMode)
     }
 }
 
@@ -131,7 +138,7 @@ private fun AppBar(active: Boolean, guarding: Boolean) {
 }
 
 @Composable
-private fun RobotEye(previewView: View, resolution: String, active: Boolean, onActivate: () -> Unit) {
+private fun RobotEye(previewView: View, resolution: String, active: Boolean, onActivate: () -> Unit, videoFrame: android.graphics.Bitmap? = null) {
     val c = ClaustrumTheme.colors
     val helmet = Brush.verticalGradient(listOf(c.surface2, c.surface, c.ground))
     Box(
@@ -143,7 +150,28 @@ private fun RobotEye(previewView: View, resolution: String, active: Boolean, onA
             Modifier.fillMaxWidth().aspectRatio(1.5f).clip(RoundedCornerShape(44.dp))
                 .background(c.ground).border(1.dp, c.line, RoundedCornerShape(44.dp)),
         ) {
-            if (!active) {
+            if (videoFrame != null) {
+                // Dev test-video frame fed through the pipeline (not the live camera).
+                androidx.compose.foundation.Image(
+                    bitmap = videoFrame.asImageBitmap(),
+                    contentDescription = "測試影片",
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                val vt = rememberInfiniteTransition(label = "vscan")
+                val vfrac by vt.animateFloat(0.08f, 0.9f, infiniteRepeatable(tween(3200), RepeatMode.Reverse), label = "vy")
+                Box(
+                    Modifier.fillMaxWidth(0.86f).height(2.dp).align(Alignment.TopCenter)
+                        .offset(y = maxHeight * vfrac).background(c.accent.copy(alpha = 0.5f)),
+                )
+                Text(
+                    "測試影片 · L0→L1",
+                    color = c.steel, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(10.dp)
+                        .clip(RoundedCornerShape(5.dp)).background(c.ground.copy(alpha = 0.7f))
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                )
+            } else if (!active) {
                 // Standby — the eye is asleep. Camera preview does NOT start until the
                 // guardian is deliberately activated (the machine eye "wakes up").
                 StandbyEye(onActivate)
@@ -199,6 +227,49 @@ private fun StandbyEye(onActivate: () -> Unit) {
             "點擊開啟機器之眼 · 相機此前不啟動",
             color = c.faint, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
         )
+    }
+}
+
+/** Dev-mode controls: run model eval / play test video, with the latest eval summary. */
+@Composable
+private fun DevControls(dev: DevUi) {
+    val c = ClaustrumTheme.colors
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface2)
+            .border(1.dp, c.warn.copy(alpha = 0.4f), RoundedCornerShape(12.dp)).padding(12.dp),
+    ) {
+        Text("開發者模式 · 模型驗證", color = c.warn, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DevButton(if (dev.evalRunning) "驗證中…" else "▶ 模型驗證", enabled = !dev.evalRunning && !dev.videoPlaying, modifier = Modifier.weight(1f)) { dev.onRunEval() }
+            DevButton(if (dev.videoPlaying) "播放中…" else "▶ 測試影片", enabled = !dev.videoPlaying && !dev.evalRunning, modifier = Modifier.weight(1f)) { dev.onPlayVideo() }
+        }
+        dev.evalSummary?.let { s ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "最近驗證:通過 ${s.passed}/${s.total}(${"%.0f".format(s.passRate)}%) · 平均 ${s.avgLatencyMs}ms · p50 ${s.p50LatencyMs}ms",
+                color = c.steel, fontFamily = Mono, fontSize = 11.sp,
+            )
+        }
+        Text(
+            "影格放 dev_eval/(檔名 fall__倒臥,跌倒.jpg)· 影片放 dev_videos/",
+            color = c.faint, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun DevButton(label: String, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val c = ClaustrumTheme.colors
+    Box(
+        modifier.clip(RoundedCornerShape(10.dp))
+            .background(if (enabled) c.surface else c.surface.copy(alpha = 0.5f))
+            .border(1.dp, c.line, RoundedCornerShape(10.dp))
+            .then(if (enabled) Modifier.clickable { onClick() } else Modifier)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (enabled) c.ink else c.faint, fontSize = 12.sp, fontWeight = FontWeight.Medium)
     }
 }
 

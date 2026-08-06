@@ -18,8 +18,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import com.claustrum.core.ChangeGate
 import com.claustrum.core.NativeCore
+import com.claustrum.model.CaptionLog
+import com.claustrum.model.DevMode
 import com.claustrum.model.ModelSpec
 import com.claustrum.model.ModelsController
+import com.claustrum.vlm.ModelEval
 import com.claustrum.ui.AppShell
 import com.claustrum.ui.IntroScreen
 import com.claustrum.ui.MonitorUi
@@ -60,6 +63,12 @@ class MonitorActivity : ComponentActivity() {
     // preview does NOT start on entering the shell (the machine eye stays in standby).
     private val guardActive = mutableStateOf(false)
 
+    // Developer-mode validation state (only surfaced when DevMode is on).
+    private val evalRunning = mutableStateOf(false)
+    private val evalSummary = mutableStateOf<ModelEval.Summary?>(null)
+    private val devVideoPlaying = mutableStateOf(false)
+    private val devVideoFrame = mutableStateOf<Bitmap?>(null)
+
     private val requestCamera =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startCamera()
@@ -71,6 +80,7 @@ class MonitorActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DevMode.load(this)
         previewView = PreviewView(this)
         setContent {
             // Signature Tesla/Optimus look is dark graphite — force it (guardian instrument),
@@ -94,6 +104,16 @@ class MonitorActivity : ComponentActivity() {
                         // Manual activation: the machine eye wakes (camera starts) only
                         // when the user taps 啟動守護 — never automatically on entry.
                         onActivate = { activateGuardian() },
+                        dev = com.claustrum.ui.DevUi(
+                            enabled = DevMode.enabled.value,
+                            onToggle = { DevMode.set(this, it) },
+                            evalRunning = evalRunning.value,
+                            evalSummary = evalSummary.value,
+                            onRunEval = { runModelEval() },
+                            videoPlaying = devVideoPlaying.value,
+                            videoFrame = devVideoFrame.value,
+                            onPlayVideo = { playDevVideo() },
+                        ),
                     )
                 }
             }
@@ -115,35 +135,122 @@ class MonitorActivity : ComponentActivity() {
         if (guardActive.value) return
         guardActive.value = true
         ensureCameraRunning()
-        runDebugFramesIfPresent()
+    }
+
+    // ---- Developer-mode validation tooling (never affects production paths) ------
+
+    /**
+     * Run the L1 model-eval over labelled frames in `<externalFiles>/dev_eval/`
+     * (filename convention `<label>__<kw1>,<kw2>.jpg`). Each frame → L1 → keyword
+     * score + latency; results recorded to [CaptionLog] and aggregated into
+     * [evalSummary]. Repeatable, so a model swap always gets a basic validation.
+     */
+    private fun runModelEval() {
+        if (evalRunning.value) return
+        val dir = java.io.File(getExternalFilesDir(null), "dev_eval")
+        val imgs = dir.listFiles()
+            ?.filter { it.extension.lowercase() in setOf("jpg", "jpeg", "png") }
+            ?.sortedBy { it.name }
+        if (imgs.isNullOrEmpty()) {
+            uiState.value = uiState.value.copy(caption = "dev_eval/ 內無標註影格(檔名如 fall__倒臥,跌倒.jpg)")
+            return
+        }
+        evalRunning.value = true
+        inferenceExecutor.execute {
+            val p = pipeline
+            val results = ArrayList<ModelEval.CaseResult>()
+            try {
+                for (f in imgs) {
+                    val bmp = android.graphics.BitmapFactory.decodeFile(f.absolutePath) ?: continue
+                    val case = ModelEval.caseFromFileName(f.name)
+                    val t0 = System.currentTimeMillis()
+                    try { p?.describe(bmp) } catch (t: Throwable) { Log.e(TAG, "eval ${f.name} failed", t) }
+                    finally { bmp.recycle() }
+                    val dt = System.currentTimeMillis() - t0
+                    val caption = p?.lastCaption ?: ""
+                    val r = ModelEval.evaluate(caption, dt, case)
+                    results.add(r)
+                    CaptionLog.add(System.currentTimeMillis(), caption, "驗證:${case.label}${if (r.pass) " ✓" else " ✗"}", dt)
+                }
+                val s = ModelEval.summarize(results)
+                Log.i(TAG, "MODELEVAL ${p?.backend} pass=${s.passed}/${s.total} (${"%.0f".format(s.passRate)}%) avg=${s.avgLatencyMs}ms p50=${s.p50LatencyMs}ms")
+                runOnUiThread { evalSummary.value = s }
+            } finally {
+                evalRunning.value = false
+            }
+        }
     }
 
     /**
-     * DEBUG harness: if `<externalFiles>/debug_frames/` holds images, run L1 on each
-     * (alphabetical) and log the caption — validates L1 on canned frames (e.g. a fall
-     * clip) without needing to physically aim the camera. No-op in release / when empty.
+     * Play a test video from `<externalFiles>/dev_videos/` through the pipeline:
+     * sample frames, show each in the visor ([devVideoFrame]) and feed L0→L1, so we
+     * can validate on real footage without physically aiming the camera.
      */
-    private fun runDebugFramesIfPresent() {
-        if (!BuildConfig.DEBUG) return
-        val dir = java.io.File(getExternalFilesDir(null), "debug_frames")
-        val imgs = dir.listFiles()
-            ?.filter { it.extension.lowercase() in setOf("jpg", "jpeg", "png") }
-            ?.sortedBy { it.name } ?: return
-        if (imgs.isEmpty()) return
+    private fun playDevVideo() {
+        if (devVideoPlaying.value) return
+        val dir = java.io.File(getExternalFilesDir(null), "dev_videos")
+        val vids = dir.listFiles()
+            ?.filter { it.extension.lowercase() in setOf("mp4", "webm", "mkv", "3gp") }
+            ?.sortedBy { it.name }
+        if (vids.isNullOrEmpty()) {
+            uiState.value = uiState.value.copy(caption = "dev_videos/ 內無影片(mp4);請先 push 測試影片")
+            return
+        }
+        devVideoPlaying.value = true
         inferenceExecutor.execute {
-            val p = pipeline ?: return@execute
-            for (f in imgs) {
-                val bmp = android.graphics.BitmapFactory.decodeFile(f.absolutePath) ?: continue
-                try {
-                    p.describe(bmp)
-                    Log.i(TAG, "DEBUGFRAME ${f.name} → ${p.lastCaption}")
-                } catch (t: Throwable) {
-                    Log.e(TAG, "debugframe ${f.name} failed", t)
-                } finally {
-                    bmp.recycle()
-                }
+            try {
+                for (v in vids) sampleVideoThroughPipeline(v)
+            } finally {
+                devVideoPlaying.value = false
+                runOnUiThread { devVideoFrame.value = null }
             }
         }
+    }
+
+    /** Sample [video] at ~1.4 fps, display each frame in the visor + run L0→L1 on it. */
+    private fun sampleVideoThroughPipeline(video: java.io.File) {
+        val mmr = android.media.MediaMetadataRetriever()
+        try {
+            mmr.setDataSource(video.absolutePath)
+            val durMs = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: return
+            val stepMs = 700L
+            var t = 0L
+            while (t < durMs) {
+                val frame = mmr.getFrameAtTime(t * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST) ?: run { t += stepMs; return@run null } ?: continue
+                runOnUiThread { devVideoFrame.value = frame }
+                // Feed the perception pipeline (L0 gate then L1 on admit), like a camera frame.
+                val luma = lumaOf(frame)
+                val sig = NativeCore.frameSignature(luma, frame.width, frame.height)
+                val p = pipeline
+                val admitted = p?.admit(sig) ?: false
+                if (admitted) {
+                    val t0 = System.currentTimeMillis()
+                    try { p?.describe(frame) } catch (th: Throwable) { Log.e(TAG, "devvideo describe failed", th) }
+                    val dt = System.currentTimeMillis() - t0
+                    p?.let { CaptionLog.add(System.currentTimeMillis(), it.lastCaption, "影片:${video.name}", dt) }
+                    pushState()
+                }
+                t += stepMs
+            }
+        } catch (th: Throwable) {
+            Log.e(TAG, "sampleVideo failed", th)
+        } finally {
+            try { mmr.release() } catch (_: Throwable) {}
+        }
+    }
+
+    /** Grayscale luma bytes from an ARGB bitmap (for the L0 signature). */
+    private fun lumaOf(bmp: Bitmap): ByteArray {
+        val w = bmp.width; val h = bmp.height
+        val px = IntArray(w * h)
+        bmp.getPixels(px, 0, w, 0, 0, w, h)
+        val out = ByteArray(w * h)
+        for (i in px.indices) {
+            val c = px[i]
+            val r = (c shr 16) and 0xFF; val g = (c shr 8) and 0xFF; val b = c and 0xFF
+            out[i] = ((r * 77 + g * 150 + b * 29) shr 8).toByte()
+        }
+        return out
     }
 
     /** Start the camera exactly once, when the guardian is activated. */
@@ -238,8 +345,10 @@ class MonitorActivity : ComponentActivity() {
         inferenceExecutor.execute {
             var cur: Bitmap? = first
             while (cur != null) {
+                val t0 = System.currentTimeMillis()
                 try { pipeline?.describe(cur) } catch (t: Throwable) { Log.e(TAG, "describe failed", t) }
                 finally { cur.recycle() }
+                pipeline?.let { CaptionLog.add(System.currentTimeMillis(), it.lastCaption, "相機", System.currentTimeMillis() - t0) }
                 pushState()
                 cur = pending.getAndSet(null)
                 if (cur == null) {

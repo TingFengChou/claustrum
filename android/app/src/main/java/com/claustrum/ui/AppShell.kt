@@ -33,6 +33,18 @@ import com.claustrum.ui.theme.ClaustrumTheme
 
 enum class ClaustrumTab(val label: String) { GUARD("守護"), EVENTS("事件"), MODELS("模型"), SETTINGS("設定") }
 
+/** Developer-mode state + callbacks, surfaced only when [enabled]. */
+data class DevUi(
+    val enabled: Boolean = false,
+    val onToggle: (Boolean) -> Unit = {},
+    val evalRunning: Boolean = false,
+    val evalSummary: com.claustrum.vlm.ModelEval.Summary? = null,
+    val onRunEval: () -> Unit = {},
+    val videoPlaying: Boolean = false,
+    val videoFrame: android.graphics.Bitmap? = null,
+    val onPlayVideo: () -> Unit = {},
+)
+
 /**
  * App shell: the four home destinations behind a bottom nav (守護 / 事件 / 模型 /
  * 設定). Single-Activity, tab-switched — no Activity transitions, no dead-ends.
@@ -44,6 +56,7 @@ fun AppShell(
     models: ModelsController,
     guardActive: Boolean,
     onActivate: () -> Unit,
+    dev: DevUi = DevUi(),
 ) {
     val c = ClaustrumTheme.colors
     var tab by remember { mutableStateOf(ClaustrumTab.GUARD) }
@@ -51,10 +64,10 @@ fun AppShell(
     Column(Modifier.fillMaxSize().background(c.ground)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
-                ClaustrumTab.GUARD -> LiveMonitorScreen(monitorUi, previewView, active = guardActive, onActivate = onActivate)
+                ClaustrumTab.GUARD -> LiveMonitorScreen(monitorUi, previewView, active = guardActive, onActivate = onActivate, dev = dev)
                 ClaustrumTab.EVENTS -> EventsScreen()
                 ClaustrumTab.MODELS -> ModelsScreen(models)
-                ClaustrumTab.SETTINGS -> SettingsScreen(monitorUi.backend)
+                ClaustrumTab.SETTINGS -> SettingsScreen(monitorUi.backend, dev = dev)
             }
         }
         BottomNav(tab) { selected ->
