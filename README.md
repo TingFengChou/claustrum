@@ -108,8 +108,8 @@ flowchart TD
 
 | 模組 | 語言 | 狀態 | 用途 |
 |---|---|---|---|
-| `core-rs/` | Rust | 🟢 P0 完成 | 感知核心:L0 閘控(host 測綠)· 影格管線 · L2/L3 事件引擎(→ `.so`) |
-| `android/` | Kotlin(P0/P1)→ Compose | 🟢 P1 完成 | 原生 App:載入 `.so` · CameraX luma → Rust L0 變化閘控(Pixel 10 實測靜態場景省 ~100% 運算);L1 字幕/UI 續接 |
+| `core-rs/` | Rust | 🟢 P0/P1 · P2 seam | 感知核心:L0 閘控(host 測綠)· L1 `Captioner` 邊界(佔位)· L2/L3 事件引擎(→ `.so`) |
+| `android/` | Kotlin(P0/P1)→ Compose | 🟢 P1 · P2 seam | 原生 App:CameraX luma → Rust L0 閘控 → 放行幀喚醒 L1(Pixel 10 實測省 ~100% 運算);真 VLM 後端待接 |
 | `schemas/` | JSON Schema | ✅ 就緒 | 領域型別**單一真實來源**(跨 Rust / Kotlin / Python) |
 | `core/` `bench/` `eval/` | Python | ✅ 就緒 | 領域型別參考、離線基準測試 / 評測(工具) |
 | `app/`(舊) | React Native | 🗄️ 已淘汰 | 概念驗證(即時字幕 on-device 已驗證);保留於 git 歷史,ADR-0007 取代 |
@@ -124,6 +124,7 @@ L1 推論用 **llama.cpp**(via Rust FFI),已在 Pixel 10 驗證 on-device 多模
 |---|---|---|
 | `core-rs/`(Rust 感知核心) | 🟢 P0 | [SA](docs/design/core-rs/SA.md) · [SD](docs/design/core-rs/SD.md) |
 | `android/`(Kotlin 裝置外殼) | 🟢 P0/P1 | [SA](docs/design/android/SA.md) · [SD](docs/design/android/SD.md) |
+| `vlm/`(L1 場景描述) | 🔶 P2 seam | [SA](docs/design/vlm/SA.md) · [SD](docs/design/vlm/SD.md) |
 | `events/`(時序事件引擎) | 📐 P3 規劃 | 與實作 PR 一併補上 SA/SD |
 | `schemas/` 領域型別 | ✅ | 型別即 SoT;參考 [`core/`](docs/design/core/SD.md) |
 | `app/`(舊 RN)· `medication/` | 🗄️ 參考 | [app SD](docs/design/app/SD.md) · [medication SD](docs/design/medication/SD.md)(ADR-0007 前) |
@@ -196,6 +197,7 @@ MVP 以這些指標評斷成敗,而非展示效果:
 - [ADR-0005 — 產品主體為 React Native app](docs/adr/0005-react-native-app.md)(已被 ADR-0007 取代)
 - [ADR-0006 — MVP 重新聚焦:多模態主動安全告警](docs/adr/0006-safety-alert-mvp.md)
 - [ADR-0007 — 打掉重練:Rust 優先、效能優先的原生架構](docs/adr/0007-rust-first-redesign.md)
+- [ADR-0008 — L1 場景描述引擎:llama.cpp(Rust FFI)+ 可抽換 Captioner](docs/adr/0008-l1-caption-engine.md)
 
 ## 授權
 

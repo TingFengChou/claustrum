@@ -41,6 +41,9 @@ class MainActivity : ComponentActivity() {
     private val totalFrames = AtomicLong(0)
     private val admittedFrames = AtomicLong(0)
 
+    // Latest L1 description; recomputed only on an admitted frame.
+    @Volatile private var lastCaption = "（尚無:等待第一個放行幀）"
+
     private lateinit var statusView: TextView
     private lateinit var previewView: PreviewView
 
@@ -129,13 +132,20 @@ class MainActivity : ComponentActivity() {
             val kept = if (admitted) admittedFrames.incrementAndGet() else admittedFrames.get()
             val savedPct = if (total > 0) 100.0 * (total - kept) / total else 0.0
 
+            // L1 wakes ONLY on an admitted frame — this is the compute saver in action.
+            if (admitted) {
+                lastCaption = NativeCore.describe(luma, w, h) ?: "L1 佔位:描述失敗"
+            }
+
             val report = buildString {
-                append("claustrum · L0 變化閘控(裝置端 Rust)\n")
+                append("claustrum · L0→L1 感知管線(裝置端 Rust)\n")
                 append("分析解析度: ${w}×${h}  閾值: ${gate.threshold} bits\n")
                 append("sig: 0x%016x\n".format(sig))
                 append("Hamming(vs 上次放行): $dist\n")
-                append(if (admitted) "決策: ▶ 放行(觸發 L1)\n" else "決策: ⏸ 略過(省算力)\n")
-                append("放行 $kept / 共 $total  → 省下 %.1f%% 運算".format(savedPct))
+                append(if (admitted) "L0 決策: ▶ 放行 → 喚醒 L1\n" else "L0 決策: ⏸ 略過(省算力)\n")
+                append("放行 $kept / 共 $total  → 省下 %.1f%% 運算\n".format(savedPct))
+                append("─────\n")
+                append("L1 最新描述:\n$lastCaption")
             }
             runOnUiThread { statusView.text = report }
         } catch (t: Throwable) {

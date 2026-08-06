@@ -14,9 +14,9 @@
 | 模組 | 職責 | 狀態 |
 |---|---|---|
 | `gate` | L0 變化閘控:`Signature`(8×8 aHash)、`frame_signature`、`distance`、`ChangeGate` | ✅ P0 |
-| `pipeline`(規劃) | 閘控 → L1(llama.cpp FFI)→ Kineme | P2 |
+| `vlm` | L1 邊界 `Captioner` + 佔位後端(誠實診斷);真 llama.cpp 後端待接(見 [vlm 設計](../vlm/SD.md)、ADR-0008) | ✅ P2 seam |
 | `events`(規劃) | L2/L3 detector 狀態機(見 events 設計) | P3 |
-| `ffi` | JNI 入口(`jni` crate);android target only | ✅ P0 |
+| `ffi` | JNI 入口(`jni` crate);android target only:`nativeHello`/`frameSignature`/`describe` | ✅ P0/P2 |
 
 ## 3. 介面與合約
 

@@ -53,11 +53,13 @@ CameraX ImageAnalysis(YUV_420_888, KEEP_ONLY_LATEST, 背景 executor)
   → ImageProxy.planes[0]（Y/luma，依 rowStride 緊密複製成 w*h ByteArray）
   → NativeCore.frameSignature(luma, w, h)  ── Rust 算 aHash（像素不回傳）
   → ChangeGate.admit(sig)                  ── Hamming(vs 上次放行) ≥ 門檻 ? 放行 : 略過
-  → runOnUiThread 更新覆蓋層（sig、距離、決策、放行/總數、省算力%）
+  → 若放行:NativeCore.describe(luma, w, h) ── L1(Rust vlm；只在放行時喚醒)→ lastCaption
+  → runOnUiThread 更新覆蓋層（sig、距離、決策、放行/總數、省算力%、L1 最新描述）
   → ImageProxy.close()                     ── luma 立即釋放，不落地
 ```
 
-放行的幀即為之後 P2 送 llama.cpp L1 字幕的觸發點(「只在場景變化時喚醒 VLM」)。
+L1 **只在放行幀**被呼叫——這即「只在場景變化時喚醒 VLM」的省算力點。目前 L1 後端為
+`core-rs` 的佔位 `Captioner`(誠實診斷),真 llama.cpp 後端見 [vlm 設計](../vlm/SD.md)、ADR-0008。
 
 ## 4. 關鍵介面
 
