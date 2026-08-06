@@ -6,6 +6,7 @@
 //! host with synthetic inputs — no Android hardware required.
 
 pub mod gate;
+pub mod vlm;
 
 // JNI bridge to the Android layer — device-only glue (compiled for Android only,
 // so host `cargo test` stays pure). See docs/design/core-rs.

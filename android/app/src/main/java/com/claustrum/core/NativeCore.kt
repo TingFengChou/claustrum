@@ -24,4 +24,17 @@ object NativeCore {
      * host-tested) so a bad frame is dropped without crashing the perception loop.
      */
     external fun frameSignature(luma: ByteArray, width: Int, height: Int): Long
+
+    /**
+     * L1 scene description for an *admitted* frame (call only when [ChangeGate]
+     * admits, so the VLM wakes only on change). Returns a short description
+     * string; malformed input returns a safe placeholder, never throws.
+     *
+     * Backed today by the diagnostic placeholder captioner; the real on-device
+     * llama.cpp VLM (ADR-0008) slots in behind the same signature.
+     *
+     * Nullable: the native side returns null only if JNI string allocation
+     * fails (rare) — callers substitute a fallback rather than risk an NPE.
+     */
+    external fun describe(luma: ByteArray, width: Int, height: Int): String?
 }
