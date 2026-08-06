@@ -110,7 +110,7 @@ class LiteRtCaptioner(
                         synchronized(out) { out.append(message.text()) }
                         // Stop as soon as we have one complete sentence (or hit the hard
                         // cap): the model won't stop on its own for short captions.
-                        if (!cappedEarly.get() && out.reachedCaptionEnd(softMinChars, maxChars)) {
+                        if (!cappedEarly.get() && CaptionText.reachedEnd(out, softMinChars, maxChars)) {
                             cappedEarly.set(true)
                             latch.countDown()
                         }
@@ -135,7 +135,7 @@ class LiteRtCaptioner(
             if (!modelDone.get()) {
                 try { conversation.cancelProcess() } catch (_: Exception) {}
             }
-            val text = synchronized(out) { out.toString() }.cleanCaption()
+            val text = CaptionText.clean(synchronized(out) { out.toString() })
             Log.i(TAG, "describe @${ms()}ms done=${modelDone.get()} capped=${cappedEarly.get()} finished=$finished len=${text.length}")
             if (!finished && text.isEmpty()) return "L1 逾時"
             return error?.takeIf { text.isEmpty() }?.let { "L1 錯誤:$it" }
@@ -147,22 +147,6 @@ class LiteRtCaptioner(
             try { conversation.close() } catch (_: Exception) {}
             if (small !== frame) small.recycle()
         }
-    }
-
-    /** True once the buffer holds a full sentence past [softMin], or reaches [max]. */
-    private fun StringBuilder.reachedCaptionEnd(softMin: Int, max: Int): Boolean {
-        val n = length
-        if (n >= max) return true
-        if (n < softMin) return false
-        val last = this[n - 1]
-        return last == '。' || last == '！' || last == '？' || last == '!' || last == '?' || last == '\n'
-    }
-
-    /** Trim to the first sentence for a tidy one-line caption. */
-    private fun String.cleanCaption(): String {
-        val t = trim()
-        val end = t.indexOfFirst { it == '。' || it == '！' || it == '？' || it == '!' || it == '?' || it == '\n' }
-        return if (end >= 0) t.substring(0, end + 1) else t
     }
 
     override fun close() {

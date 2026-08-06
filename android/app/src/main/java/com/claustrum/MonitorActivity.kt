@@ -115,6 +115,35 @@ class MonitorActivity : ComponentActivity() {
         if (guardActive.value) return
         guardActive.value = true
         ensureCameraRunning()
+        runDebugFramesIfPresent()
+    }
+
+    /**
+     * DEBUG harness: if `<externalFiles>/debug_frames/` holds images, run L1 on each
+     * (alphabetical) and log the caption — validates L1 on canned frames (e.g. a fall
+     * clip) without needing to physically aim the camera. No-op in release / when empty.
+     */
+    private fun runDebugFramesIfPresent() {
+        if (!BuildConfig.DEBUG) return
+        val dir = java.io.File(getExternalFilesDir(null), "debug_frames")
+        val imgs = dir.listFiles()
+            ?.filter { it.extension.lowercase() in setOf("jpg", "jpeg", "png") }
+            ?.sortedBy { it.name } ?: return
+        if (imgs.isEmpty()) return
+        inferenceExecutor.execute {
+            val p = pipeline ?: return@execute
+            for (f in imgs) {
+                val bmp = android.graphics.BitmapFactory.decodeFile(f.absolutePath) ?: continue
+                try {
+                    p.describe(bmp)
+                    Log.i(TAG, "DEBUGFRAME ${f.name} → ${p.lastCaption}")
+                } catch (t: Throwable) {
+                    Log.e(TAG, "debugframe ${f.name} failed", t)
+                } finally {
+                    bmp.recycle()
+                }
+            }
+        }
     }
 
     /** Start the camera exactly once, when the guardian is activated. */
