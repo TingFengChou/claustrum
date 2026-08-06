@@ -18,7 +18,7 @@ llama.cpp 路線)。L1 執行所在的層 = Kotlin,因為 LiteRT/LLM Inference �
 | `PlaceholderCaptioner` | 誠實診斷:尺寸 + 平均亮度 + 2×2 亮度網格;標示「未載入 VLM」 | ✅ |
 | `LumaStats` | 從 luma 算整體與 2×2 象限平均亮度(純函式) | ✅ |
 | `ffi::…_describe` | JNI:`convert_byte_array` → `PlaceholderCaptioner.describe` → `new_string` | ✅(android only) |
-| `LiteRtCaptioner`(Kotlin) | LiteRT-LM SDK `litertlm-android`:`Engine`(backend fallback GPU/GPU→CPU/GPU→CPU/CPU)+ 每放行幀新 `Conversation`;`Content.ImageBytes(png)`+`Text` → 描述;`enable_thinking=false`;穩定 cache 目錄;`maxNumImages=1` + 文字由 `Content.Text` 取出 + client 端輸出上限 | ✅ 引擎初始化(GPU/GPU)+ 有界輸出(~10s);⚠️ 但 `.task` 格式下模型只吐 `<pad>`(文字亦然)→ 待改 `.litertlm` 或 MediaPipe(見 §6.1) |
+| `LiteRtCaptioner`(Kotlin) | LiteRT-LM SDK `litertlm-android`:`Engine`(backend fallback GPU/GPU→CPU/GPU→CPU/CPU)+ 每放行幀新 `Conversation`;`Content.ImageBytes(png)`+`Text` → 描述;`enable_thinking=false`;穩定 cache 目錄;`maxNumImages=1` + 文字由 `Content.Text` 取出 + client 端輸出上限 + `.litertlm`-native 模型 | ✅ **實機真實描述**(GPU/GPU,~6.5s,非 `<pad>`);`.litertlm` 取代 `.task` 修復(見 §6.1) |
 
 ## 3. 介面與合約
 
@@ -73,10 +73,8 @@ maxNumTokens)`)**載入一次**(初始化成本高)、跨放行幀重用,`onDest
 - **已根因(2026-08-07,關鍵發現):** 逾時的**真因不是延遲,而是模型只吐 `<pad>` token**。裝置端逐字量測:首 token @~3.8s、之後穩定串流,但**每個 chunk 都是字面 `"<pad>"`,模型永不吐 EOS**,故 60s 逾時只是症狀。已驗證:
   - 修好三件周邊(皆為必要前置,已保留):`EngineConfig.maxNumImages=1`(否則不配置影像槽,影像被丟棄);串流文字改由 `Message.contents` 取 `Content.Text.text`(非 `toString()` 的 token dump);**client 端輸出上限**(一句話結束或 140 字即 `cancelProcess`,把不收斂的生成收束為 ~10s 有界結果)+ 影像 downscale ≤768 + 依 rotation 旋正 + 提示詞要求「一句話 30 字內」。
   - **決定性測試:純文字提示(不含影像)同樣只回 `<pad>`** → 問題**與視覺無關**,是 **litertlm 0.11.0 無法正確解碼 `gemma-3n-E2B-it-int4.task`(MediaPipe `.task` 格式)**:引擎能載入 tflite 子圖與 vision_adapter、能跑生成,但 detokenizer/LM head 對不上,每步都解成 pad。
-- **待決策(L1 最後一哩,擋在此):** 需二擇一——
-  1. **改用 `.litertlm`-native 模型**(litertlm SDK 的原生格式;Google 於 HF/Kaggle 有發佈 Gemma 3n `.litertlm`)。合 ADR-0009(LiteRT-LM),但需**重新下載** 多 GB 模型並改 `model` 目錄格式/URL。
-  2. **改用 MediaPipe LLM Inference API**(`com.google.mediapipe.tasks.genai`,Google AI Edge Gallery 採用,原生吃 `.task`)。**可重用現有已下載的 `.task`**,為已驗證路徑;需在 vlm 加一個 MediaPipe 後端(與 `LiteRtCaptioner` 並列於 `Captioner` 介面後)。
-  - 兩者皆屬「Google AI Edge」範疇。**目前 `FallbackCaptioner` 首次失敗即降級 placeholder,App 不成死路**;此決策不阻擋其餘開發。追蹤於任務 #2/#9。UI 端已有 Lottie 載入動畫呈現初始化/等待。
+- **✅ 已解決(2026-08-07,決策:改 `.litertlm`-native 模型):** 目錄改指 `google/gemma-3n-E{2,4}B-it-litert-lm` 的 `.litertlm` 原生檔(E2B = `gemma-3n-E2B-it-int4.litertlm`,3,655,827,456 bytes),取代 `-litert-preview` 的 MediaPipe `.task`。**Pixel 10 實機驗證:同一 `LiteRtCaptioner`(GPU/GPU)產生真實中文場景描述而非 `<pad>`**——例:「畫面中不可見的人物,表面呈現柔和的米白色光澤,模糊不清。」;首 token ~3s、整體 ~6.5s、client 端上限收束為一句話。**結論:pad 問題純為 `.task` × litertlm 格式不相容,換原生 `.litertlm` 即完全修復。** App 端下載/切換與其餘管線不變(合 ADR-0009 LiteRT-LM)。
+- **穩健性前置(隨此保留):** `maxNumImages=1`、串流文字由 `Message.contents` 取 `Content.Text.text`、client 端輸出上限(一句話或 140 字即 `cancelProcess`)、影像 downscale ≤768、依 rotation 旋正、提示詞「一句話 30 字內」。`FallbackCaptioner` 仍在首次失敗即降級 placeholder(不成死路)。UI 端已有 Lottie 載入動畫呈現初始化/等待。
 
 **LiteRtCaptioner 實作守則(穩健性,必守):**
 - **生命週期競態:** `sendMessageAsync` 為非同步;`onDestroy` 前須先 `conversation.cancelProcess()`
