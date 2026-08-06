@@ -6,7 +6,7 @@
 > **Rust 感知核心 + 原生 Android(Kotlin/Compose)+ L1 用 Google AI Edge / LiteRT**(ADR-0009,不自建 llama.cpp)。MVP 的功能目標(下方
 > A–D、社區/幼兒園)不變;實作技術棧改變。重建階段:
 > **P0** 骨架(Rust `.so` + Android + JNI)〔✅ 完成:L0 變化閘控(host `cargo test` 綠)、JNI/`.so`、Android 外殼在 Pixel 10 實測 `nativeHello()` 回話 + L0 閘控 PASS〕· **P1** L0 變化閘控接 CameraX luma 流〔✅ 完成:Pixel 10 實測 640×480 即時串流,靜態場景 1/2250 放行 → 省下 ~100% 運算;`ChangeGate` 7 個 JVM 單元測試綠〕·
-> **P2** L1 場景描述(**Google AI Edge / LiteRT**,不自建 llama.cpp — ADR-0009)〔🔶 進行中:(a)L0→L1 觸發 + `Captioner` 邊界(佔位)已裝置驗證;(b)**App 內模型下載 + 目錄/能力/切換**已落地並裝置驗證(WorkManager 前景下載、gated 401 提示);待接:HF 授權登入 → `LiteRtCaptioner` 真多模態推論。**進入完整開發前先定義 UI/UX。**〕· **P3** L2 事件引擎 · **P4** 音訊融合。
+> **P2** L1 場景描述(**Google AI Edge / LiteRT-LM SDK**,不自建 llama.cpp — ADR-0009)〔🔶 進行中:(a)L0→L1 觸發 + `Captioner` 邊界(佔位)已裝置驗證;(b)**App 內模型下載 + 目錄/能力/切換**已落地並裝置驗證(WorkManager 前景下載、gated 401 提示);(c)**UI/UX 已定稿**([`docs/design/ui`](design/ui/README.md),Tesla/機器之眼);待接:HF 授權登入 → `LiteRtCaptioner`(litertlm-android)真多模態推論 → UI 以 Compose 實作(見 GitHub Milestones #3/#4)〕· **P3** L2 事件引擎(#5)· **P4** 音訊融合(#6)。續作見 [`HANDOFF.md`](HANDOFF.md)。
 > 詳見 [ADR-0007](adr/0007-rust-first-redesign.md)。
 
 ## 全景圖

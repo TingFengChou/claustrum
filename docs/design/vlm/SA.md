@@ -14,7 +14,7 @@ Rust 只保留過渡佔位後端。
 
 - **在範圍內(已落地):** `Captioner` trait、佔位後端 `PlaceholderCaptioner`(誠實診斷)、
   JNI `describe(...)`;放行幀 → 描述字串。
-- **在範圍內(待實作):** `LiteRtCaptioner`(Kotlin;Google AI Edge / LiteRT LLM Inference,多模態 Gemma `.litertlm`,圖+文 → 描述)。
+- **在範圍內(待實作):** `LiteRtCaptioner`(Kotlin;LiteRT-LM SDK `litertlm-android` 的 `Engine`/`Conversation`,多模態 Gemma `.litertlm`,圖+文 → 描述;每放行幀新對話)。
 - **不在範圍內:** L0 閘控(見 [`core-rs` gate](../core-rs/SA.md))、L2 事件(見 [`events`](../../ROADMAP.md))、影格回傳/落地。
 
 ## 3. 需求
