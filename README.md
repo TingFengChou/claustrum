@@ -108,8 +108,8 @@ flowchart TD
 
 | 模組 | 語言 | 狀態 | 用途 |
 |---|---|---|---|
-| `core-rs/` | Rust | 🚧 重建中 | 感知核心:L0 閘控 · 影格管線 · L2/L3 事件引擎(→ `.so`) |
-| `android/` | Kotlin + Compose | 🚧 重建中 | 原生 App:CameraX 擷取 · UI(預覽/字幕/告警) |
+| `core-rs/` | Rust | 🟢 P0 完成 | 感知核心:L0 閘控(host 測綠)· 影格管線 · L2/L3 事件引擎(→ `.so`) |
+| `android/` | Kotlin(P0)→ Compose | 🟢 P0 完成 | 原生 App:載入 `.so` · JNI 呼叫核心(Pixel 10 實測回話 + L0 PASS);CameraX/UI 續接 |
 | `schemas/` | JSON Schema | ✅ 就緒 | 領域型別**單一真實來源**(跨 Rust / Kotlin / Python) |
 | `core/` `bench/` `eval/` | Python | ✅ 就緒 | 領域型別參考、離線基準測試 / 評測(工具) |
 | `app/`(舊) | React Native | 🗄️ 已淘汰 | 概念驗證(即時字幕 on-device 已驗證);保留於 git 歷史,ADR-0007 取代 |

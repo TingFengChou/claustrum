@@ -26,6 +26,13 @@ models/
 # Rust
 core-rs/target/
 
+# Android (Gradle build outputs, machine-local config, prebuilt native libs)
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/jniLibs/
+
 # Python
 __pycache__/
 *.py[cod]
