@@ -1,18 +1,22 @@
 package com.claustrum
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
+import android.text.InputType
 import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.claustrum.model.TokenStore
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -52,6 +56,7 @@ class MainActivity : ComponentActivity() {
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private val gate = ChangeGate(threshold = 8)
     private val captioner: Captioner = PlaceholderCaptioner
+    private val tokenStore by lazy { TokenStore(this) }
 
     private val totalFrames = AtomicLong(0)
     private val admittedFrames = AtomicLong(0)
@@ -90,8 +95,11 @@ class MainActivity : ComponentActivity() {
                 "「看圖描述」能力的模型。"
             textSize = 13f
             setTextColor(Color.parseColor("#555555"))
-            setPadding(0, 16, 0, 24)
+            setPadding(0, 16, 0, 16)
         })
+
+        // HF token row — gated Gemma 需要 Hugging Face 存取權杖才能下載。
+        root.addView(hfTokenRow())
 
         for (spec in ModelSpec.CATALOG) {
             root.addView(modelCard(spec))
@@ -109,6 +117,53 @@ class MainActivity : ComponentActivity() {
         })
 
         setContentView(ScrollView(this).apply { addView(root) })
+    }
+
+    private fun hfTokenRow(): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#FFF6E5"))
+            setPadding(28, 20, 20, 20)
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, 20) }
+            layoutParams = lp
+        }
+        val label = TextView(this).apply {
+            text = if (tokenStore.hasHfToken()) "🔑 Hugging Face:已設定權杖" else "🔒 Hugging Face:未設定(gated 模型需要)"
+            textSize = 12f
+            setTextColor(Color.parseColor("#8A6D00"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val btn = Button(this).apply {
+            text = if (tokenStore.hasHfToken()) "變更" else "設定"
+            setOnClickListener { showTokenDialog() }
+        }
+        row.addView(label); row.addView(btn)
+        return row
+    }
+
+    private fun showTokenDialog() {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            hint = "hf_xxx 存取權杖"
+            setText(tokenStore.hfToken() ?: "")
+            setPadding(40, 30, 40, 30)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Hugging Face 存取權杖")
+            .setMessage("下載 gated Gemma 模型需要。權杖以加密方式儲存於裝置,僅作為下載請求的授權標頭,不外傳。可於 huggingface.co/settings/tokens 產生(read 權限即可)。")
+            .setView(input)
+            .setPositiveButton("儲存") { _, _ ->
+                tokenStore.setHfToken(input.text?.toString())
+                showModelGate() // rebuild to reflect new state
+            }
+            .setNeutralButton("清除") { _, _ ->
+                tokenStore.setHfToken(null); showModelGate()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun modelCard(spec: ModelSpec): View {
@@ -148,9 +203,14 @@ class MainActivity : ComponentActivity() {
         val button = Button(this).apply {
             text = if (ModelRepository.isPresent(this@MainActivity, spec)) "重新下載" else "下載"
             setOnClickListener {
+                val token = if (spec.gated) tokenStore.hfToken() else null
+                if (spec.gated && token == null) {
+                    status.text = "🔒 需先設定上方 HF 權杖才能下載此 gated 模型"
+                    return@setOnClickListener
+                }
                 isEnabled = false
                 status.text = "排入下載…"
-                ModelRepository.enqueueDownload(this@MainActivity, spec /*, hfToken = ... */)
+                ModelRepository.enqueueDownload(this@MainActivity, spec, token)
             }
         }
         card.addView(button)

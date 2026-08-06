@@ -13,8 +13,9 @@
 
 - **已落地:** 模型**目錄**(catalog,含能力/大小/gated 標示)、**App 內下載**(WorkManager,
   可續傳、前景服務、進度)、gated 401 誠實提示、模型「已下載/尚未」狀態。
-- **待接:** Hugging Face 授權(gated Gemma 需存取權杖/登入)、下載後供 L1
-  [`LiteRtCaptioner`](../vlm/SD.md) 載入、模型**切換** UI(選定 L1 用哪顆)。
+- **已落地:** Hugging Face 授權——`TokenStore`(EncryptedSharedPreferences 加密)+ 目錄權杖 UI,
+  gated 下載注入 `Bearer`。
+- **待接:** 下載後供 L1 [`LiteRtCaptioner`](../vlm/SD.md) 載入、模型**切換** UI(選定 L1 用哪顆)。
 - **不在範圍:** 推論本身(見 vlm)、L0/L2(見 core-rs)。
 
 ## 3. 需求

@@ -54,5 +54,8 @@ dependencies {
     // WorkManager: in-app model download (resumable, foreground, progress).
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
+    // Encrypted storage for the Hugging Face access token (gated Gemma downloads).
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     testImplementation("junit:junit:4.13.2")
 }
