@@ -58,45 +58,49 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 
 ## 路線圖與現階段重點
 
-> **現在:架構重建(ADR-0007,Rust 優先、效能優先)。** 感知閉環與即時字幕已在 RN 版於 Pixel 10 驗證可行(概念驗證);正以 **Rust 原生核心 + Android(Compose)** 重建。重建階段 P0–P4 見 [ADR-0007](docs/adr/0007-rust-first-redesign.md)。下方全景圖為 MVP 的功能目標(A–D),不隨此次技術重建改變。
+> **兩條軸線:** **技術重建**(ADR-0007 Rust 優先 / ADR-0009 LiteRT)在推進**怎麼實作**;**MVP 功能目標**(ADR-0006)是**要做到什麼**,不隨技術重建改變。早期 React Native + llama.rn 版本只是概念驗證,已淘汰(ADR-0007/0009),留在 git 歷史。技術進度對齊 [GitHub Milestones](https://github.com/TingFengChou/claustrum/milestones)。
 
 ```mermaid
 flowchart TD
   T["🛡️ 主動防護,不是事後回看 · 即時 · Edge AI · 多模態"]
 
-  subgraph P1["Phase 1 — 基礎(已完成)"]
+  subgraph TECH["技術重建(Rust 核心 + LiteRT;裝置端 Pixel 10)"]
     direction TB
-    P1a["領域模型 + schema · 開發規範 · RN App 實機 · 裝置端 VLM 引擎 llama.rn"]
+    P0["P0 Rust 核心 → JNI → Kotlin ✅"]
+    P1["P1 CameraX × L0 變化閘控(省算力)✅"]
+    P2["P2 L1 場景描述:LiteRT + App 內模型管理 + UI 定稿 🔶"]
+    P25["P2.5 UI 以 Compose 實作(機器之眼)"]
+    P3T["P3 L2 事件引擎(Rust)· P4 音訊融合"]
+    P0 --> P1 --> P2 --> P25 --> P3T
   end
 
-  subgraph P2["Phase 2 — MVP(進行中 · 手機驗證優先)"]
+  subgraph MVP["MVP 功能目標(ADR-0006,不變)"]
     direction TB
-    A["A. 感知閉環:相機 + 麥克風 → 裝置端偵測 → 告警 ✅"]
-    B["B. 跌倒偵測(on-device pose)→ 通知保全 ◀ 下一步"]
-    C["C. 暴力偵測(音 + 視融合)→ 幼兒園聲光告警"]
-    D["D. 告警通道 + 誤報抑制(去重 / 冷卻 / 人工確認)"]
-    A --> B --> D
-    A --> C --> D
+    B["跌倒偵測 → 通知保全 ◀ MVP 核心"]
+    C["暴力偵測(音 + 視融合)→ 幼兒園聲光告警"]
+    D["告警通道 + 誤報抑制(去重 / 冷卻 / 人工確認)"]
+    B --> D
+    C --> D
   end
 
-  subgraph P3["Phase 3+ — 延後 / 未來"]
+  subgraph LATER["延後 / 未來"]
     direction TB
-    F["藥袋辨識 · 離線管線 / Ethogram / 查詢 · AppFunctions · 硬化 · 雙節點 Jetson / 機器人橋接 · ASR/TTS"]
+    F["藥袋辨識 · Ethogram / 查詢 · 雙節點 Jetson / 機器人橋接 · ASR/TTS"]
   end
 
-  T --> P1 --> P2 --> P3
+  T --> TECH --> MVP --> LATER
 
   classDef done fill:#12351f,stroke:#43e0d0,color:#dffdf5;
   classDef now fill:#241a52,stroke:#8be9ff,color:#eaf6ff;
   classDef next fill:#3a2a10,stroke:#ffb054,color:#ffe9cf;
   classDef future fill:#1c1636,stroke:#6b6690,color:#c7c3e0;
-  class P1a,A done;
-  class C,D now;
-  class B next;
-  class F future;
+  class P0,P1 done;
+  class P2 now;
+  class P25,B next;
+  class C,D,P3T,F future;
 ```
 
-完整里程碑、驗收標準與全景圖:[`docs/ROADMAP.md`](docs/ROADMAP.md)。
+完整里程碑、驗收標準與全景圖:[`docs/ROADMAP.md`](docs/ROADMAP.md);續作交接:[`docs/HANDOFF.md`](docs/HANDOFF.md)。
 
 ## 架構
 
