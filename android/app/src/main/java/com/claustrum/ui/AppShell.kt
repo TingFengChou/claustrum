@@ -38,14 +38,20 @@ enum class ClaustrumTab(val label: String) { GUARD("守護"), EVENTS("事件"), 
  * 設定). Single-Activity, tab-switched — no Activity transitions, no dead-ends.
  */
 @Composable
-fun AppShell(monitorUi: MonitorUi, previewView: View, models: ModelsController) {
+fun AppShell(
+    monitorUi: MonitorUi,
+    previewView: View,
+    models: ModelsController,
+    guardActive: Boolean,
+    onActivate: () -> Unit,
+) {
     val c = ClaustrumTheme.colors
     var tab by remember { mutableStateOf(ClaustrumTab.GUARD) }
 
     Column(Modifier.fillMaxSize().background(c.ground)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
-                ClaustrumTab.GUARD -> LiveMonitorScreen(monitorUi, previewView)
+                ClaustrumTab.GUARD -> LiveMonitorScreen(monitorUi, previewView, active = guardActive, onActivate = onActivate)
                 ClaustrumTab.EVENTS -> EventsScreen()
                 ClaustrumTab.MODELS -> ModelsScreen(models)
                 ClaustrumTab.SETTINGS -> SettingsScreen(monitorUi.backend)

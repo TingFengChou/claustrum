@@ -14,7 +14,6 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import com.claustrum.core.ChangeGate
@@ -57,11 +56,17 @@ class MonitorActivity : ComponentActivity() {
     private enum class Route { SPLASH, INTRO, SHELL }
     private val route = mutableStateOf(Route.SPLASH)
     private var cameraStarted = false
+    // The guardian is armed only when the user deliberately activates it — the camera
+    // preview does NOT start on entering the shell (the machine eye stays in standby).
+    private val guardActive = mutableStateOf(false)
 
     private val requestCamera =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startCamera()
-            else uiState.value = uiState.value.copy(caption = "需要相機權限才能守護。")
+            else {
+                guardActive.value = false // fall back to standby so the user can retry
+                uiState.value = uiState.value.copy(caption = "需要相機權限才能守護。")
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,10 +86,15 @@ class MonitorActivity : ComponentActivity() {
                     })
                     // Single-Activity shell: 守護 / 事件 / 模型 / 設定 behind a bottom nav
                     // (no Activity transitions, no dead-ends).
-                    Route.SHELL -> {
-                        LaunchedEffect(Unit) { ensureCameraRunning() }
-                        AppShell(monitorUi = uiState.value, previewView = previewView, models = models)
-                    }
+                    Route.SHELL -> AppShell(
+                        monitorUi = uiState.value,
+                        previewView = previewView,
+                        models = models,
+                        guardActive = guardActive.value,
+                        // Manual activation: the machine eye wakes (camera starts) only
+                        // when the user taps 啟動守護 — never automatically on entry.
+                        onActivate = { activateGuardian() },
+                    )
                 }
             }
         }
@@ -100,7 +110,14 @@ class MonitorActivity : ComponentActivity() {
         }
     }
 
-    /** Start the camera exactly once, when the guardian shell is first shown. */
+    /** User tapped 啟動守護 — arm the guardian and wake the camera (once). */
+    private fun activateGuardian() {
+        if (guardActive.value) return
+        guardActive.value = true
+        ensureCameraRunning()
+    }
+
+    /** Start the camera exactly once, when the guardian is activated. */
     private fun ensureCameraRunning() {
         if (cameraStarted) return
         cameraStarted = true

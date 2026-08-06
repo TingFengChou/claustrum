@@ -39,6 +39,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.material3.Text
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.LottieConstants
+import com.airbnb.lottie.compose.rememberLottieComposition
+import com.claustrum.R
 import com.claustrum.ui.theme.ClaustrumTheme
 import com.claustrum.ui.theme.Mono
 
@@ -65,34 +70,47 @@ data class MonitorUi(
  * sees (L1) and hears reads out below. Design: docs/design/ui.
  */
 @Composable
-fun LiveMonitorScreen(ui: MonitorUi, previewView: View) {
+fun LiveMonitorScreen(ui: MonitorUi, previewView: View, active: Boolean, onActivate: () -> Unit) {
     val c = ClaustrumTheme.colors
     Column(
         Modifier.fillMaxSize().background(c.ground).statusBarsPadding().padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(14.dp))
-        AppBar(guarding = ui.guarding)
+        AppBar(active = active, guarding = ui.guarding)
         Spacer(Modifier.height(12.dp))
-        RobotEye(previewView, resolution = ui.resolution)
+        RobotEye(previewView, resolution = ui.resolution, active = active, onActivate = onActivate)
         Text(
-            if (ui.guarding) "機器之眼 · 守護中 · 影格不離裝置" else "機器之眼 · 啟動中… · 影格不離裝置",
+            when {
+                !active -> "機器之眼 · 待命 · 點擊上方開啟"
+                ui.guarding -> "機器之眼 · 守護中 · 影格不離裝置"
+                else -> "機器之眼 · 啟動中… · 影格不離裝置"
+            },
             color = c.faint, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
         )
-        SenseCard(label = "看到 · L1 ${ui.backend}", body = ui.caption, eye = true)
+        SenseCard(
+            label = "看到 · L1 ${ui.backend}",
+            body = if (active) ui.caption else "待命中──尚未開始守護。點擊上方「啟動守護」開啟機器之眼。",
+            eye = true,
+        )
         Spacer(Modifier.height(8.dp))
         SenseCard(label = "聽到 · 音訊(規劃)", body = ui.audio, eye = false)
         Spacer(Modifier.height(12.dp))
-        TelemetryRow(ui)
+        TelemetryRow(ui, active = active)
     }
 }
 
 @Composable
-private fun AppBar(guarding: Boolean) {
+private fun AppBar(active: Boolean, guarding: Boolean) {
     val c = ClaustrumTheme.colors
+    val (dot, label, on) = when {
+        !active -> Triple(c.faint, "待命", false)
+        guarding -> Triple(c.accent, "守護中", true)
+        else -> Triple(c.warn, "啟動中…", false)
+    }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        ClaustrumMark(size = 20.dp)                 // machine-eye brand mark
+        ClaustrumMark(size = 20.dp, active = active)   // machine-eye brand mark
         Spacer(Modifier.size(9.dp))
         Text("CLAUSTRUM", color = c.ink, fontWeight = FontWeight.ExtraBold, letterSpacing = 3.sp, fontSize = 15.sp)
         Spacer(Modifier.weight(1f))
@@ -102,11 +120,10 @@ private fun AppBar(guarding: Boolean) {
                 .border(1.dp, c.line, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(6.dp).clip(CircleShape).background(if (guarding) c.accent else c.faint))
+            Box(Modifier.size(6.dp).clip(CircleShape).background(dot))
             Spacer(Modifier.size(6.dp))
             Text(
-                if (guarding) "守護中" else "啟動中…",
-                color = if (guarding) c.ink else c.muted,
+                label, color = if (on) c.ink else c.muted,
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
             )
         }
@@ -114,7 +131,7 @@ private fun AppBar(guarding: Boolean) {
 }
 
 @Composable
-private fun RobotEye(previewView: View, resolution: String) {
+private fun RobotEye(previewView: View, resolution: String, active: Boolean, onActivate: () -> Unit) {
     val c = ClaustrumTheme.colors
     val helmet = Brush.verticalGradient(listOf(c.surface2, c.surface, c.ground))
     Box(
@@ -126,25 +143,62 @@ private fun RobotEye(previewView: View, resolution: String) {
             Modifier.fillMaxWidth().aspectRatio(1.5f).clip(RoundedCornerShape(44.dp))
                 .background(c.ground).border(1.dp, c.line, RoundedCornerShape(44.dp)),
         ) {
-            AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
-            // Scan line (animated) — the eye is "alive".
-            val t = rememberInfiniteTransition(label = "scan")
-            val frac by t.animateFloat(
-                0.08f, 0.9f,
-                infiniteRepeatable(tween(3200), RepeatMode.Reverse), label = "y",
-            )
-            Box(
-                Modifier.fillMaxWidth(0.86f).height(2.dp).align(Alignment.TopCenter)
-                    .offset(y = maxHeight * frac).background(c.accent.copy(alpha = 0.5f)),
-            )
-            Text(
-                "L0 監看 · $resolution",
-                color = c.steel, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                modifier = Modifier.align(Alignment.TopEnd).padding(10.dp)
-                    .clip(RoundedCornerShape(5.dp)).background(c.ground.copy(alpha = 0.7f))
-                    .padding(horizontal = 6.dp, vertical = 3.dp),
-            )
+            if (!active) {
+                // Standby — the eye is asleep. Camera preview does NOT start until the
+                // guardian is deliberately activated (the machine eye "wakes up").
+                StandbyEye(onActivate)
+            } else {
+                AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+                // Scan line (animated) — the eye is "alive".
+                val t = rememberInfiniteTransition(label = "scan")
+                val frac by t.animateFloat(
+                    0.08f, 0.9f,
+                    infiniteRepeatable(tween(3200), RepeatMode.Reverse), label = "y",
+                )
+                Box(
+                    Modifier.fillMaxWidth(0.86f).height(2.dp).align(Alignment.TopCenter)
+                        .offset(y = maxHeight * frac).background(c.accent.copy(alpha = 0.5f)),
+                )
+                Text(
+                    "L0 監看 · $resolution",
+                    color = c.steel, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(10.dp)
+                        .clip(RoundedCornerShape(5.dp)).background(c.ground.copy(alpha = 0.7f))
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                )
+            }
         }
+    }
+}
+
+/** Standby content inside the visor: breathing machine-eye + manual "啟動守護". */
+@Composable
+private fun StandbyEye(onActivate: () -> Unit) {
+    val c = ClaustrumTheme.colors
+    val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.machine_eye))
+    Column(
+        Modifier.fillMaxSize().clickable { onActivate() },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        LottieAnimation(
+            composition = composition,
+            iterations = LottieConstants.IterateForever,
+            modifier = Modifier.size(104.dp),
+        )
+        Spacer(Modifier.height(14.dp))
+        Row(
+            Modifier.clip(RoundedCornerShape(12.dp)).background(c.accent)
+                .clickable { onActivate() }.padding(horizontal = 22.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("▶  啟動守護", color = c.onAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "點擊開啟機器之眼 · 相機此前不啟動",
+            color = c.faint, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+        )
     }
 }
 
@@ -202,8 +256,12 @@ private fun EarIcon() {
 }
 
 @Composable
-private fun TelemetryRow(ui: MonitorUi) {
+private fun TelemetryRow(ui: MonitorUi, active: Boolean) {
     val c = ClaustrumTheme.colors
+    if (!active) {
+        Text("L0 ⏸ 待命 · 尚未取幀", color = c.faint, fontFamily = Mono, fontSize = 11.sp)
+        return
+    }
     val decision = if (ui.admitted) "▶ 放行" else "⏸ 略過"
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text("L0 $decision · Δ${ui.distance}/${ui.threshold}", color = c.muted, fontFamily = Mono, fontSize = 11.sp)
