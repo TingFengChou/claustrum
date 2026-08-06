@@ -5,4 +5,7 @@ module.exports = {
   useCameraDevice: () => null,
   useCameraPermission: () => ({hasPermission: false, requestPermission: async () => {}}),
   useMicrophonePermission: () => ({hasPermission: false, requestPermission: async () => {}}),
+  usePhotoOutput: () => ({
+    capturePhotoToFile: async () => ({filePath: '', dispose() {}}),
+  }),
 };

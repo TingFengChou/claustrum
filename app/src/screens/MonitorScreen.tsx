@@ -2,10 +2,15 @@ import React, {useEffect, useRef, useState} from 'react';
 import {Pressable, StatusBar, StyleSheet, Text, View} from 'react-native';
 import {
   Camera,
+  type CameraRef,
   useCameraDevice,
   useCameraPermission,
   useMicrophonePermission,
+  usePhotoOutput,
 } from 'react-native-vision-camera';
+import {describeImage, loadVlm, releaseVlm} from '../vlm/vlmService';
+import {SMOLVLM_256M} from '../vlm/models';
+import {CAPTION_PROMPT} from '../vlm/caption';
 import {colors, font, radius, space} from '../theme';
 
 /**
@@ -20,7 +25,11 @@ export default function MonitorScreen({onBack}: {onBack: () => void}): React.JSX
   // (violence-sound, ADR-0006). Audio capture is wired with detection in B/C.
   const {requestPermission: requestMic} = useMicrophonePermission();
   const device = useCameraDevice('back');
+  const photoOutput = usePhotoOutput({qualityPrioritization: 'speed'});
+  const camera = useRef<CameraRef>(null);
   const [alerting, setAlerting] = useState(false);
+  const [caption, setCaption] = useState('');
+  const [vlmStatus, setVlmStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Request on explicit user action (below), not abruptly on mount.
@@ -31,6 +40,57 @@ export default function MonitorScreen({onBack}: {onBack: () => void}): React.JSX
       }
     };
   }, []);
+
+  // Load the on-device VLM (SmolVLM) once the camera is available.
+  useEffect(() => {
+    if (!hasCamera || !device) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        await loadVlm(SMOLVLM_256M);
+        if (!cancelled) {
+          setVlmStatus('ready');
+        }
+      } catch {
+        if (!cancelled) {
+          setVlmStatus('error');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      releaseVlm();
+    };
+  }, [hasCamera, device]);
+
+  // Live-caption loop (即時字幕): snapshot → on-device VLM → subtitle.
+  useEffect(() => {
+    if (vlmStatus !== 'ready') {
+      return;
+    }
+    let active = true;
+    (async () => {
+      while (active) {
+        try {
+          const file = await photoOutput.capturePhotoToFile({}, {});
+          const text = await describeImage(file.filePath, CAPTION_PROMPT, 48);
+          if (active && text.trim()) {
+            setCaption(text.trim());
+          }
+          // TODO(cleanup): capturePhotoToFile writes a temp file per frame;
+          // delete it after use once a native fs helper is available.
+        } catch {
+          // skip this frame
+        }
+        await new Promise<void>(res => setTimeout(res, 400));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [vlmStatus]);
 
   const requestAccess = async () => {
     await requestCamera();
@@ -76,7 +136,13 @@ export default function MonitorScreen({onBack}: {onBack: () => void}): React.JSX
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-      <Camera style={StyleSheet.absoluteFill} device={device} isActive={true} />
+      <Camera
+        ref={camera}
+        style={StyleSheet.absoluteFill}
+        device={device}
+        isActive={true}
+        outputs={[photoOutput]}
+      />
 
       {/* top status */}
       <View style={styles.topBar}>
@@ -97,9 +163,18 @@ export default function MonitorScreen({onBack}: {onBack: () => void}): React.JSX
         </View>
       )}
 
-      {/* bottom controls — 模擬偵測 is a stand-in until on-device detection (B) lands */}
+      {/* live caption (即時字幕) — on-device VLM narrates the scene */}
       <View style={styles.bottom}>
-        <Text style={styles.hint}>感知閉環已運行。偵測模型(pose / 音訊)接上後,事件會自動觸發告警。</Text>
+        <View style={styles.captionBar}>
+          <Text style={styles.captionLabel}>即時描述 · 裝置端 SmolVLM</Text>
+          <Text style={styles.captionText} numberOfLines={3}>
+            {vlmStatus === 'loading'
+              ? '載入裝置端模型中…'
+              : vlmStatus === 'error'
+              ? '模型載入失敗(請確認模型檔已推送到裝置)'
+              : caption || '感知中…'}
+          </Text>
+        </View>
         <Pressable style={styles.simBtn} onPress={fireAlert}>
           <Text style={styles.simText}>模擬偵測事件</Text>
         </Pressable>
@@ -179,16 +254,26 @@ const styles = StyleSheet.create({
     right: space(5),
     alignItems: 'center',
   },
-  hint: {
-    color: colors.textDim,
-    fontSize: font.micro,
-    textAlign: 'center',
+  captionBar: {
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(15,12,28,0.78)',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: space(3),
+    paddingHorizontal: space(4),
     marginBottom: space(3),
-    backgroundColor: 'rgba(15,12,28,0.6)',
-    borderRadius: radius.sm,
-    paddingVertical: space(2),
-    paddingHorizontal: space(3),
-    overflow: 'hidden',
+  },
+  captionLabel: {
+    color: colors.language,
+    fontSize: font.micro,
+    letterSpacing: 1,
+    marginBottom: space(1.5),
+  },
+  captionText: {
+    color: colors.text,
+    fontSize: font.body,
+    lineHeight: 22,
   },
   simBtn: {
     backgroundColor: 'rgba(31,25,64,0.9)',

@@ -41,15 +41,23 @@ export async function loadVlm(
   ctx = c;
 }
 
-/** Run a single multimodal completion over one image. Requires loadVlm() first. */
-export async function describeImage(imagePath: string, prompt: string): Promise<string> {
+/**
+ * Run a single multimodal completion over one image. Requires loadVlm() first.
+ * `maxTokens` caps output length — keep it small for the live-caption subtitle
+ * (small VLMs ignore "one short sentence" and ramble otherwise).
+ */
+export async function describeImage(
+  imagePath: string,
+  prompt: string,
+  maxTokens = 512,
+): Promise<string> {
   if (!ctx) {
     throw new Error('VLM not loaded — call loadVlm() first');
   }
   const res = await ctx.completion({
     messages: [{role: 'user', content: prompt}],
     media_paths: [imagePath],
-    n_predict: 512,
+    n_predict: maxTokens,
     temperature: 0.1,
   });
   return res.text ?? '';
