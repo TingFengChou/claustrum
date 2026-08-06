@@ -59,7 +59,34 @@ CameraX ImageAnalysis(YUV_420_888, KEEP_ONLY_LATEST, 背景 executor)
 ```
 
 L1 **只在放行幀**被呼叫——這即「只在場景變化時喚醒 VLM」的省算力點。目前 L1 後端為
-`core-rs` 的佔位 `Captioner`(誠實診斷),真 llama.cpp 後端見 [vlm 設計](../vlm/SD.md)、ADR-0008。
+`core-rs` 的佔位(經 `NativeCore.describe`,誠實診斷);真後端改走 Kotlin 端
+**Google AI Edge / LiteRT**(`LiteRtCaptioner`,ADR-0009,取代 ADR-0008 的 llama.cpp)。
+
+## 3.2 L1 後端(LiteRtCaptioner)元件設計
+
+**Captioner 介面(純 Kotlin,可測試):**
+```kotlin
+interface Captioner {                      // analyzer 只依賴介面,不綁硬體
+    fun describe(frame: LumaFrame): String // 或 Bitmap;放行幀 → 客觀描述
+}
+```
+- `NativePlaceholderCaptioner` — 過渡:委派 `NativeCore.describe`(Rust 診斷佔位)。
+- `LiteRtCaptioner` — 真後端:持有 `LlmInference`,呼叫 LiteRT LLM Inference。
+- `FakeCaptioner`(test)— 回固定字串,讓 **L0→L1 觸發邏輯在 Host 端單元測試**(不需模型/硬體)。
+
+**LlmInference 生命週期(LiteRtCaptioner):**
+- **建立一次**:`LlmInference.createFromOptions(...)`(模型路徑、maxTokens),初始化成本高,存活整個相機 session;於 `onDestroy`/停止時 `close()` 釋放。
+- **每個放行幀**:開一個啟用視覺模態的 `LlmInferenceSession`,`addQueryChunk(客觀提示)` + `addImage(bitmap)` → `generateResponse()`,用畢關閉 session。
+- **執行緒**:在 analyzer 背景 executor 上呼叫(與 L0 同一序列),避免阻塞 UI;推論較慢時以最新放行幀為準(丟舊)。
+
+**與 ChangeGate 的互動(循序):**
+```
+analyzer(每幀) → NativeCore.frameSignature → ChangeGate.admit
+   放行 → captioner.describe(frame)  ── 介面呼叫;真實為 LiteRtCaptioner(NPU)
+        → 更新 lastCaption / 交 L2
+   略過 → 不呼叫 L1(省算力)
+```
+**不變式:** 提示詞嚴格限「描述看得到的」;風險判斷屬 L2 且需可見證據,L1 不臆測(見 [ADR-0006](../../adr/0006-safety-alert-mvp.md))。
 
 ## 4. 關鍵介面
 
@@ -90,7 +117,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   與 CameraX 即時閘控統計(見 SA §5)。
 - L0 閘控純邏輯亦在 [`core-rs`](../core-rs/SD.md) host `cargo test` 覆蓋(Rust 端 `frameSignature`);
   JNI 薄綁定由「載入 `.so` 能回正確值」的整合測試背書。
-- **後續自動化:** Android `androidTest`(Instrumented)呼叫 `NativeCore` 做煙霧測試。
+- **L1 觸發邏輯(host,規劃):** analyzer 依賴 `Captioner` 介面,測試以 `FakeCaptioner`
+  注入,驗「放行才呼叫 describe、略過不呼叫、lastCaption 更新」——**不需模型/硬體**。
+  只有 `LiteRtCaptioner` 本身(真 LiteRT 呼叫)需 `androidTest`(Instrumented/裝置)覆蓋。
+- **後續自動化:** Android `androidTest`(Instrumented)呼叫 `NativeCore` 與 `LiteRtCaptioner` 做煙霧測試。
 
 ## 7. 隱私與穩健性
 

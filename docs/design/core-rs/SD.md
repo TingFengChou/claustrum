@@ -14,7 +14,7 @@
 | 模組 | 職責 | 狀態 |
 |---|---|---|
 | `gate` | L0 變化閘控:`Signature`(8×8 aHash)、`frame_signature`、`distance`、`ChangeGate` | ✅ P0 |
-| `vlm` | L1 邊界 `Captioner` + 佔位後端(誠實診斷);真 llama.cpp 後端待接(見 [vlm 設計](../vlm/SD.md)、ADR-0008) | ✅ P2 seam |
+| `vlm` | L1 邊界 `Captioner` + 佔位後端(誠實診斷);真後端改走 Kotlin 端 Google AI Edge / LiteRT(見 [vlm 設計](../vlm/SD.md)、ADR-0009) | ✅ P2 seam |
 | `events`(規劃) | L2/L3 detector 狀態機(見 events 設計) | P3 |
 | `ffi` | JNI 入口(`jni` crate);android target only:`nativeHello`/`frameSignature`/`describe` | ✅ P0/P2 |
 
@@ -55,7 +55,7 @@ Signature vs 上次已放行 Signature 的 Hamming 距離 ≥ threshold ? 放行
 ## 7. 相依性
 
 - P0:無外部 crate。
-- 後續:`llama-cpp-2`(L1 FFI)、`jni`(或 uniffi)。
+- 後續:`jni`(已用);L1 不再是 core-rs 相依(改走 Kotlin 端 LiteRT,ADR-0009)。
 
 ## 8. 測試策略(必備)
 
@@ -64,7 +64,8 @@ Signature vs 上次已放行 Signature 的 Hamming 距離 ≥ threshold ? 放行
 - CI(`.github/workflows/ci.yml`)執行 `cargo test --manifest-path core-rs/Cargo.toml`。
 - JNI `ffi` 為薄包裝(僅 `convert_byte_array` → 已測的 `gate::frame_signature`,含長度/零維度
   防呆),以裝置端**整合測試**(Android app 載入 `.so` 呼叫)覆蓋;可測的純邏輯已在 host 測。
-- 後續 pipeline/events 同樣以合成序列測試;llama.cpp FFI 以整合測試(裝置)覆蓋。
+- 後續 events 同樣以合成序列測試。L1 觸發邏輯在 Kotlin 端以 `Captioner` 介面 + `FakeCaptioner`
+  做 host 單元測試(不綁硬體);只有 `LiteRtCaptioner` 真呼叫需裝置整合測試(見 [android SD](../android/SD.md))。
 
 ## 追溯
 
