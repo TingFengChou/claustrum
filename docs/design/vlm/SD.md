@@ -40,9 +40,11 @@ llama.cpp 路線)。L1 執行所在的層 = Kotlin,因為 LiteRT/LLM Inference �
 # 過渡(佔位,Rust):
 L0 放行 → NativeCore.describe(luma,w,h) → (JNI) Captioner.describe
         → PlaceholderCaptioner:LumaStats.of(luma) → "L1 佔位(未載入 VLM)· WxH · 亮度 N% · 網格[..]"
-# 真後端(Kotlin/LiteRT):
-L0 放行 → LiteRtCaptioner.describe(bitmap) → LlmInference session(啟用視覺)+ 圖 + 提示詞
-        → LiteRT(Tensor G5 NPU)→ 場景描述字串
+# 真後端(Kotlin/LiteRT-LM SDK litertlm-android):
+L0 放行 → LiteRtCaptioner.describe(bitmap)
+        → engine(載一次,visionBackend=GPU)+ **每幀新 Conversation**(單幀獨立,不累積歷史)
+        → Content.ImageBytes(png) + Content.Text(客觀提示) → sendMessageAsync
+        → LiteRT(Tensor G5 GPU/NPU)→ 場景描述字串;用畢 conversation.close()
         → Kotlin 覆蓋層顯示 / 餵給 L2
 ```
 
@@ -55,10 +57,20 @@ L0 放行 → LiteRtCaptioner.describe(bitmap) → LlmInference session(啟用�
 
 ## 6.1 真後端狀態管理(LiteRT 在 Kotlin)
 
-因 L1 改走 Kotlin 端 LiteRT(ADR-0009),模型狀態自然由 **Kotlin 持有**:`LlmInference`
-**載入一次**(初始化成本高)、跨放行幀重用;每個放行幀開一個啟用視覺模態的 session 送圖+提示詞。
-不需要早先規劃的 Rust 端 `OnceLock<Mutex<…>>` 或 handle 跨 JNI 傳遞——那是 llama.cpp-in-Rust
-路線的產物,已隨 ADR-0009 作廢。過渡期 `PlaceholderCaptioner` 仍為無狀態、JNI 每次新建即可。
+因 L1 改走 Kotlin 端 LiteRT-LM SDK(`com.google.ai.edge.litertlm:litertlm-android`,ADR-0009),
+模型狀態由 **Kotlin 持有**:`Engine`(`EngineConfig(modelPath, backend=GPU, visionBackend=GPU,
+maxNumTokens)`)**載入一次**(初始化成本高)、跨放行幀重用,`onDestroy` 才 `close()`。**每個放行幀
+建立全新 `Conversation`**(單幀獨立判斷,避免累積對話歷史造成上下文污染 / token 爆量),送
+`Content.ImageBytes(png)` + `Content.Text(客觀提示)`,用畢 `close()`。因 L0 已閘控,PNG 編碼與新對話
+只在放行幀付出,非逐幀熱路徑。不需早先規劃的 Rust 端 `OnceLock<Mutex<…>>`(llama.cpp-in-Rust 路線的
+產物,已隨 ADR-0009 作廢)。過渡期 `PlaceholderCaptioner` 仍為無狀態、JNI 每次新建即可。
+
+**LiteRtCaptioner 實作守則(穩健性,必守):**
+- **生命週期競態:** `sendMessageAsync` 為非同步;`onDestroy` 前須先 `conversation.cancelProcess()`
+  並等待/保證回呼結束,才 `engine.close()`,避免釋放使用中資源導致 C++ 崩潰。
+- **單線(single-flight)防重入:** L0 快速連續放行時,**推論中則丟棄新放行幀**(只保留最新一張,
+  比照 CameraX `KEEP_ONLY_LATEST`),不得並發建立多個 `Conversation`(否則 OOM / GPU 過載)。
+- **執行緒:** PNG 編碼與推論在**背景 executor**(非 CameraX analyzer 執行緒)進行,避免阻塞取幀。
 
 ## 7. 測試策略(必備)
 

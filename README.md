@@ -16,9 +16,16 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 
 > **設計語彙取 Tesla / Optimus 的精密科技感;相機被框成「機器之眼」——牠看到、聽到的內容即時呈現於眼下,更擬真。** 近單色石墨/白、髮絲級線條、單一 Tesla 紅強調、等寬儀表數據。
 
-🤖 **互動原型(可直接開瀏覽器看):** [`docs/design/ui/claustrum-uiux.html`](docs/design/ui/claustrum-uiux.html) · 設計說明:[`docs/design/ui/`](docs/design/ui/README.md)
+<p align="center">
+  <img src="assets/design/uiux-live-monitor.png" width="300" alt="即時守護:相機被框成機器人的眼睛(Optimus 風格 visor),牠看到/聽到的內容呈現於眼下"/>
+</p>
+<p align="center"><em>① 即時守護 · 機器之眼 —— 相機是牠的眼睛;牠看到(L1 客觀描述)、聽到(音訊)的內容即時呈現於眼下。</em></p>
 
-四個核心畫面:**① 即時守護 · 機器之眼**(相機=機器人眼睛,看到/聽到呈現於眼下)· **② 模型目錄與切換**(多模型瀏覽 + App 內下載 + 一鍵切換 L1 模型)· **③ 主動告警**(附畫面內可見證據,通知保全)· **④ 事件記錄**(嚴重度分色 + 誤報回流)。
+**四個核心畫面**(互動原型可直接開瀏覽器:[`docs/design/ui/claustrum-uiux.html`](docs/design/ui/claustrum-uiux.html) · 說明:[`docs/design/ui/`](docs/design/ui/README.md)):
+
+<img src="assets/design/uiux-screens.png" width="100%" alt="claustrum 四個核心畫面:即時守護(機器之眼)、模型目錄與切換、主動告警、事件記錄"/>
+
+**① 即時守護 · 機器之眼** · **② 模型目錄與切換**(多模型 + App 內下載 + 一鍵切換 L1 模型)· **③ 主動告警**(附畫面內可見證據 → 通知保全)· **④ 事件記錄**(嚴重度分色 + 誤報回流)。
 
 貫穿不變式:影格不離裝置;L1 只客觀描述、風險判斷屬 L2 且需可見證據;**模型可換為一等公民**。進入完整開發前,UI/UX 以此稿定義(dev-standards)。
 
@@ -143,17 +150,24 @@ L1 推論採 **Google AI Edge / LiteRT**(多模態 Gemma,`.litertlm`),走 Tensor
 
 ## 快速上手
 
-架構重建中(ADR-0007)。目標建置流程:Rust 感知核心 → `.so`(cargo-ndk),再由 Android(Gradle)打包。
+P0/P1 + P2 seam 已可在裝置上跑(Pixel 10)。建置:Rust 感知核心 → `.so`(cargo-ndk),再由 Android(Gradle)打包。
 
 ```bash
 git clone https://github.com/TingFengChou/claustrum.git
 cd claustrum
-# core-rs/  → cargo ndk -t arm64-v8a build --release   (產生 .so)
-# android/  → ./gradlew assembleRelease                (打包並安裝到 Pixel 10)
-# P0 骨架建置中;詳見 docs/adr/0007-rust-first-redesign.md 與 docs/ROADMAP.md
+
+# 1) Rust 核心:host 測 + 交叉編譯 .so 到 android jniLibs
+cd core-rs && cargo test
+export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006
+cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release
+
+# 2) Android App:單元測試 + 建 APK + 安裝
+cd ../android && ./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk   # 舊簽章衝突先 adb uninstall com.claustrum
 ```
 
-離線工具(bench/eval,Python)見 [`bench/README.md`](bench/README.md)。
+App 啟動 → 進入**模型目錄**下載一顆多模態 Gemma(見「Edge AI 模型使用」)→「進入即時偵測」看 L0→L1 管線。續作與交接見 [`docs/HANDOFF.md`](docs/HANDOFF.md)。離線工具(bench/eval,Python)見 [`bench/README.md`](bench/README.md)。
 
 ## Edge AI 模型使用(Google AI Edge / LiteRT)
 
@@ -174,7 +188,7 @@ CameraX(Kotlin)每幀 luma
 
 | 項目 | 選用 |
 |---|---|
-| 執行期 | **LiteRT / LiteRT-LM**(經 MediaPipe **LLM Inference** API,Android `com.google.mediapipe:tasks-genai`) |
+| 執行期 | **LiteRT-LM SDK**(`com.google.ai.edge.litertlm:litertlm-android`;AI Edge Gallery 現行採用)。舊路徑 MediaPipe LLM Inference(`tasks-genai`)已進維護模式 |
 | 模型 | LiteRT 社群的**多模態 Gemma**——Gemma 3n E2B/E4B(或 AI Edge 目前主打的 Gemma 4 E2B/E4B) |
 | 格式 | **`.litertlm`** / `.task`(Task Bundle) |
 | 能力 | 圖+文 → 文("Ask Image");日後音+文 |
@@ -192,32 +206,38 @@ CameraX(Kotlin)每幀 luma
 
 ### App 端如何載入與推論(規劃中的接法)
 
-Android 端以 MediaPipe **LLM Inference** 載入模型並啟用視覺模態,對**放行幀**做一次「圖+文 → 描述」:
+Android 端以 **LiteRT-LM**(`litertlm-android`)載入模型(啟用視覺 backend),對**放行幀**送「圖 + 文」得描述。API 形貌參考 AI Edge Gallery `LlmChatModelHelper`:
 
 ```kotlin
-// 1) 載入一次,跨放行幀重用(初始化成本高)
-val llm = LlmInference.createFromOptions(
-    context,
-    LlmInferenceOptions.builder()
-        .setModelPath("/sdcard/Android/data/com.claustrum/files/models/<model>.litertlm")
-        .setMaxTokens(512)
-        .build())
+// 1) engine 載入一次,跨放行幀重用(初始化成本高;於 onDestroy 才 engine.close())
+val engine = Engine(EngineConfig(
+    modelPath = spec.localFile(context).absolutePath,
+    backend = Backend.GPU(),
+    visionBackend = Backend.GPU(),     // Gemma 3n 視覺需 GPU backend
+    maxNumTokens = 512,
+))
+engine.initialize()
 
-// 2) 每個「放行幀」開一個啟用視覺的 session,送圖+提示詞;用 .use {} 確保釋放(否則會洩漏/OOM)
-val caption = LlmInferenceSession.createFromOptions(
-    llm,
-    LlmInferenceSessionOptions.builder()
-        .setGraphOptions(GraphOptions.builder().setEnableVisionModality(true).build())
-        .build()
-).use { session ->
-    // 只要客觀描述「看得到的」——風險判斷是 L2 的事,且必須有畫面內可見證據,VLM 不臆測。
-    session.addQueryChunk("請客觀描述畫面中可見的人物、姿態與動作,只描述看得到的事實,不要臆測或推論意圖。")
-    session.addImage(BitmapImageBuilder(admittedFrameBitmap).build())
-    session.generateResponse()              // 客觀描述 → 交給 L2 依可見證據判斷事件/風險
-}   // session 於此自動關閉;llm 本身跨幀重用,於 onDestroy 才 close()
+// 2) 每個「放行幀」用**全新對話**(單幀獨立判斷,不累積歷史→避免上下文污染與 token 爆量);用畢關閉
+val conv = engine.createConversation(
+    ConversationConfig(SamplerConfig(topK = 64, topP = 0.95, temperature = 1.0)))
+conv.sendMessageAsync(
+    Contents.of(listOf(
+        Content.ImageBytes(admittedFrameBitmap.toPngByteArray()),  // 僅放行幀才編碼,非逐幀熱路徑
+        Content.Text("請客觀描述畫面中可見的人物、姿態與動作,只描述看得到的事實,不要臆測或推論意圖。"),
+    )),
+    object : MessageCallback {
+        override fun onMessage(m: Message) { /* 串流:更新 lastCaption */ }
+        override fun onDone() { conv.close(); /* 客觀描述 → 交給 L2 依可見證據判斷 */ }
+        override fun onError(t: Throwable) { conv.close(); /* 可辨識錯誤,不崩潰 */ }
+    })
 ```
 
-實作落在 Kotlin 的 `LiteRtCaptioner`,實作一個**純 Kotlin `Captioner` 介面**(對應 [`vlm`](docs/design/vlm/SD.md) 邊界)——如此 L0→L1 觸發邏輯可用假的 `Captioner` 在 Host 端單元測試,不綁硬體。詳細 API 與版本以官方指南為準:[LLM Inference for Android](https://ai.google.dev/edge/mediapipe/solutions/genai/llm_inference/android)。
+> **每幀新對話 + 影像編碼成本:** L1 只在 **L0 放行(場景有變)** 時被喚醒——靜態場景省下 ~99%,所以「新對話 + `toPngByteArray()`」不是逐幀熱路徑,只在變化時才付出。每幀獨立判斷也避免對話歷史累積造成的上下文污染 / token 爆量。
+>
+> 上為示意;`LiteRtCaptioner` 實作須守穩健性守則(生命週期先 `cancelProcess()` 再 `engine.close()`、推論中丟棄新放行幀防重入、編碼/推論在背景執行緒)——見 [vlm SD §6.1](docs/design/vlm/SD.md)。
+
+實作落在 Kotlin 的 `LiteRtCaptioner`,實作一個**純 Kotlin `Captioner` 介面**(對應 [`vlm`](docs/design/vlm/SD.md) 邊界)——如此 L0→L1 觸發邏輯可用假的 `Captioner` 在 Host 端單元測試,不綁硬體。詳細 API 與版本以官方文件 / AI Edge Gallery 為準。
 
 > **不變式:L1 只做客觀描述,不判風險、不臆測。** 風險/事件判斷是 **L2** 的職責,且 `risk.level != none` 必須有**畫面內可見證據**——所以提示詞嚴格限制在「描述看得到的」,避免 VLM 幻覺出不存在的威脅(誤報是本專案的頭號敵人)。
 
@@ -272,7 +292,7 @@ MVP 以這些指標評斷成敗,而非展示效果:
 
 ## 開發
 
-工作透過 **PR** 交付,合併前以 **AI 程式碼審查**(本機 Antigravity CLI `agy`)與 CI 把關;merge 依查證事實決定。每個模組保有 [SA/SD 設計文件](docs/design/README.md);模組以可測試性為前提建置;App UI 以 Claude 設計;文件隨里程碑一併更新。完整流程:[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。這些標準也編寫成 `dev-standards` skill。
+工作透過 **PR** 交付:分支 → commit → push → PR。push 後 GitHub Actions 跑 **CI(硬關卡)** 與 **AI 助理審查**(雲端 Gemini / 可擴充 Codex;需 `GEMINI_API_KEY` secret,未設時由本機 `agy` 涵蓋);**逐則檢視並回覆審查意見,經查證確認不是問題後才 merge**——依事實決定,不看綠勾蓋章。每個模組保有 [SA/SD 設計文件](docs/design/README.md);模組以可測試性為前提建置;App UI 以 Claude 設計到接近產品化;文件隨里程碑一併更新。完整流程:[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)、交接見 [`docs/HANDOFF.md`](docs/HANDOFF.md)。這些標準也編寫成 `dev-standards` skill。
 
 ## 決策
 
