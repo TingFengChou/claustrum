@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
  * (ADR-0009). The engine is loaded once and reused; a **fresh conversation per
  * admitted frame** keeps each caption independent (no history accumulation →
  * no context pollution / token blow-up). Called off the CameraX analyzer thread
- * (see MainActivity), and only on admitted frames (L0 gate), so PNG-encode +
+ * (see MonitorActivity), and only on admitted frames (L0 gate), so PNG-encode +
  * inference cost is paid only on scene change.
  *
  * Prompt is strictly objective — L1 describes only what is visible; risk/event

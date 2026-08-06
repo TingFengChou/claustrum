@@ -19,7 +19,8 @@ import androidx.core.content.ContextCompat
 import com.claustrum.core.ChangeGate
 import com.claustrum.core.NativeCore
 import com.claustrum.model.ModelSpec
-import com.claustrum.ui.LiveMonitorScreen
+import com.claustrum.model.ModelsController
+import com.claustrum.ui.AppShell
 import com.claustrum.ui.MonitorUi
 import com.claustrum.ui.theme.ClaustrumTheme
 import com.claustrum.vlm.Captioner
@@ -39,11 +40,15 @@ class MonitorActivity : ComponentActivity() {
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private val inferenceExecutor = Executors.newSingleThreadExecutor() // L1 off the analyzer thread
     private val inFlight = java.util.concurrent.atomic.AtomicBoolean(false) // single-flight L1
+    // Latest admitted frame that arrived while L1 was busy — drained when it finishes,
+    // so a scene change during inference is never lost (ChangeGate.prev already advanced).
+    private val pending = java.util.concurrent.atomic.AtomicReference<Bitmap?>(null)
     @Volatile private var pipeline: PerceptionPipeline<Bitmap>? = null
     @Volatile private var guarding = false
     @Volatile private var lastRes = "—"
     private val uiState = mutableStateOf(MonitorUi())
     private lateinit var previewView: PreviewView
+    private val models by lazy { ModelsController(this) }
 
     private val requestCamera =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -58,14 +63,21 @@ class MonitorActivity : ComponentActivity() {
             // Signature Tesla/Optimus look is dark graphite — force it (guardian instrument),
             // don't follow the system light theme (design: docs/design/ui).
             ClaustrumTheme(darkTheme = true) {
-                LiveMonitorScreen(
-                    ui = uiState.value,
-                    previewView = previewView,
-                    // Open the models screen ON TOP (backable) — system Back returns here.
-                    onOpenModels = { startActivity(android.content.Intent(this, MainActivity::class.java)) },
-                )
+                // Single-Activity shell: 守護 / 事件 / 模型 / 設定 behind a bottom nav
+                // (no Activity transitions, no dead-ends).
+                AppShell(monitorUi = uiState.value, previewView = previewView, models = models)
             }
         }
+        // L0 + placeholder L1 run from the very first frame (cheap to construct).
+        // The real (possibly multi-GB) vision backend is built on the inference
+        // thread and swapped in once ready — never on the CameraX analyzer thread.
+        pipeline = PerceptionPipeline(ChangeGate(threshold = 8), PlaceholderCaptioner)
+        inferenceExecutor.execute {
+            val real = buildCaptioner()
+            pipeline?.swapCaptioner(real)
+            pushState()
+        }
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
         ) startCamera() else requestCamera.launch(Manifest.permission.CAMERA)
@@ -110,7 +122,7 @@ class MonitorActivity : ComponentActivity() {
 
     private fun analyze(image: ImageProxy) {
         try {
-            val p = pipeline ?: PerceptionPipeline(ChangeGate(threshold = 8), buildCaptioner()).also { pipeline = it }
+            val p = pipeline ?: return
             val w = image.width
             val h = image.height
             lastRes = "${w}×${h}"
@@ -118,21 +130,62 @@ class MonitorActivity : ComponentActivity() {
             val sig = NativeCore.frameSignature(luma, w, h)
             val admitted = p.admit(sig) // fast L0 on this (analyzer) thread
             guarding = true
-            // L1 runs on a SEPARATE thread, single-flight (drop new admits while busy),
-            // so a slow/hung describe never blocks frame acquisition / L0.
-            if (admitted && inFlight.compareAndSet(false, true)) {
-                val bmp = image.toBitmap() // copy out before we close the proxy
-                inferenceExecutor.execute {
-                    try { p.describe(bmp) } catch (t: Throwable) { Log.e(TAG, "describe failed", t) }
-                    finally { inFlight.set(false); pushState() }
-                }
-            }
+            // Only on a scene change: copy the frame out (rotated upright per sensor
+            // metadata) BEFORE we close the proxy, then hand it to the L1 executor.
+            if (admitted) enqueueL1(rotatedCopy(image))
             pushState()
         } catch (t: Throwable) {
             Log.e(TAG, "analyze failed", t)
         } finally {
             image.close()
         }
+    }
+
+    /**
+     * Hand an admitted frame to L1. Single-flight: if inference is already running,
+     * the frame is kept as the (replaceable) latest pending frame and processed as
+     * soon as the current one finishes — so a scene change during a slow describe is
+     * never dropped, and L1 never runs on the analyzer thread.
+     */
+    private fun enqueueL1(bmp: Bitmap) {
+        if (inFlight.compareAndSet(false, true)) {
+            runL1(bmp)
+        } else {
+            pending.getAndSet(bmp)?.recycle() // replace stale pending, free it
+        }
+    }
+
+    private fun runL1(first: Bitmap) {
+        inferenceExecutor.execute {
+            var cur: Bitmap? = first
+            while (cur != null) {
+                try { pipeline?.describe(cur) } catch (t: Throwable) { Log.e(TAG, "describe failed", t) }
+                finally { cur.recycle() }
+                pushState()
+                cur = pending.getAndSet(null)
+                if (cur == null) {
+                    inFlight.set(false)
+                    // A producer may have queued a frame after we read null but before
+                    // clearing the flag; reclaim it (else it would sit forever).
+                    cur = pending.getAndSet(null)
+                    if (cur != null && !inFlight.compareAndSet(false, true)) {
+                        pending.getAndSet(cur)?.recycle() // another flight won; hand it back
+                        cur = null
+                    }
+                }
+            }
+        }
+    }
+
+    /** Copy the proxy to an upright Bitmap (CameraX reports rotation via metadata). */
+    private fun rotatedCopy(image: ImageProxy): Bitmap {
+        val bmp = image.toBitmap()
+        val deg = image.imageInfo.rotationDegrees
+        if (deg == 0) return bmp
+        val m = android.graphics.Matrix().apply { postRotate(deg.toFloat()) }
+        val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+        if (rotated !== bmp) bmp.recycle()
+        return rotated
     }
 
     private fun pushState() {
@@ -177,6 +230,7 @@ class MonitorActivity : ComponentActivity() {
         inferenceExecutor.execute { try { p?.close() } catch (_: Throwable) {} }
         inferenceExecutor.shutdown()
         analysisExecutor.shutdown()
+        pending.getAndSet(null)?.recycle()
     }
 
     companion object {

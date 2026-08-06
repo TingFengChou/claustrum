@@ -30,6 +30,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -63,13 +65,13 @@ data class MonitorUi(
  * sees (L1) and hears reads out below. Design: docs/design/ui.
  */
 @Composable
-fun LiveMonitorScreen(ui: MonitorUi, previewView: View, onOpenModels: () -> Unit) {
+fun LiveMonitorScreen(ui: MonitorUi, previewView: View) {
     val c = ClaustrumTheme.colors
     Column(
         Modifier.fillMaxSize().background(c.ground).statusBarsPadding().padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(14.dp))
-        AppBar(guarding = ui.guarding, onOpenModels = onOpenModels)
+        AppBar(guarding = ui.guarding)
         Spacer(Modifier.height(12.dp))
         RobotEye(previewView, resolution = ui.resolution)
         Text(
@@ -78,20 +80,20 @@ fun LiveMonitorScreen(ui: MonitorUi, previewView: View, onOpenModels: () -> Unit
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
         )
-        SenseCard(label = "看到 · L1 ${ui.backend}", body = ui.caption, accentSteel = true)
+        SenseCard(label = "看到 · L1 ${ui.backend}", body = ui.caption, eye = true)
         Spacer(Modifier.height(8.dp))
-        SenseCard(label = "聽到 · 音訊(規劃)", body = ui.audio, accentSteel = false)
+        SenseCard(label = "聽到 · 音訊(規劃)", body = ui.audio, eye = false)
         Spacer(Modifier.height(12.dp))
         TelemetryRow(ui)
     }
 }
 
 @Composable
-private fun AppBar(guarding: Boolean, onOpenModels: () -> Unit) {
+private fun AppBar(guarding: Boolean) {
     val c = ClaustrumTheme.colors
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(18.dp).clip(RoundedCornerShape(5.dp)).background(c.accent))
-        Spacer(Modifier.size(8.dp))
+        ClaustrumMark(size = 20.dp)                 // machine-eye brand mark
+        Spacer(Modifier.size(9.dp))
         Text("CLAUSTRUM", color = c.ink, fontWeight = FontWeight.ExtraBold, letterSpacing = 3.sp, fontSize = 15.sp)
         Spacer(Modifier.weight(1f))
         // Status pill — reflects whether the camera/pipeline is actually running.
@@ -108,11 +110,6 @@ private fun AppBar(guarding: Boolean, onOpenModels: () -> Unit) {
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
             )
         }
-        Spacer(Modifier.size(10.dp))
-        Text("模型", color = c.steel, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(c.surface2)
-                .border(1.dp, c.line, RoundedCornerShape(6.dp)).clickable { onOpenModels() }
-                .padding(horizontal = 10.dp, vertical = 5.dp))
     }
 }
 
@@ -152,16 +149,55 @@ private fun RobotEye(previewView: View, resolution: String) {
 }
 
 @Composable
-private fun SenseCard(label: String, body: String, accentSteel: Boolean) {
+private fun SenseCard(label: String, body: String, eye: Boolean) {
     val c = ClaustrumTheme.colors
-    Column(
+    Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface2)
             .border(1.dp, c.line, RoundedCornerShape(12.dp)).padding(14.dp),
     ) {
-        Text(label, color = if (accentSteel) c.steel else c.muted,
-            style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
-        Spacer(Modifier.height(6.dp))
-        Text(body, color = c.ink, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+        // Leading icon chip: eye (看到) / ear (聽到).
+        Box(
+            Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(c.surface)
+                .border(1.dp, c.line, RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center,
+        ) { if (eye) EyeIcon() else EarIcon() }
+        Spacer(Modifier.size(11.dp))
+        Column {
+            Text(label, color = c.steel, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+            Spacer(Modifier.height(6.dp))
+            Text(body, color = c.ink, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun EyeIcon() {
+    val steel = ClaustrumTheme.colors.steel
+    val ground = ClaustrumTheme.colors.ground
+    androidx.compose.foundation.Canvas(Modifier.size(16.dp)) {
+        val w = size.width; val h = size.height
+        // almond eye approximated with an oval + iris + pupil
+        drawOval(color = steel.copy(alpha = 0.25f), topLeft = Offset(0f, h * 0.22f), size = Size(w, h * 0.56f))
+        drawCircle(steel, radius = h * 0.17f, center = Offset(w / 2, h / 2))
+        drawCircle(ground, radius = h * 0.07f, center = Offset(w / 2, h / 2))
+    }
+}
+
+@Composable
+private fun EarIcon() {
+    val steel = ClaustrumTheme.colors.steel
+    androidx.compose.foundation.Canvas(Modifier.size(16.dp)) {
+        val w = size.width; val h = size.height
+        // sound waves
+        drawCircle(steel, radius = h * 0.12f, center = Offset(w * 0.28f, h / 2))
+        repeat(2) { i ->
+            drawArc(
+                color = steel, startAngle = -55f, sweepAngle = 110f, useCenter = false,
+                topLeft = Offset(w * 0.30f - w * (0.18f + 0.16f * i), h / 2 - h * (0.20f + 0.18f * i)),
+                size = Size(w * (0.36f + 0.32f * i), h * (0.40f + 0.36f * i)),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = h * 0.08f),
+            )
+        }
     }
 }
 

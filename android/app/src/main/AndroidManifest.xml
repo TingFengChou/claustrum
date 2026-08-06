@@ -38,12 +38,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Models screen — opened from the Monitor (Back returns to Monitor). -->
-        <activity
-            android:name=".MainActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
         <!-- WorkManager's foreground service needs its FGS type declared here
              (Android 14+), or startForeground throws. Merged onto WorkManager's
              own service declaration. -->

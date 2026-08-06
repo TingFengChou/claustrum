@@ -14,8 +14,11 @@ import com.claustrum.core.ChangeGate
  */
 class PerceptionPipeline<F>(
     private val gate: ChangeGate,
-    private val captioner: Captioner<F>,
+    initialCaptioner: Captioner<F>,
 ) : AutoCloseable {
+    // Swappable so the heavy real backend can be built on a background thread and
+    // installed once ready, while L0 + a placeholder L1 run from the first frame.
+    @Volatile private var captioner: Captioner<F> = initialCaptioner
     val backend: String get() = captioner.backend
     val threshold: Int get() = gate.threshold
 
@@ -43,6 +46,17 @@ class PerceptionPipeline<F>(
     /** L1 — run the captioner and store the result. Call OFF the analyzer thread. */
     fun describe(frame: F) {
         lastCaption = captioner.describe(frame)
+    }
+
+    /**
+     * Install a new L1 backend (e.g. after async model init). Closes the previous
+     * one if it held resources. Call from the same (inference) thread as [describe].
+     */
+    fun swapCaptioner(next: Captioner<F>) {
+        val old = captioner
+        if (old === next) return
+        captioner = next
+        (old as? AutoCloseable)?.close()
     }
 
     override fun close() {

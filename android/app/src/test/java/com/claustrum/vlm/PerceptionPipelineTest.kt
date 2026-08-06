@@ -9,12 +9,18 @@ import org.junit.Test
 /** Host JVM tests for the L0 gate + L1 describe split — no camera, no Android. */
 class PerceptionPipelineTest {
 
-    private class FakeCaptioner : Captioner<String> {
+    private class FakeCaptioner(override val backend: String = "fake") : Captioner<String> {
         var calls = 0
         override fun describe(frame: String): String {
             calls++; return "desc:$frame"
         }
-        override val backend = "fake"
+    }
+
+    private class ClosableCaptioner : Captioner<String>, AutoCloseable {
+        var closed = false
+        override fun describe(frame: String) = "x"
+        override val backend = "closable"
+        override fun close() { closed = true }
     }
 
     @Test fun admitGatesAndCountsStats() {
@@ -48,5 +54,28 @@ class PerceptionPipelineTest {
         val p = PerceptionPipeline(ChangeGate(threshold = 8), FakeCaptioner())
         assertEquals("fake", p.backend)
         assertEquals(8, p.threshold)
+    }
+
+    @Test fun swapCaptionerInstallsNewBackendAndUsesIt() {
+        val p = PerceptionPipeline(ChangeGate(threshold = 8), FakeCaptioner("placeholder"))
+        assertEquals("placeholder", p.backend)
+        p.swapCaptioner(FakeCaptioner("litert"))
+        assertEquals("litert", p.backend)
+        p.describe("frame")
+        assertEquals("desc:frame", p.lastCaption)   // routed to the new backend
+    }
+
+    @Test fun swapCaptionerClosesPreviousResourcefulBackend() {
+        val old = ClosableCaptioner()
+        val p = PerceptionPipeline(ChangeGate(threshold = 8), old)
+        p.swapCaptioner(FakeCaptioner("next"))
+        assertTrue("old backend must be closed on swap", old.closed)
+    }
+
+    @Test fun swapCaptionerToSameIsNoOpAndKeepsItOpen() {
+        val same = ClosableCaptioner()
+        val p = PerceptionPipeline(ChangeGate(threshold = 8), same)
+        p.swapCaptioner(same)
+        assertFalse("swapping to the same backend must not close it", same.closed)
     }
 }
