@@ -12,6 +12,16 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 >
 > ⚠️ 這不是醫療器材,也不能取代真人監看與保全;偵測會漏報也會誤報。詳見下方「[安全與限制](#安全與限制)」。
 
+## 設計概念 · UI / UX
+
+> **設計語彙取 Tesla / Optimus 的精密科技感;相機被框成「機器之眼」——牠看到、聽到的內容即時呈現於眼下,更擬真。** 近單色石墨/白、髮絲級線條、單一 Tesla 紅強調、等寬儀表數據。
+
+🤖 **互動原型(可直接開瀏覽器看):** [`docs/design/ui/claustrum-uiux.html`](docs/design/ui/claustrum-uiux.html) · 設計說明:[`docs/design/ui/`](docs/design/ui/README.md)
+
+四個核心畫面:**① 即時守護 · 機器之眼**(相機=機器人眼睛,看到/聽到呈現於眼下)· **② 模型目錄與切換**(多模型瀏覽 + App 內下載 + 一鍵切換 L1 模型)· **③ 主動告警**(附畫面內可見證據,通知保全)· **④ 事件記錄**(嚴重度分色 + 誤報回流)。
+
+貫穿不變式:影格不離裝置;L1 只客觀描述、風險判斷屬 L2 且需可見證據;**模型可換為一等公民**。進入完整開發前,UI/UX 以此稿定義(dev-standards)。
+
 ## 它能做什麼
 
 第一版 MVP:裝置端、多模態(視覺 + 音訊)的**主動安全事件偵測與告警**。
@@ -127,6 +137,7 @@ L1 推論採 **Google AI Edge / LiteRT**(多模態 Gemma,`.litertlm`),走 Tensor
 | `vlm/`(L1 場景描述) | 🔶 P2 seam | [SA](docs/design/vlm/SA.md) · [SD](docs/design/vlm/SD.md) |
 | `model/`(App 內模型下載/切換) | 🔶 P2 | [SA](docs/design/model/SA.md) · [SD](docs/design/model/SD.md) |
 | `events/`(時序事件引擎) | 📐 P3 規劃 | 與實作 PR 一併補上 SA/SD |
+| `ui/`(UI/UX 設計定義) | 🎨 草案 v1 | [設計 + 互動原型](docs/design/ui/README.md) |
 | `schemas/` 領域型別 | ✅ | 型別即 SoT;參考 [`core/`](docs/design/core/SD.md) |
 | `app/`(舊 RN)· `medication/` | 🗄️ 參考 | [app SD](docs/design/app/SD.md) · [medication SD](docs/design/medication/SD.md)(ADR-0007 前) |
 
