@@ -33,4 +33,23 @@ android {
 
     // Prebuilt libclaustrum_core.so lives here (produced by cargo-ndk).
     sourceSets["main"].jniLibs.srcDirs("src/main/jniLibs")
+
+    buildFeatures {
+        buildConfig = true
+    }
+}
+
+dependencies {
+    // ComponentActivity = a LifecycleOwner for CameraX; permission APIs.
+    implementation("androidx.activity:activity-ktx:1.9.3")
+    implementation("androidx.core:core-ktx:1.13.1")
+
+    // CameraX: preview + frame-by-frame luma analysis feeding the L0 gate.
+    val camerax = "1.4.1"
+    implementation("androidx.camera:camera-core:$camerax")
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
+
+    testImplementation("junit:junit:4.13.2")
 }

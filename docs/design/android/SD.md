@@ -5,8 +5,9 @@
 
 ## 1. 概觀
 
-獨立 Gradle 專案 `android/`(不再依賴 React Native,見 ADR-0007)。P0 為零第三方相依的
-最小 app:一個 `Activity` 載入 Rust `.so`、經 JNI 呼叫核心、顯示結果。
+獨立 Gradle 專案 `android/`(不再依賴 React Native,見 ADR-0007)。P0 為最小 app:
+`Activity` 載入 Rust `.so`、經 JNI 呼叫核心、顯示結果。P1 接上 CameraX:每幀 luma →
+Rust `frameSignature` → Kotlin `ChangeGate` 閘控 → 即時顯示放行/略過與省算力比。
 
 ## 2. 版本矩陣(機器已驗證的 known-good 組合)
 
@@ -19,6 +20,8 @@
 | minSdk | 26 | |
 | NDK(產 `.so`) | 27.1.12297006 | cargo-ndk 使用 |
 | ABI(P0) | arm64-v8a | `abiFilters` 限定 |
+| CameraX | 1.4.1 | camera-core/-camera2/-lifecycle/-view |
+| AndroidX | activity-ktx 1.9.3 · core-ktx 1.13.1 | `ComponentActivity` = LifecycleOwner |
 
 > AGP 9.2.1 需 Gradle 9.4.1、9.3.1 需 9.5.0,且 AGP 9 內建 Kotlin 與
 > `kotlin.android` 插件衝突(`Cannot add extension 'kotlin'`)。故釘在 AGP 8.12.0。
@@ -35,11 +38,26 @@ android/
   app/
     build.gradle.kts         # com.android.application + kotlin.android;jniLibs
     src/main/AndroidManifest.xml
-    src/main/java/com/claustrum/MainActivity.kt       # P0 bring-up 畫面
+    src/main/java/com/claustrum/MainActivity.kt       # P1:CameraX 預覽 + luma 分析 + 閘控 UI
     src/main/java/com/claustrum/core/NativeCore.kt    # JNI 綁定(external fun)
+    src/main/java/com/claustrum/core/ChangeGate.kt    # L0 閘控(純 Kotlin,持有上次放行 hash)
     src/main/jniLibs/arm64-v8a/libclaustrum_core.so   # cargo-ndk 產物(不進版控)
     src/main/res/values/strings.xml
+    src/test/java/com/claustrum/core/ChangeGateTest.kt # JVM 單元測試(7)
 ```
+
+## 3.1 P1 資料流(CameraX × L0)
+
+```
+CameraX ImageAnalysis(YUV_420_888, KEEP_ONLY_LATEST, 背景 executor)
+  → ImageProxy.planes[0]（Y/luma，依 rowStride 緊密複製成 w*h ByteArray）
+  → NativeCore.frameSignature(luma, w, h)  ── Rust 算 aHash（像素不回傳）
+  → ChangeGate.admit(sig)                  ── Hamming(vs 上次放行) ≥ 門檻 ? 放行 : 略過
+  → runOnUiThread 更新覆蓋層（sig、距離、決策、放行/總數、省算力%）
+  → ImageProxy.close()                     ── luma 立即釋放，不落地
+```
+
+放行的幀即為之後 P2 送 llama.cpp L1 字幕的觸發點(「只在場景變化時喚醒 VLM」)。
 
 ## 4. 關鍵介面
 
@@ -63,11 +81,14 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 6. 測試策略(必備)
 
-- **裝置端整合測試(P0 手動已過):** 安裝 + 啟動 + 螢幕/`uiautomator` 驗證
-  `nativeHello` 橫幅與 L0 距離值(見 SA §5)。
-- **後續自動化:** L0 閘控純邏輯已在 [`core-rs`](../core-rs/SD.md) host `cargo test` 覆蓋;
-  Android 端加 `androidTest`(Instrumented)呼叫 `NativeCore` 做煙霧測試。
-- JNI 薄綁定的正確性由「載入 `.so` 能回正確值」的整合測試背書。
+- **JVM 單元測試(P1 ✅):** `ChangeGateTest`(7)以純 Kotlin 驗首幀放行、相同略過、
+  大變化放行、次門檻漂移略過、距離=bitCount、prev 只在放行時前進、reset。
+  `./gradlew :app:testDebugUnitTest`(無硬體)。
+- **裝置端整合測試(P0/P1 手動已過):** 安裝 + 啟動 + 螢幕驗證 `nativeHello` 橫幅
+  與 CameraX 即時閘控統計(見 SA §5)。
+- L0 閘控純邏輯亦在 [`core-rs`](../core-rs/SD.md) host `cargo test` 覆蓋(Rust 端 `frameSignature`);
+  JNI 薄綁定由「載入 `.so` 能回正確值」的整合測試背書。
+- **後續自動化:** Android `androidTest`(Instrumented)呼叫 `NativeCore` 做煙霧測試。
 
 ## 7. 隱私與穩健性
 

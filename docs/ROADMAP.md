@@ -5,7 +5,7 @@
 > **技術重建中(2026-08-06,ADR-0007,效能優先)。** 產品由 React Native 打掉重練為
 > **Rust 感知核心 + 原生 Android(Kotlin/Compose)+ llama.cpp**。MVP 的功能目標(下方
 > A–D、社區/幼兒園)不變;實作技術棧改變。重建階段:
-> **P0** 骨架(Rust `.so` + Android + JNI)〔✅ 完成:L0 變化閘控(host `cargo test` 綠)、JNI/`.so`、Android 外殼在 Pixel 10 實測 `nativeHello()` 回話 + L0 閘控 PASS〕· **P1** L0 變化閘控接 CameraX luma 流 ·
+> **P0** 骨架(Rust `.so` + Android + JNI)〔✅ 完成:L0 變化閘控(host `cargo test` 綠)、JNI/`.so`、Android 外殼在 Pixel 10 實測 `nativeHello()` 回話 + L0 閘控 PASS〕· **P1** L0 變化閘控接 CameraX luma 流〔✅ 完成:Pixel 10 實測 640×480 即時串流,靜態場景 1/2250 放行 → 省下 ~100% 運算;`ChangeGate` 7 個 JVM 單元測試綠〕·
 > **P2** L1 字幕(llama.cpp via Rust FFI)· **P3** L2 事件引擎 · **P4** 音訊融合。
 > 詳見 [ADR-0007](adr/0007-rust-first-redesign.md)。
 
