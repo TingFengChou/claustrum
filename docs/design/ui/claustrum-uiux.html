@@ -1,0 +1,416 @@
+<title>claustrum — UI/UX 設計定義</title>
+<style>
+  :root{
+    --ground:#16181D; --surface:#1E2229; --surface-2:#262B33; --line:#30353E;
+    --ink:#F5F6F8; --muted:#9AA1AC; --faint:#6A7280;
+    --accent:#E82127; --accent-ink:#FFFFFF;      /* Tesla red — armed / critical / CTA */
+    --steel:#63A0C4;                              /* cool info — L0 watch / positive */
+    --warn:#E5A400;
+    --radius:16px; --phone-w:300px; --phone-h:640px;
+    --sans:"SF Pro Display",system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans TC",sans-serif;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --ground:#FFFFFF; --surface:#F5F6F7; --surface-2:#EDEEF0; --line:#E2E4E8;
+      --ink:#16181D; --muted:#5B636E; --faint:#9AA1AC; }
+  }
+  :root[data-theme="dark"]{ --ground:#16181D; --surface:#1E2229; --surface-2:#262B33; --line:#30353E;
+    --ink:#F5F6F8; --muted:#9AA1AC; --faint:#6A7280; }
+  :root[data-theme="light"]{ --ground:#FFFFFF; --surface:#F5F6F7; --surface-2:#EDEEF0; --line:#E2E4E8;
+    --ink:#16181D; --muted:#5B636E; --faint:#9AA1AC; }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
+    line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto;padding:clamp(24px,5vw,64px) clamp(18px,4vw,40px)}
+  .eyebrow{font-size:11px;letter-spacing:.32em;text-transform:uppercase;color:var(--accent);
+    font-weight:800;margin:0 0 16px}
+  h1{font-size:clamp(30px,5.6vw,54px);line-height:1.02;margin:0 0 18px;font-weight:800;
+    letter-spacing:-0.035em;text-wrap:balance}
+  h1 .g{color:var(--muted);font-weight:700}
+  .lede{font-size:clamp(16px,2.2vw,20px);color:var(--muted);max-width:60ch;margin:0}
+  .thesis{margin-top:26px;padding:18px 22px;border-left:2px solid var(--accent);
+    background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:0 10px 10px 0;
+    font-size:15px;max-width:72ch}
+  .thesis b{color:var(--ink)}
+
+  h2{font-size:12px;letter-spacing:.28em;text-transform:uppercase;color:var(--faint);
+    font-weight:800;margin:64px 0 22px;display:flex;align-items:center;gap:14px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  .sys{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .card h3{margin:0 0 14px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:800}
+  .swatches{display:flex;flex-wrap:wrap;gap:10px}
+  .sw{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);font-family:var(--mono)}
+  .dot{width:22px;height:22px;border-radius:5px;border:1px solid rgba(128,128,128,.25)}
+  .typ-d{font-size:26px;font-weight:800;letter-spacing:-0.03em}
+  .typ-b{font-size:14px;color:var(--muted)}
+  .typ-m{font-family:var(--mono);font-size:13px;color:var(--steel);font-variant-numeric:tabular-nums}
+  .princ{list-style:none;padding:0;margin:0;font-size:13px;color:var(--muted)}
+  .princ li{padding:6px 0 6px 20px;position:relative}
+  .princ li::before{content:"";position:absolute;left:0;top:11px;width:7px;height:7px;background:var(--accent)}
+
+  .screens{display:flex;flex-wrap:wrap;gap:36px;justify-content:center}
+  .fig{width:var(--phone-w);flex:0 0 auto}
+  .cap{margin:16px 2px 0}
+  .cap .n{font-size:11px;font-family:var(--mono);color:var(--accent);font-weight:700;letter-spacing:.12em}
+  .cap .t{font-size:16px;font-weight:700;margin:3px 0 5px;letter-spacing:-0.01em}
+  .cap .d{font-size:13px;color:var(--muted)}
+  .cap .d b{color:var(--ink)}
+
+  .phone{width:var(--phone-w);height:var(--phone-h);border-radius:40px;background:#0A0B0E;
+    padding:9px;box-shadow:0 34px 70px -24px rgba(0,0,0,.6),0 0 0 1px var(--line);position:relative}
+  .phone::before{content:"";position:absolute;top:15px;left:50%;transform:translateX(-50%);
+    width:92px;height:20px;background:#0A0B0E;border-radius:0 0 13px 13px;z-index:6}
+  .screen{width:100%;height:100%;border-radius:32px;overflow:hidden;background:var(--surface);
+    display:flex;flex-direction:column;position:relative;color:var(--ink)}
+
+  .statusbar{height:34px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 20px;font-size:11px;font-family:var(--mono);color:var(--muted);flex:0 0 auto}
+  .appbar{display:flex;align-items:center;justify-content:space-between;padding:4px 16px 12px}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;letter-spacing:.16em;text-transform:uppercase}
+  .shield{width:19px;height:19px;flex:0 0 auto}
+  .pill{font-size:10px;font-weight:700;padding:4px 10px;border-radius:6px;letter-spacing:.06em;
+    display:inline-flex;align-items:center;gap:6px;text-transform:uppercase}
+  .pill.live{background:var(--surface-2);color:var(--ink);border:1px solid var(--line)}
+  .pill .beat{width:6px;height:6px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 0 0 var(--accent);animation:beat 2.2s infinite}
+  @keyframes beat{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 65%,transparent)}
+    70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  @media (prefers-reduced-motion:reduce){.pill .beat{animation:none}}
+  .pill.tag{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+
+  .cam{margin:0 12px;border-radius:14px;flex:1 1 auto;position:relative;overflow:hidden;
+    background:radial-gradient(120% 80% at 30% 8%,#2b3038 0%,#14171c 46%,#0b0d10 100%);
+    border:1px solid var(--line)}
+  .cam .grid{position:absolute;inset:0;background-image:
+    linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:32px 32px;opacity:.14}
+  .cam .floor{position:absolute;left:0;right:0;bottom:0;height:44%;
+    background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--steel) 10%,transparent))}
+  .cam .sofa{position:absolute;left:14%;top:44%;width:44%;height:26%;border-radius:8px;
+    background:linear-gradient(180deg,#3a4149,#282d34)}
+  .cam .person{position:absolute;left:26%;top:34%;width:16%;height:22%;border-radius:40% 40% 30% 30%;
+    background:linear-gradient(180deg,#5b636d,#434a53)}
+  .cam .box{position:absolute;border:1.5px solid var(--steel);border-radius:6px;left:22%;top:31%;width:26%;height:36%}
+  .cam .box::after{content:"person · 靜態";position:absolute;top:-17px;left:-1px;font-family:var(--mono);
+    font-size:9px;color:var(--steel);background:color-mix(in srgb,var(--steel) 18%,#0b0d10 82%);padding:2px 6px;border-radius:4px}
+  .cam .l0{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:9px;color:var(--steel);
+    background:color-mix(in srgb,var(--steel) 16%,#0b0d10 84%);padding:3px 7px;border-radius:5px;letter-spacing:.04em}
+
+  /* robot head — the guardian; camera = its eye (Optimus-like visor) */
+  .robot{margin:6px 16px 0;position:relative}
+  .helmet{background:linear-gradient(180deg,#3b424b 0%,#242932 70%,#1c2027 100%);
+    border:1px solid var(--line);border-radius:64px 64px 24px 24px;padding:18px 16px 14px;position:relative;
+    box-shadow:inset 0 2px 0 rgba(255,255,255,.09),inset 0 -14px 26px rgba(0,0,0,.4)}
+  :root[data-theme="light"] .helmet{background:linear-gradient(180deg,#ffffff,#e6e9ed)}
+  .helmet .antenna{position:absolute;top:-11px;left:50%;transform:translateX(-50%);width:5px;height:12px;
+    border-radius:3px;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  .helmet .ear{position:absolute;top:42%;width:7px;height:38px;background:var(--surface-2);
+    border:1px solid var(--line);border-radius:4px}
+  .helmet .ear.l{left:-4px} .helmet .ear.r{right:-4px}
+  .visor{border-radius:44px;overflow:hidden;position:relative;height:158px;
+    background:radial-gradient(120% 90% at 30% 10%,#2b3038,#0b0d10);
+    border:1px solid #06080b;box-shadow:inset 0 0 34px rgba(0,0,0,.75),0 0 0 3px rgba(0,0,0,.45)}
+  .visor .scan{position:absolute;left:6%;right:6%;height:2px;top:8%;border-radius:2px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.55;animation:scan 3.4s ease-in-out infinite}
+  @keyframes scan{0%,100%{top:10%}50%{top:86%}}
+  @media (prefers-reduced-motion:reduce){.visor .scan{animation:none;top:50%}}
+  .visor .glint{position:absolute;top:9%;left:11%;width:32%;height:22%;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(255,255,255,.16),transparent)}
+  .robot .eyecap{text-align:center;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--faint);margin-top:8px}
+  .robot .eyecap b{color:var(--accent)}
+
+  .perc{margin:12px;display:flex;flex-direction:column;gap:8px}
+  .sense{display:flex;gap:11px;align-items:flex-start;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:12px;padding:10px 12px}
+  .sense .icn{width:28px;height:28px;flex:0 0 auto;border-radius:8px;display:flex;align-items:center;
+    justify-content:center;background:var(--surface);border:1px solid var(--line);color:var(--steel)}
+  .sense .icn svg{width:16px;height:16px}
+  .sense .lab{font-family:var(--mono);font-size:9px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+  .sense .txt{font-size:13px;color:var(--ink);line-height:1.45;margin-top:2px}
+  .minibar{margin:0 12px;display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;
+    color:var(--muted);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+  .minibar b{color:var(--steel)}
+
+  .telem{margin:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;
+    padding:12px 14px;font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .telem .row{display:flex;justify-content:space-between;padding:2px 0}
+  .telem .row .v{color:var(--ink)}
+  .telem .v.skip{color:var(--steel)} .telem .v.ok{color:var(--steel)}
+  .l1{margin:0 12px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .l1 .h{font-size:10px;font-family:var(--mono);color:var(--steel);letter-spacing:.06em;margin-bottom:6px;
+    display:flex;justify-content:space-between}
+  .l1 .desc{font-size:13px;color:var(--ink);line-height:1.5}
+  .navbar{height:56px;border-top:1px solid var(--line);display:flex;flex:0 0 auto}
+  .navbar a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    font-size:9px;color:var(--faint);text-decoration:none;letter-spacing:.06em;text-transform:uppercase}
+  .navbar a.on{color:var(--accent)}
+  .navbar .ic{width:18px;height:18px}
+
+  .scroll{flex:1 1 auto;overflow:hidden;padding:4px 14px 12px;display:flex;flex-direction:column;gap:11px}
+  .signin{background:color-mix(in srgb,var(--warn) 12%,transparent);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);
+    border-radius:10px;padding:10px 12px;font-size:11px;color:var(--ink);display:flex;gap:8px;align-items:center}
+  .signin b{color:var(--warn)}
+  .mcard{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:13px 14px;position:relative}
+  .mcard.active{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+  .mcard .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .mname{font-weight:700;font-size:14px;letter-spacing:-0.01em}
+  .mmeta{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:3px;letter-spacing:.02em}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0}
+  .chip{font-size:10px;padding:3px 9px;border-radius:5px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+  .chip.img{color:var(--steel);border-color:color-mix(in srgb,var(--steel) 45%,transparent)}
+  .lock{font-size:10px;color:var(--warn)}
+  .badge-active{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-ink);
+    background:var(--accent);padding:4px 9px;border-radius:5px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:12px;font-weight:700;
+    padding:9px 12px;border-radius:8px;border:0;cursor:default;width:100%;letter-spacing:.02em}
+  .btn.primary{background:var(--accent);color:var(--accent-ink)}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+  .prog{height:5px;border-radius:999px;background:var(--surface);overflow:hidden;margin:8px 0 6px}
+  .prog i{display:block;height:100%;width:46%;background:var(--steel)}
+  .prog-t{font-family:var(--mono);font-size:10px;color:var(--steel);letter-spacing:.02em}
+
+  .screen.alert{background:linear-gradient(180deg,#26120f,#160b0a)}
+  :root[data-theme="light"] .screen.alert{background:linear-gradient(180deg,#fdecec,#fbdddd)}
+  .alert-hd{padding:18px 18px 10px}
+  .sev{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;font-weight:700;
+    color:var(--accent);letter-spacing:.12em;text-transform:uppercase}
+  .sev .b{width:9px;height:9px;border-radius:50%;background:var(--accent);animation:beat 1.25s infinite}
+  .alert-hd h3{font-size:30px;margin:10px 0 2px;font-weight:800;letter-spacing:-0.02em;color:var(--ink)}
+  .alert-hd .meta{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .evidence{margin:8px 16px;border-radius:12px;overflow:hidden;border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);position:relative}
+  .evidence .img{height:150px;background:radial-gradient(120% 90% at 40% 20%,#2b3038,#0b0d10);position:relative}
+  .evidence .fallbox{position:absolute;left:30%;top:52%;width:44%;height:34%;border:1.5px solid var(--accent);border-radius:6px}
+  .evidence .fallbox::after{content:"person · 倒地";position:absolute;top:-17px;left:-1px;font-family:var(--mono);
+    font-size:9px;color:var(--accent);background:color-mix(in srgb,var(--accent) 22%,#0b0d10 78%);padding:2px 6px;border-radius:4px}
+  .evidence .cbar{padding:9px 12px;background:color-mix(in srgb,var(--accent) 9%,var(--surface));font-size:11px;color:var(--muted);font-family:var(--mono)}
+  .evidence .cbar b{color:var(--ink)}
+  .basis{margin:8px 16px 0;font-size:12px;color:var(--muted);line-height:1.5}
+  .basis b{color:var(--ink)}
+  .actions{margin-top:auto;padding:14px 16px 18px;display:flex;flex-direction:column;gap:9px}
+  .actions .row2{display:flex;gap:9px}
+  .actions .row2 .btn{flex:1}
+  .btn.crit{background:var(--accent);color:#fff}
+
+  .ev{display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .ev .stripe{width:3px;flex:0 0 auto}
+  .ev .body{flex:1}
+  .ev .ttl{font-size:13px;font-weight:700}
+  .ev .sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px;letter-spacing:.02em}
+  .ev .tag{font-size:9px;color:var(--faint);font-family:var(--mono);letter-spacing:.04em}
+
+  .notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+  .note h3{margin:0 0 8px;font-size:14px;font-weight:700}
+  .note p{margin:0;font-size:13px;color:var(--muted)}
+  .note .k{font-family:var(--mono);color:var(--steel);font-size:12px}
+  footer{margin-top:70px;padding-top:22px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+  footer b{color:var(--muted)}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:10px;font-size:11px;color:var(--muted);font-family:var(--mono)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:11px;height:11px;border-radius:3px;display:inline-block}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">claustrum · UI / UX 設計定義</p>
+    <h1>把攝影機變成<br>主動防護的守護者。</h1>
+    <p class="lede">在裝置端(edge AI)即時融合視覺與音訊,主動偵測跌倒、暴力等安全事件並當下告警——不是事發後才調閱錄影。此文件在進入完整開發前,先定義產品的介面與互動。設計語彙取 Tesla / Optimus 的精密科技感:近單色石墨、髮絲級線條、留白、單一紅色強調。</p>
+    <div class="thesis">
+      <b>核心原則貫穿每一個畫面:</b> ① 影格只在裝置端流動、用完即刪;② L1 只<b>客觀描述看得到的</b>,風險判斷是 L2 的事且<b>必須有畫面內可見證據</b>(不臆測、抗誤報);③ 不同模型效果不同 → <b>瀏覽與切換模型是一等公民</b>。
+    </div>
+  </header>
+
+  <h2>設計系統</h2>
+  <div class="sys">
+    <div class="card">
+      <h3>色彩 — 近單色 + 單一紅色強調(Tesla)</h3>
+      <div class="swatches">
+        <span class="sw"><span class="dot" style="background:#16181D"></span>graphite</span>
+        <span class="sw"><span class="dot" style="background:#262B33"></span>surface</span>
+        <span class="sw"><span class="dot" style="background:#F5F6F8;border-color:#ccc"></span>white</span>
+        <span class="sw"><span class="dot" style="background:#E82127"></span>red 武裝/告警</span>
+        <span class="sw"><span class="dot" style="background:#63A0C4"></span>steel L0/資訊</span>
+        <span class="sw"><span class="dot" style="background:#E5A400"></span>amber 注意</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>字體 — 顯示 / 內文 / 儀表數據</h3>
+      <div class="typ-d">守護中 · 99.9%</div>
+      <div class="typ-b">內文:精確、克制、以繁體中文為主。</div>
+      <div class="typ-m">L0 ADMIT 1/2250 · Δ1/8 · 12:04:37</div>
+    </div>
+    <div class="card">
+      <h3>原則</h3>
+      <ul class="princ">
+        <li>可見證據優先:告警一定附畫面來源</li>
+        <li>抗誤報:寧可少報,錯報是頭號敵人</li>
+        <li>省算力可見:L0 只在變化時喚醒 L1</li>
+        <li>模型可換:能力/大小透明,一鍵切換</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>核心畫面</h2>
+  <div class="screens">
+
+    <!-- 1. LIVE MONITOR -->
+    <figure class="fig">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span>▚ ▚ ▚ 100%</span></div>
+        <div class="appbar">
+          <span class="brand">
+            <svg class="shield" viewBox="0 0 24 24" fill="none"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z" stroke="#E82127" stroke-width="1.6" fill="rgba(232,33,39,.10)"/><path d="M8.5 12l2.4 2.4L15.8 9.5" stroke="#E82127" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            claustrum
+          </span>
+          <span class="pill live"><span class="beat"></span>守護中</span>
+        </div>
+        <div class="robot">
+          <span class="antenna"></span>
+          <span class="ear l"></span><span class="ear r"></span>
+          <div class="helmet">
+            <div class="visor cam">
+              <div class="grid"></div><div class="floor"></div>
+              <div class="sofa"></div><div class="person"></div>
+              <div class="box"></div>
+              <div class="glint"></div><div class="scan"></div>
+              <div class="l0">L0 監看 · 640×480</div>
+            </div>
+          </div>
+          <div class="eyecap">機器之眼 · <b>守護中</b> · 影格不離裝置</div>
+        </div>
+        <div class="perc">
+          <div class="sense see">
+            <div class="icn"><svg viewBox="0 0 24 24" fill="none"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.6" stroke="currentColor" stroke-width="1.6"/></svg></div>
+            <div><div class="lab">看到 · L1 Gemma 3n · 12:04:37</div><div class="txt">一人坐於沙發,姿態穩定,無跌倒或掙扎動作。</div></div>
+          </div>
+          <div class="sense hear">
+            <div class="icn"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4h3l4 4V6L7 10H4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15.5 9a4 4 0 010 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+            <div><div class="lab">聽到 · 音訊事件(規劃)</div><div class="txt">環境音穩定,無呼救或碰撞聲。</div></div>
+          </div>
+        </div>
+        <div class="minibar"><span>L0 ⏸ 略過 · Δ<b>1</b>/8</span><span>放行 <b>1</b>/2250 · 省 <b>99.9%</b></span></div>
+        <nav class="navbar">
+          <a class="on"><svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M12 4l8 3v5c0 5-4 7.5-8 9-4-1.5-8-4-8-9V7l8-3z" stroke="currentColor" stroke-width="1.5"/></svg>守護</a>
+          <a><svg class="ic" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.5"/><path d="M8 9h8M8 13h5" stroke="currentColor" stroke-width="1.5"/></svg>事件</a>
+          <a><svg class="ic" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.5"/><path d="M12 4v3M12 17v3M4 12h3M17 12h3" stroke="currentColor" stroke-width="1.5"/></svg>模型</a>
+          <a><svg class="ic" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.5"/><path d="M12 8v4l2.5 2" stroke="currentColor" stroke-width="1.5"/></svg>設定</a>
+        </nav>
+      </div></div>
+      <figcaption class="cap">
+        <div class="n">01 · LIVE MONITOR</div>
+        <div class="t">即時守護 · 機器之眼</div>
+        <div class="d">相機被框成<b>機器人的眼睛</b>(Optimus 風格 visor);牠<b>看到 / 聽到</b>的內容即時呈現於眼睛下方,更擬真。L0→L1 省算力數據收於底部一行。</div>
+      </figcaption>
+    </figure>
+
+    <!-- 2. MODEL MANAGER -->
+    <figure class="fig">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span>▚ ▚ ▚ 100%</span></div>
+        <div class="appbar"><span class="brand">Edge AI 模型</span><span class="pill tag">裝置端</span></div>
+        <div class="scroll">
+          <div class="signin"><b>🔒 Hugging Face</b>&nbsp;Gemma 為 gated,登入以下載 · <b>登入</b></div>
+
+          <div class="mcard active">
+            <div class="top"><div><div class="mname">Gemma 3n E2B</div><div class="mmeta">INT4 · 3.14 GB · LiteRT-LM</div></div><span class="badge-active">L1 使用中</span></div>
+            <div class="chips"><span class="chip img">看圖描述</span><span class="chip">文字</span><span class="chip">NPU</span></div>
+            <button class="btn ghost">切換其他模型</button>
+          </div>
+
+          <div class="mcard">
+            <div class="top"><div><div class="mname">Gemma 3n E4B <span class="lock">🔒</span></div><div class="mmeta">INT4 · 4.41 GB · 較準較重</div></div></div>
+            <div class="chips"><span class="chip img">看圖描述</span><span class="chip">文字</span></div>
+            <div class="prog"><i></i></div>
+            <div class="prog-t">下載中 46% · 2.0 / 4.4 GB · 8.1 MB/s</div>
+          </div>
+
+          <div class="mcard">
+            <div class="top"><div><div class="mname">Gemma3 1B <span class="lock">🔒</span></div><div class="mmeta">Q4 · 0.55 GB · 純文字</div></div></div>
+            <div class="chips"><span class="chip">文字</span></div>
+            <button class="btn primary">下載</button>
+          </div>
+        </div>
+      </div></div>
+      <figcaption class="cap">
+        <div class="n">02 · MODEL MANAGER</div>
+        <div class="t">模型目錄與切換</div>
+        <div class="d">瀏覽多模型、看能力與大小、App 內下載(可續傳/進度)、<b>一鍵切換 L1 使用的模型</b>。gated 需 HF 登入。</div>
+      </figcaption>
+    </figure>
+
+    <!-- 3. ALERT -->
+    <figure class="fig">
+      <div class="phone"><div class="screen alert">
+        <div class="statusbar"><span>9:41</span><span>▚ ▚ ▚ 100%</span></div>
+        <div class="alert-hd">
+          <span class="sev"><span class="b"></span>嚴重 · 跌倒偵測</span>
+          <h3>偵測到跌倒</h3>
+          <div class="meta">社區 3F 走廊 · 12:07:52 · 已響警示音</div>
+        </div>
+        <div class="evidence">
+          <div class="img"><div class="fallbox"></div></div>
+          <div class="cbar">畫面內證據 · L1:<b>一人倒臥於地面,長時間無起身動作</b></div>
+        </div>
+        <p class="basis">依 <b>可見證據</b> 判定(pose + 持續時間);非模型臆測。可展開查看 3 秒前後畫面。</p>
+        <div class="actions">
+          <button class="btn crit">通知保全 · 撥打</button>
+          <div class="row2">
+            <button class="btn ghost">已處理</button>
+            <button class="btn ghost">誤報 · 回饋</button>
+          </div>
+        </div>
+      </div></div>
+      <figcaption class="cap">
+        <div class="n">03 · CRITICAL ALERT</div>
+        <div class="t">主動告警(跌倒 / 暴力)</div>
+        <div class="d">視覺 + 聲音同時告警。附<b>畫面內可見證據</b>與客觀描述。一鍵通知保全;「誤報回饋」持續壓低錯報。</div>
+      </figcaption>
+    </figure>
+
+    <!-- 4. EVENTS -->
+    <figure class="fig">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span>▚ ▚ ▚ 100%</span></div>
+        <div class="appbar"><span class="brand">事件記錄</span><span class="pill tag">今日 3</span></div>
+        <div class="scroll" style="gap:0">
+          <div class="ev"><div class="stripe" style="background:var(--accent)"></div><div class="body"><div class="ttl">跌倒 · 已通知保全</div><div class="sub">3F 走廊 · 12:07:52 · 已處理</div></div><span class="tag">GEMMA3N</span></div>
+          <div class="ev"><div class="stripe" style="background:var(--warn)"></div><div class="body"><div class="ttl">推擠動作 · 待確認</div><div class="sub">幼兒園 B 區 · 10:22:14</div></div><span class="tag">GEMMA3N</span></div>
+          <div class="ev"><div class="stripe" style="background:var(--faint)"></div><div class="body"><div class="ttl">誤報回饋 · 光影變化</div><div class="sub">1F 大廳 · 09:15:03 · 已學習</div></div><span class="tag">L0</span></div>
+          <div class="ev"><div class="stripe" style="background:var(--steel)"></div><div class="body"><div class="ttl">守護開始</div><div class="sub">08:00:00 · 連續運行 4h</div></div><span class="tag">系統</span></div>
+        </div>
+        <div class="telem" style="margin:12px">
+          <div class="row"><span>今日省算力</span><span class="v ok">98.7% 幀被 L0 略過</span></div>
+          <div class="row"><span>L1 喚醒次數</span><span class="v">312</span></div>
+        </div>
+      </div></div>
+      <figcaption class="cap">
+        <div class="n">04 · EVENTS</div>
+        <div class="t">事件記錄</div>
+        <div class="d">依嚴重度分色的時間軸。誤報回饋回流訓練閾值。記錄使用了哪顆模型,便於比較效果。</div>
+      </figcaption>
+    </figure>
+
+  </div>
+
+  <h2>互動與狀態</h2>
+  <div class="notes">
+    <div class="note"><h3>守護生命週期</h3><p><span class="k">閒置 → 守護中 → 告警 → 已處理</span>。守護中時 L0 每幀跑、僅變化喚醒 L1;告警為可打斷的最高優先。</p></div>
+    <div class="note"><h3>模型切換</h3><p>切換即時生效,不需重啟守護。切換前顯示大小/能力/預估延遲;下載中可切到已就緒的模型。狀態:<span class="k">未下載 / 下載中 / 就緒 / 使用中</span>。</p></div>
+    <div class="note"><h3>抗誤報回饋</h3><p>每則告警可標記「誤報」,回流調整 L0 閾值與 L2 規則。事件記錄標示模型來源,便於 A/B 不同模型效果。</p></div>
+    <div class="note"><h3>隱私</h3><p>影格不離裝置、用完即刪;只有<span class="k">文字描述與事件</span>可外傳到保全。無人物身分特徵留存(PDPA)。</p></div>
+    <div class="note"><h3>權限與首次啟動</h3><p>相機 / 通知 / 麥克風(暴力偵測)逐項說明用途後請求。首次啟動先到模型目錄下載一顆 vision 模型。</p></div>
+    <div class="note"><h3>無障礙與明暗</h3><p>語意色不單獨承載資訊(附文字/圖示)。深淺色皆為一等公民。告警震動 + 聲音 + 視覺三重通道。</p></div>
+  </div>
+
+  <footer>
+    <b>claustrum — UI/UX 設計定義(草案 v1 · Tesla/Optimus 科技感)。</b> 對齊 ADR-0006(主動安全告警 MVP)、ADR-0009(L1 用 Google AI Edge / LiteRT)。此為進入完整開發前的介面/互動定稿依據;實作以 Jetpack Compose 對照本稿。
+    <div class="legend">
+      <span><i style="background:#63A0C4"></i>L0 監看 / 正常</span>
+      <span><i style="background:#E5A400"></i>注意 / 待確認</span>
+      <span><i style="background:#E82127"></i>武裝 / 嚴重告警</span>
+    </div>
+  </footer>
+</div>
