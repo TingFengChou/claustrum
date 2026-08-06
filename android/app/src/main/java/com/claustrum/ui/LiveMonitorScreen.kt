@@ -1,0 +1,177 @@
+package com.claustrum.ui
+
+import android.view.View
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.material3.Text
+import com.claustrum.ui.theme.ClaustrumTheme
+import com.claustrum.ui.theme.Mono
+
+/** Immutable snapshot the Activity pushes to the screen each frame. */
+data class MonitorUi(
+    val backend: String = "…",
+    val resolution: String = "—",
+    val distance: Int = 0,
+    val threshold: Int = 8,
+    val admitted: Boolean = false,
+    val admittedCount: Long = 0,
+    val total: Long = 0,
+    val savedPct: Double = 0.0,
+    val caption: String = "（尚無:等待第一個放行幀）",
+    val guarding: Boolean = false,
+    // Audio modality isn't captured yet — say so honestly; never claim "all clear"
+    // (no RECORD_AUDIO / pipeline). See ADR-0006 (no false assurance).
+    val audio: String = "音訊模態尚未啟用(規劃中)——目前不監聽聲音,不代表無聲響事件。",
+)
+
+/**
+ * Main screen — 即時守護 · 機器之眼. The camera ([previewView]) is framed as the
+ * robot's eye (Optimus-style helmet + dark visor with a scan line); what it
+ * sees (L1) and hears reads out below. Design: docs/design/ui.
+ */
+@Composable
+fun LiveMonitorScreen(ui: MonitorUi, previewView: View, onOpenModels: () -> Unit) {
+    val c = ClaustrumTheme.colors
+    Column(
+        Modifier.fillMaxSize().background(c.ground).statusBarsPadding().padding(horizontal = 16.dp)
+    ) {
+        Spacer(Modifier.height(14.dp))
+        AppBar(guarding = ui.guarding, onOpenModels = onOpenModels)
+        Spacer(Modifier.height(12.dp))
+        RobotEye(previewView, resolution = ui.resolution)
+        Text(
+            if (ui.guarding) "機器之眼 · 守護中 · 影格不離裝置" else "機器之眼 · 啟動中… · 影格不離裝置",
+            color = c.faint, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
+        )
+        SenseCard(label = "看到 · L1 ${ui.backend}", body = ui.caption, accentSteel = true)
+        Spacer(Modifier.height(8.dp))
+        SenseCard(label = "聽到 · 音訊(規劃)", body = ui.audio, accentSteel = false)
+        Spacer(Modifier.height(12.dp))
+        TelemetryRow(ui)
+    }
+}
+
+@Composable
+private fun AppBar(guarding: Boolean, onOpenModels: () -> Unit) {
+    val c = ClaustrumTheme.colors
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(18.dp).clip(RoundedCornerShape(5.dp)).background(c.accent))
+        Spacer(Modifier.size(8.dp))
+        Text("CLAUSTRUM", color = c.ink, fontWeight = FontWeight.ExtraBold, letterSpacing = 3.sp, fontSize = 15.sp)
+        Spacer(Modifier.weight(1f))
+        // Status pill — reflects whether the camera/pipeline is actually running.
+        Row(
+            Modifier.clip(RoundedCornerShape(6.dp)).background(c.surface2)
+                .border(1.dp, c.line, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(if (guarding) c.accent else c.faint))
+            Spacer(Modifier.size(6.dp))
+            Text(
+                if (guarding) "守護中" else "啟動中…",
+                color = if (guarding) c.ink else c.muted,
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+            )
+        }
+        Spacer(Modifier.size(10.dp))
+        Text("模型", color = c.steel, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(c.surface2)
+                .border(1.dp, c.line, RoundedCornerShape(6.dp)).clickable { onOpenModels() }
+                .padding(horizontal = 10.dp, vertical = 5.dp))
+    }
+}
+
+@Composable
+private fun RobotEye(previewView: View, resolution: String) {
+    val c = ClaustrumTheme.colors
+    val helmet = Brush.verticalGradient(listOf(c.surface2, c.surface, c.ground))
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(64.dp, 64.dp, 24.dp, 24.dp))
+            .background(helmet).border(1.dp, c.line, RoundedCornerShape(64.dp, 64.dp, 24.dp, 24.dp))
+            .padding(16.dp),
+    ) {
+        BoxWithConstraints(
+            Modifier.fillMaxWidth().aspectRatio(1.5f).clip(RoundedCornerShape(44.dp))
+                .background(c.ground).border(1.dp, c.line, RoundedCornerShape(44.dp)),
+        ) {
+            AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+            // Scan line (animated) — the eye is "alive".
+            val t = rememberInfiniteTransition(label = "scan")
+            val frac by t.animateFloat(
+                0.08f, 0.9f,
+                infiniteRepeatable(tween(3200), RepeatMode.Reverse), label = "y",
+            )
+            Box(
+                Modifier.fillMaxWidth(0.86f).height(2.dp).align(Alignment.TopCenter)
+                    .offset(y = maxHeight * frac).background(c.accent.copy(alpha = 0.5f)),
+            )
+            Text(
+                "L0 監看 · $resolution",
+                color = c.steel, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                modifier = Modifier.align(Alignment.TopEnd).padding(10.dp)
+                    .clip(RoundedCornerShape(5.dp)).background(c.ground.copy(alpha = 0.7f))
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SenseCard(label: String, body: String, accentSteel: Boolean) {
+    val c = ClaustrumTheme.colors
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface2)
+            .border(1.dp, c.line, RoundedCornerShape(12.dp)).padding(14.dp),
+    ) {
+        Text(label, color = if (accentSteel) c.steel else c.muted,
+            style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.height(6.dp))
+        Text(body, color = c.ink, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun TelemetryRow(ui: MonitorUi) {
+    val c = ClaustrumTheme.colors
+    val decision = if (ui.admitted) "▶ 放行" else "⏸ 略過"
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("L0 $decision · Δ${ui.distance}/${ui.threshold}", color = c.muted, fontFamily = Mono, fontSize = 11.sp)
+        Text("放行 ${ui.admittedCount}/${ui.total} · 省 ${"%.1f".format(ui.savedPct)}%",
+            color = c.steel, fontFamily = Mono, fontSize = 11.sp)
+    }
+}

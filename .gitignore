@@ -49,3 +49,6 @@ venv/
 
 # tests
 tests/__pycache__/
+
+# Firebase 專案設定(含 API key/project 資訊,公開 repo 不提交)
+android/app/google-services.json

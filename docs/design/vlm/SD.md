@@ -18,7 +18,7 @@ llama.cpp 路線)。L1 執行所在的層 = Kotlin,因為 LiteRT/LLM Inference �
 | `PlaceholderCaptioner` | 誠實診斷:尺寸 + 平均亮度 + 2×2 亮度網格;標示「未載入 VLM」 | ✅ |
 | `LumaStats` | 從 luma 算整體與 2×2 象限平均亮度(純函式) | ✅ |
 | `ffi::…_describe` | JNI:`convert_byte_array` → `PlaceholderCaptioner.describe` → `new_string` | ✅(android only) |
-| `LiteRtCaptioner`(Kotlin) | Google AI Edge / LiteRT LLM Inference,多模態 Gemma;圖+文 → 描述 | ⏳ 待實作(見 ADR-0009、README「Edge AI 模型使用」) |
+| `LiteRtCaptioner`(Kotlin) | LiteRT-LM SDK `litertlm-android`:`Engine`(backend fallback GPU/GPU→CPU/GPU→CPU/CPU)+ 每放行幀新 `Conversation`;`Content.ImageBytes(png)`+`Text` → 描述;`enable_thinking=false`;穩定 cache 目錄 | ✅ 引擎裝置端初始化(GPU/GPU);推論完成待調(見下) |
 
 ## 3. 介面與合約
 
@@ -64,6 +64,13 @@ maxNumTokens)`)**載入一次**(初始化成本高)、跨放行幀重用,`onDest
 `Content.ImageBytes(png)` + `Content.Text(客觀提示)`,用畢 `close()`。因 L0 已閘控,PNG 編碼與新對話
 只在放行幀付出,非逐幀熱路徑。不需早先規劃的 Rust 端 `OnceLock<Mutex<…>>`(llama.cpp-in-Rust 路線的
 產物,已隨 ADR-0009 作廢)。過渡期 `PlaceholderCaptioner` 仍為無狀態、JNI 每次新建即可。
+
+**裝置端實測(Pixel 10,截至目前):**
+- 相依 `com.google.ai.edge.litertlm:litertlm-android:0.11.0`(需 Kotlin ≥ 2.2 讀其 metadata)。
+- **GPU delegate 需在 manifest 宣告 `libOpenCL.so`(`uses-native-library`,required=false)**,否則 GPU backend 初始化失敗(`vision_litert_compiled_model_executor` / `delegate_kernel_litert` INTERNAL error)。宣告後 **`Engine`(backend=GPU/GPU)初始化成功**。
+- **maxNumTokens 需容納輸入**:影像約 256 vision tokens + 提示詞 ≈ 299,故不可設 256(會 `Input token ids too long`);用 1024。
+- 編譯後的 vision/program cache 持久化於穩定目錄(`<externalFiles>/litert-cache/`,約 1.4GB + 166MB),跨重裝保留。
+- **待調:** 單張放行幀 `describe()` 目前逾時(即使暖 cache)。已加 `enable_thinking=false`(比照 AI Edge Gallery)以避免長思考鏈;若仍逾時,續查 litertlm 串流回呼(`onMessage`/`onDone`)語意或改用同步 API。此為 L1 最後一哩,追蹤於任務。UI 端需搭配載入動畫(Lottie)呈現初始化/推論等待。
 
 **LiteRtCaptioner 實作守則(穩健性,必守):**
 - **生命週期競態:** `sendMessageAsync` 為非同步;`onDestroy` 前須先 `conversation.cancelProcess()`
