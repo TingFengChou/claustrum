@@ -27,7 +27,7 @@ docs/design/
 | [`model/`](model/) | 🔶 P2(App 內下載 + 模型目錄/切換) | [SA](model/SA.md) · [SD](model/SD.md) |
 | `events/` | 📐 P3 規劃(L2/L3 時序事件) | 與實作 PR 一併補上 |
 | [`ui/`](ui/) | 🎨 UI/UX 設計定義(進入完整開發前定稿) | [設計 + 互動原型](ui/README.md) |
-| [`core/`](core/) · [`medication/`](medication/) · [`app/`](app/) | 🗄️ ADR-0007 前的參考 | 各 SA/SD |
+| [`core/`](core/) · [`medication/`](medication/) | 🗄️ ADR-0007 前的參考 | 各 SA/SD |
 
 新模組:複製 [`_template/`](_template/) 開始。此索引隨模組里程碑更新(見 dev-standards skill)。
 
