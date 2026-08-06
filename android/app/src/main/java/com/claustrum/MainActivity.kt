@@ -1,67 +1,181 @@
 package com.claustrum
 
-import android.app.Activity
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
-import android.widget.ScrollView
+import android.util.Log
+import android.view.Gravity
+import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
+import com.claustrum.core.ChangeGate
 import com.claustrum.core.NativeCore
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * P0 bring-up screen: proves the Rust perception core answers over JNI on-device
- * ("Rust 回話"), and runs a tiny L0 change-gate self-test with synthetic frames
- * so the aHash + Hamming-distance path is exercised on real hardware.
+ * P1 screen: live camera → per-frame luma → Rust L0 change-gate.
+ *
+ * CameraX `ImageAnalysis` hands each frame's Y (luma) plane to the Rust core
+ * ([NativeCore.frameSignature]); the [ChangeGate] admits only frames that differ
+ * enough from the last admitted one — the "only wake the VLM when the scene
+ * changes" compute saver. Pixels never leave the analyzer; only the aHash and a
+ * boolean decision are kept.
  */
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
+
+    private val analysisExecutor = Executors.newSingleThreadExecutor()
+    private val gate = ChangeGate(threshold = 8)
+
+    // Rolling stats (updated on the analysis thread, read on the UI thread).
+    private val totalFrames = AtomicLong(0)
+    private val admittedFrames = AtomicLong(0)
+
+    private lateinit var statusView: TextView
+    private lateinit var previewView: PreviewView
+
+    private val requestCamera =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) startCamera() else statusView.text = "需要相機權限才能執行 L0 閘控驗證。"
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val report = StringBuilder()
-        report.append("claustrum · Rust 核心裝置端驗證\n")
-        report.append("=".repeat(28)).append("\n\n")
-
-        try {
-            report.append("① nativeHello():\n")
-            report.append("   ").append(NativeCore.nativeHello()).append("\n\n")
-
-            // ② L0 gate self-test: identical frames → distance 0; a real change → large.
-            val w = 64
-            val h = 64
-            val flat = ByteArray(w * h) { 0 }                      // uniform dark frame
-            val split = ByteArray(w * h) { i ->                    // bright bottom half
-                if ((i / w) >= h / 2) 0xFF.toByte() else 0
+        previewView = PreviewView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(MATCH, MATCH)
+        }
+        statusView = TextView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(MATCH, WRAP).apply {
+                gravity = Gravity.TOP
             }
-            val sigFlat = NativeCore.frameSignature(flat, w, h)
-            val sigFlat2 = NativeCore.frameSignature(flat, w, h)
-            val sigSplit = NativeCore.frameSignature(split, w, h)
-            val distSame = java.lang.Long.bitCount(sigFlat xor sigFlat2)
-            val distChange = java.lang.Long.bitCount(sigFlat xor sigSplit)
-
-            report.append("② L0 變化閘控 (frameSignature):\n")
-            report.append("   flat  = 0x${java.lang.Long.toHexString(sigFlat)}\n")
-            report.append("   split = 0x${java.lang.Long.toHexString(sigSplit)}\n")
-            report.append("   distance(same)   = $distSame  (期望 0)\n")
-            report.append("   distance(change) = $distChange  (期望 大)\n\n")
-
-            val pass = distSame == 0 && distChange >= 10
-            report.append(if (pass) "✅ PASS — Rust 核心在裝置端運作正常" else "⚠️ 數值異常,請檢查")
-        } catch (t: Throwable) {
-            report.append("❌ 載入/呼叫失敗:\n").append(t.toString())
-        }
-
-        val text = TextView(this).apply {
-            setText(report.toString())
-            textSize = 15f
             typeface = Typeface.MONOSPACE
-            setPadding(48, 64, 48, 64)
-            setTextColor(Color.parseColor("#111111"))
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#B0000000"))
+            setPadding(28, 40, 28, 28)
+            text = "啟動相機中…（Rust 核心:${safeHello()})"
         }
-        val scroll = ScrollView(this).apply {
-            setBackgroundColor(Color.parseColor("#FAFAFA"))
-            addView(text)
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            addView(previewView)
+            addView(statusView)
         }
-        setContentView(scroll)
+        setContentView(root)
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            startCamera()
+        } else {
+            requestCamera.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun safeHello(): String = try {
+        NativeCore.nativeHello()
+    } catch (t: Throwable) {
+        "載入失敗 ${t.message}"
+    }
+
+    private fun startCamera() {
+        val future = ProcessCameraProvider.getInstance(this)
+        future.addListener({
+            val provider = future.get()
+
+            val preview = Preview.Builder().build().also {
+                it.surfaceProvider = previewView.surfaceProvider
+            }
+
+            val analysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                .build()
+                .also { it.setAnalyzer(analysisExecutor, ::analyze) }
+
+            try {
+                provider.unbindAll()
+                provider.bindToLifecycle(
+                    this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis
+                )
+            } catch (t: Throwable) {
+                Log.e(TAG, "bindToLifecycle failed", t)
+                runOnUiThread { statusView.text = "相機綁定失敗:${t.message}" }
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    /** Runs on [analysisExecutor]; must close the proxy. */
+    private fun analyze(image: ImageProxy) {
+        try {
+            val w = image.width
+            val h = image.height
+            val luma = extractLuma(image)
+            val sig = NativeCore.frameSignature(luma, w, h)
+            val dist = gate.distanceFrom(sig)
+            val admitted = gate.admit(sig)
+
+            val total = totalFrames.incrementAndGet()
+            val kept = if (admitted) admittedFrames.incrementAndGet() else admittedFrames.get()
+            val savedPct = if (total > 0) 100.0 * (total - kept) / total else 0.0
+
+            val report = buildString {
+                append("claustrum · L0 變化閘控(裝置端 Rust)\n")
+                append("分析解析度: ${w}×${h}  閾值: ${gate.threshold} bits\n")
+                append("sig: 0x%016x\n".format(sig))
+                append("Hamming(vs 上次放行): $dist\n")
+                append(if (admitted) "決策: ▶ 放行(觸發 L1)\n" else "決策: ⏸ 略過(省算力)\n")
+                append("放行 $kept / 共 $total  → 省下 %.1f%% 運算".format(savedPct))
+            }
+            runOnUiThread { statusView.text = report }
+        } catch (t: Throwable) {
+            Log.e(TAG, "analyze failed", t)
+        } finally {
+            image.close()
+        }
+    }
+
+    /**
+     * Copies the Y (luma) plane into a tightly packed w*h byte array, honoring
+     * `rowStride` (padding) — Y plane `pixelStride` is 1 in YUV_420_888.
+     */
+    private fun extractLuma(image: ImageProxy): ByteArray {
+        val w = image.width
+        val h = image.height
+        val plane = image.planes[0]
+        val buffer = plane.buffer
+        val rowStride = plane.rowStride
+        val out = ByteArray(w * h)
+        if (rowStride == w) {
+            buffer.position(0)
+            buffer.get(out, 0, w * h)
+        } else {
+            for (row in 0 until h) {
+                buffer.position(row * rowStride)
+                buffer.get(out, row * w, w)
+            }
+        }
+        return out
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        analysisExecutor.shutdown()
+    }
+
+    companion object {
+        private const val TAG = "claustrum"
+        private const val MATCH = FrameLayout.LayoutParams.MATCH_PARENT
+        private const val WRAP = FrameLayout.LayoutParams.WRAP_CONTENT
     }
 }
