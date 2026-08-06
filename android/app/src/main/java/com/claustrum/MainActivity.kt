@@ -7,7 +7,11 @@ import android.graphics.Typeface
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
+import android.view.View
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,30 +22,39 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.claustrum.core.ChangeGate
 import com.claustrum.core.NativeCore
+import com.claustrum.model.Capability
+import com.claustrum.model.ModelDownloadWorker
+import com.claustrum.model.ModelRepository
+import com.claustrum.model.ModelSpec
+import com.claustrum.vlm.Captioner
+import com.claustrum.vlm.PlaceholderCaptioner
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * P1 screen: live camera → per-frame luma → Rust L0 change-gate.
+ * Two screens, programmatic (Compose comes later):
+ *  1. **Model gate** — browse the catalog, see each model's capabilities/size,
+ *     and download in-app (WorkManager, resumable, progress). Productization:
+ *     the app fetches its own model — no adb push, no separate app (ADR-0009,
+ *     pattern from Google AI Edge Gallery).
+ *  2. **Camera** — CameraX luma → Rust L0 gate → (admitted) L1 [Captioner].
  *
- * CameraX `ImageAnalysis` hands each frame's Y (luma) plane to the Rust core
- * ([NativeCore.frameSignature]); the [ChangeGate] admits only frames that differ
- * enough from the last admitted one — the "only wake the VLM when the scene
- * changes" compute saver. Pixels never leave the analyzer; only the aHash and a
- * boolean decision are kept.
+ * L1 backend today is [PlaceholderCaptioner] (Rust diagnostic); `LiteRtCaptioner`
+ * (real multimodal Gemma via LiteRT-LM) slots in behind the same interface once a
+ * vision model is downloaded.
  */
 class MainActivity : ComponentActivity() {
 
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private val gate = ChangeGate(threshold = 8)
+    private val captioner: Captioner = PlaceholderCaptioner
 
-    // Rolling stats (updated on the analysis thread, read on the UI thread).
     private val totalFrames = AtomicLong(0)
     private val admittedFrames = AtomicLong(0)
-
-    // Latest L1 description; recomputed only on an admitted frame.
     @Volatile private var lastCaption = "（尚無:等待第一個放行幀）"
 
     private lateinit var statusView: TextView
@@ -54,58 +67,171 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Enter at the model gate; the user can proceed to the camera from there.
+        showModelGate()
+    }
 
+    // ---- Screen 1: model gate (catalog + in-app download) -------------------
+
+    private fun showModelGate() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#FAFAFA"))
+            setPadding(48, 64, 48, 48)
+        }
+        root.addView(TextView(this).apply {
+            text = "claustrum · Edge AI 模型"
+            textSize = 20f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#111111"))
+        })
+        root.addView(TextView(this).apply {
+            text = "在 App 內下載並管理裝置端模型(LiteRT / Google AI Edge)。L1 場景描述需" +
+                "「看圖描述」能力的模型。"
+            textSize = 13f
+            setTextColor(Color.parseColor("#555555"))
+            setPadding(0, 16, 0, 24)
+        })
+
+        for (spec in ModelSpec.CATALOG) {
+            root.addView(modelCard(spec))
+        }
+
+        root.addView(Button(this).apply {
+            text = "進入即時偵測(L0 + L1 佔位)"
+            setOnClickListener { showCamera() }
+        })
+        root.addView(TextView(this).apply {
+            text = "註:真實 L1 多模態推論(LiteRtCaptioner)將於模型下載後接上;目前為 Rust 佔位診斷。"
+            textSize = 11f
+            setTextColor(Color.parseColor("#888888"))
+            setPadding(0, 16, 0, 0)
+        })
+
+        setContentView(ScrollView(this).apply { addView(root) })
+    }
+
+    private fun modelCard(spec: ModelSpec): View {
+        val caps = spec.capabilities.joinToString(" · ") { it.label }
+        val sizeGb = spec.sizeBytes / 1e9
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.WHITE)
+            setPadding(32, 28, 32, 28)
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, 24) }
+            layoutParams = lp
+        }
+        card.addView(TextView(this).apply {
+            text = "${spec.name}${if (spec.gated) "  🔒gated" else ""}"
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#111111"))
+        })
+        card.addView(TextView(this).apply {
+            text = "能力:$caps   ·   約 %.2f GB".format(sizeGb)
+            textSize = 12f
+            setTextColor(Color.parseColor("#666666"))
+        })
+        card.addView(TextView(this).apply {
+            text = spec.description
+            textSize = 12f
+            setTextColor(Color.parseColor("#666666"))
+            setPadding(0, 4, 0, 8)
+        })
+        val status = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.parseColor("#1565C0"))
+            text = if (ModelRepository.isPresent(this@MainActivity, spec)) "✅ 已下載" else "尚未下載"
+        }
+        val button = Button(this).apply {
+            text = if (ModelRepository.isPresent(this@MainActivity, spec)) "重新下載" else "下載"
+            setOnClickListener {
+                isEnabled = false
+                status.text = "排入下載…"
+                ModelRepository.enqueueDownload(this@MainActivity, spec /*, hfToken = ... */)
+            }
+        }
+        card.addView(button)
+        card.addView(status)
+        // Attach the observer at creation so a download already running (e.g. app
+        // was reopened) restores its progress without needing another tap.
+        observeDownload(spec, status, button)
+        return card
+    }
+
+    private fun observeDownload(spec: ModelSpec, status: TextView, button: Button) {
+        WorkManager.getInstance(this)
+            .getWorkInfosForUniqueWorkLiveData(ModelRepository.uniqueWorkName(spec))
+            .observe(this) { infos ->
+                val info = infos?.firstOrNull() ?: return@observe
+                when (info.state) {
+                    WorkInfo.State.RUNNING -> {
+                        val recv = info.progress.getLong(ModelDownloadWorker.KEY_P_RECEIVED, 0)
+                        val total = info.progress.getLong(ModelDownloadWorker.KEY_P_TOTAL, spec.sizeBytes)
+                        val rate = info.progress.getFloat(ModelDownloadWorker.KEY_P_RATE, 0f)
+                        val pct = if (total > 0) recv * 100 / total else 0
+                        status.text = "下載中 $pct%%  (%.1f / %.1f GB, %.1f MB/s)".format(
+                            recv / 1e9, total / 1e9, rate / 1e6
+                        )
+                    }
+                    WorkInfo.State.SUCCEEDED -> {
+                        status.text = "✅ 已下載"
+                        button.isEnabled = true
+                        button.text = "重新下載"
+                    }
+                    WorkInfo.State.FAILED -> {
+                        val err = info.outputData.getString(ModelDownloadWorker.KEY_ERROR) ?: "未知錯誤"
+                        status.text = "❌ $err"
+                        button.isEnabled = true
+                    }
+                    WorkInfo.State.CANCELLED -> {
+                        status.text = "已取消"; button.isEnabled = true
+                    }
+                    else -> status.text = "排入下載…"
+                }
+            }
+    }
+
+    // ---- Screen 2: camera (L0 gate → L1 captioner) --------------------------
+
+    private fun showCamera() {
         previewView = PreviewView(this).apply {
             layoutParams = FrameLayout.LayoutParams(MATCH, MATCH)
         }
         statusView = TextView(this).apply {
-            layoutParams = FrameLayout.LayoutParams(MATCH, WRAP).apply {
-                gravity = Gravity.TOP
-            }
+            layoutParams = FrameLayout.LayoutParams(MATCH, WRAP).apply { gravity = Gravity.TOP }
             typeface = Typeface.MONOSPACE
             textSize = 13f
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#B0000000"))
             setPadding(28, 40, 28, 28)
-            text = "啟動相機中…（Rust 核心:${safeHello()})"
+            text = "啟動相機中…（L1 後端:${captioner.backend}）"
         }
-        val root = FrameLayout(this).apply {
+        setContentView(FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             addView(previewView)
             addView(statusView)
-        }
-        setContentView(root)
+        })
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
-        ) {
-            startCamera()
-        } else {
-            requestCamera.launch(Manifest.permission.CAMERA)
-        }
-    }
-
-    private fun safeHello(): String = try {
-        NativeCore.nativeHello()
-    } catch (t: Throwable) {
-        "載入失敗 ${t.message}"
+        ) startCamera() else requestCamera.launch(Manifest.permission.CAMERA)
     }
 
     private fun startCamera() {
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             val provider = future.get()
-
             val preview = Preview.Builder().build().also {
                 it.surfaceProvider = previewView.surfaceProvider
             }
-
             val analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build()
                 .also { it.setAnalyzer(analysisExecutor, ::analyze) }
-
             try {
                 provider.unbindAll()
                 provider.bindToLifecycle(
@@ -132,13 +258,14 @@ class MainActivity : ComponentActivity() {
             val kept = if (admitted) admittedFrames.incrementAndGet() else admittedFrames.get()
             val savedPct = if (total > 0) 100.0 * (total - kept) / total else 0.0
 
-            // L1 wakes ONLY on an admitted frame — this is the compute saver in action.
+            // L1 wakes ONLY on an admitted frame — the compute saver in action.
             if (admitted) {
-                lastCaption = NativeCore.describe(luma, w, h) ?: "L1 佔位:描述失敗"
+                lastCaption = captioner.describe(luma, w, h)
             }
 
             val report = buildString {
-                append("claustrum · L0→L1 感知管線(裝置端 Rust)\n")
+                append("claustrum · L0→L1 感知管線(裝置端)\n")
+                append("L1 後端: ${captioner.backend}\n")
                 append("分析解析度: ${w}×${h}  閾值: ${gate.threshold} bits\n")
                 append("sig: 0x%016x\n".format(sig))
                 append("Hamming(vs 上次放行): $dist\n")
@@ -147,7 +274,7 @@ class MainActivity : ComponentActivity() {
                 append("─────\n")
                 append("L1 最新描述:\n$lastCaption")
             }
-            runOnUiThread { statusView.text = report }
+            runOnUiThread { if (::statusView.isInitialized) statusView.text = report }
         } catch (t: Throwable) {
             Log.e(TAG, "analyze failed", t)
         } finally {
@@ -155,10 +282,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Copies the Y (luma) plane into a tightly packed w*h byte array, honoring
-     * `rowStride` (padding) — Y plane `pixelStride` is 1 in YUV_420_888.
-     */
     private fun extractLuma(image: ImageProxy): ByteArray {
         val w = image.width
         val h = image.height

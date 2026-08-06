@@ -125,6 +125,7 @@ L1 推論採 **Google AI Edge / LiteRT**(多模態 Gemma,`.litertlm`),走 Tensor
 | `core-rs/`(Rust 感知核心) | 🟢 P0 | [SA](docs/design/core-rs/SA.md) · [SD](docs/design/core-rs/SD.md) |
 | `android/`(Kotlin 裝置外殼) | 🟢 P0/P1 | [SA](docs/design/android/SA.md) · [SD](docs/design/android/SD.md) |
 | `vlm/`(L1 場景描述) | 🔶 P2 seam | [SA](docs/design/vlm/SA.md) · [SD](docs/design/vlm/SD.md) |
+| `model/`(App 內模型下載/切換) | 🔶 P2 | [SA](docs/design/model/SA.md) · [SD](docs/design/model/SD.md) |
 | `events/`(時序事件引擎) | 📐 P3 規劃 | 與實作 PR 一併補上 SA/SD |
 | `schemas/` 領域型別 | ✅ | 型別即 SoT;參考 [`core/`](docs/design/core/SD.md) |
 | `app/`(舊 RN)· `medication/` | 🗄️ 參考 | [app SD](docs/design/app/SD.md) · [medication SD](docs/design/medication/SD.md)(ADR-0007 前) |
@@ -168,21 +169,15 @@ CameraX(Kotlin)每幀 luma
 | 能力 | 圖+文 → 文("Ask Image");日後音+文 |
 | 加速 | Tensor G5 GPU / NPU(LiteRT delegate) |
 
-### 取得模型(二選一)
+### 取得模型:App 內建下載(產品化做法)
 
-**A. 用 Google AI Edge Gallery App(最簡單)** — 裝置上安裝 [AI Edge Gallery](https://github.com/google-ai-edge/gallery)(Google Play / APK),在 App 內從 Hugging Face **LiteRT Community** 下載多模態 Gemma,驗證「Ask Image」可跑,確認裝置吃得下該模型。
+模型由 **App 自己下載與管理**(不靠 `adb push`、不靠另一個 App)——這是產品化的必要條件。做法參考 [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery)(Apache-2.0):
 
-**B. 手動下載 + 推送到本 App** — 從 HF LiteRT Community 取得 `.litertlm`(或 `.task`),推到 App 的模型目錄:
+- **模型目錄**:App 內列出多顆模型(Gemma 3n E2B/E4B…),顯示各自**能力**(看圖描述/文字)、大小、是否 gated。因為不同模型效果不同,**切換模型是一等公民**。
+- **App 內下載**:WorkManager 前景服務,從 Hugging Face `resolve` URL 下載,**可續傳**、顯示進度、存到 App 專屬目錄。實作見 [`model` 模組](docs/design/model/SD.md)。
+- **gated 授權**:Gemma 全系列在 HF 為 gated(Gemma 授權)→ App 內下載需 **HF 登入/存取權杖**;無授權時 App 誠實提示「需要授權(401)」。HF 登入流程為產品化下一步。
 
-```bash
-# 例(實際檔名以 LiteRT Community 頁面為準)
-adb push gemma-3n-E2B-it-int4.litertlm \
-  /sdcard/Android/data/com.claustrum/files/models/
-# adb 建立的目錄若 App uid 無法存取,補一次權限:
-adb shell chmod -R 0777 /sdcard/Android/data/com.claustrum/files/models
-```
-
-> 模型檔通常數百 MB~數 GB;E2B 較輕、E4B 較準。第一版建議先用較小的 E2B 版本確認即時性,再視延遲換 E4B。
+> 開發期若要略過 UI 直接放模型,可 `adb push` 到 `…/com.claustrum/files/models/v1/`(僅開發用,非產品路徑)。
 
 ### App 端如何載入與推論(規劃中的接法)
 

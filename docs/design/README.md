@@ -24,6 +24,7 @@ docs/design/
 | [`core-rs/`](core-rs/) | 🟢 P0(L0 閘控 + JNI) | [SA](core-rs/SA.md) · [SD](core-rs/SD.md) |
 | [`android/`](android/) | 🟢 P0/P1(外殼 + CameraX×L0) | [SA](android/SA.md) · [SD](android/SD.md) |
 | [`vlm/`](vlm/) | 🔶 P2 seam(L1 `Captioner` + 佔位) | [SA](vlm/SA.md) · [SD](vlm/SD.md) |
+| [`model/`](model/) | 🔶 P2(App 內下載 + 模型目錄/切換) | [SA](model/SA.md) · [SD](model/SD.md) |
 | `events/` | 📐 P3 規劃(L2/L3 時序事件) | 與實作 PR 一併補上 |
 | [`core/`](core/) · [`medication/`](medication/) · [`app/`](app/) | 🗄️ ADR-0007 前的參考 | 各 SA/SD |
 
