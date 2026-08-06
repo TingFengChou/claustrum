@@ -6,19 +6,9 @@
 
 Pixel 10 · React Native + 原生 Rust/C++/Kotlin · llama.rn(llama.cpp)· Edge AI
 
-> **核心命題:** 相機的角色被改變了——它是主動防護的守護者,不是事後回看的記錄器。這正是為什麼整個系統必須**即時 · 串流 · 裝置端**:事發後才知道就失去意義。詳見 [ADR-0006](docs/adr/0006-safety-alert-mvp.md)。
+> **核心命題:** 相機是主動防護的守護者,不是事後回看的記錄器——這正是為什麼整個系統必須**即時 · 串流 · 裝置端**(詳見 [ADR-0006](docs/adr/0006-safety-alert-mvp.md))。目前**手機優先、單節點**([ADR-0004](docs/adr/0004-phone-first-single-node.md))。
 >
-> **目前階段:手機優先、單節點。** 所有運算跑在單一台 Pixel 10 上([ADR-0004](docs/adr/0004-phone-first-single-node.md));Jetson 雙節點是日後目標([ADR-0003](docs/adr/0003-two-node-topology.md))。
-
----
-
-## ⚠️ 請先讀這段
-
-**這不是醫療器材,也不能取代真人監看與保全。**
-
-跌倒/暴力偵測會漏掉事件,也會產生誤報。請勿將它當成唯一的安全網,而應視為協助人力的一層額外警覺。任何部署都需取得現場相關人員的知情同意;**幼兒園等涉及兒童的場景**,兒童個資屬高度敏感(PDPA),需機構同意、家長告知與明確治理。在把鏡頭對準任何人之前,請先閱讀 [`docs/PRIVACY.md`](docs/PRIVACY.md)。
-
----
+> ⚠️ 這不是醫療器材,也不能取代真人監看與保全;偵測會漏報也會誤報。詳見下方「[安全與限制](#安全與限制)」。
 
 ## 它能做什麼
 
@@ -29,43 +19,67 @@ Pixel 10 · React Native + 原生 Rust/C++/Kotlin · llama.rn(llama.cpp)· Edge 
 | 社區有人跌倒 | 裝置端即時偵測 → 數秒內**通知保全**,並附上原因 |
 | 幼兒園發生暴力衝突 | 融合**聲音 + 畫面**偵測 → 主動**聲光告警** |
 
-重點是**主動**:偵測與告警在事件當下於裝置上完成,影像不外傳。居家查詢、藥袋辨識等能力保留於路線圖後段(見下方)。
+重點是**主動**:偵測與告警在事件當下於裝置上完成,影像不外傳。居家查詢、藥袋辨識等能力保留於路線圖後段。
 
-## 名字的由來
+## 路線圖與現階段重點
 
-**claustrum**(屏狀核)是一薄層神經元,幾乎與每一個大腦皮質區都有連結。Crick 與 Koch 曾提出,它正是把各自獨立的感官模態綁定為單一統一體驗的結構 —— 他們將它比喻為管弦樂團的指揮。
+> **現在:Phase 2 — MVP(手機驗證優先)。** 感知閉環(A)已完成並在 Pixel 10 實機驗證 ✅;**下一步是 B:跌倒偵測**。
 
-這正是本專案要做的事:把視覺與音訊(日後含語言)綁定為一份連貫、即時的理解,用於當下的防護判斷。
+```mermaid
+flowchart TD
+  T["🛡️ 主動防護,不是事後回看 · 即時 · Edge AI · 多模態"]
 
-## 領域詞彙
+  subgraph P1["Phase 1 — 基礎(已完成)"]
+    direction TB
+    P1a["領域模型 + schema · 開發規範 · RN App 實機 · 裝置端 VLM 引擎 llama.rn"]
+  end
 
-這套程式碼刻意採用一組貫徹一致的詞彙,取自動物行為學 (ethology)、身勢學 (kinesics) 與行動者網絡理論 (actor-network theory)。這三個傳統共享同一項方法論承諾:**記錄觀察到的事,不臆測動機。** 這項承諾是本專案的核心紀律,因此這些命名都承載著它。
+  subgraph P2["Phase 2 — MVP(進行中 · 手機驗證優先)"]
+    direction TB
+    A["A. 感知閉環:相機 + 麥克風 → 裝置端偵測 → 告警 ✅"]
+    B["B. 跌倒偵測(on-device pose)→ 通知保全 ◀ 下一步"]
+    C["C. 暴力偵測(音 + 視融合)→ 幼兒園聲光告警"]
+    D["D. 告警通道 + 誤報抑制(去重 / 冷卻 / 人工確認)"]
+    A --> B --> D
+    A --> C --> D
+  end
 
-| 詞彙 | 在此的意義 | 出處 |
-|---|---|---|
-| **Actant** | 場景中的一個參與者 —— `person_1`、`cat`、`robot_1`。是一個**角色槽位,而非身分。** | 行動者網絡理論 (Latour);結構符號學 (Greimas) |
-| **Kineme** | 觀察到的行為之最小記錄單位。一個動作、一段時間。 | 身勢學 (Birdwhistell) —— 音素 (phoneme) 在身勢上的類比 |
-| **Ethogram** | 一段期間內眾多 kineme 的目錄。 | 動物行為學 —— 針對某物種各離散行為的正式清單 |
+  subgraph P3["Phase 3+ — 延後 / 未來"]
+    direction TB
+    F["藥袋辨識 · 離線管線 / Ethogram / 查詢 · AppFunctions · 硬化 · 雙節點 Jetson / 機器人橋接 · ASR/TTS"]
+  end
 
-`Actant` 之所以是角色槽位而非某個人,並非偶然 —— 它就是隱私設計本身。本專案不做人臉辨識,也不做身分歸屬。詳見 [`docs/adr/0002-naming-and-domain-language.md`](docs/adr/0002-naming-and-domain-language.md)。
+  T --> P1 --> P2 --> P3
+
+  classDef done fill:#12351f,stroke:#43e0d0,color:#dffdf5;
+  classDef now fill:#241a52,stroke:#8be9ff,color:#eaf6ff;
+  classDef next fill:#3a2a10,stroke:#ffb054,color:#ffe9cf;
+  classDef future fill:#1c1636,stroke:#6b6690,color:#c7c3e0;
+  class P1a,A done;
+  class C,D now;
+  class B next;
+  class F future;
+```
+
+完整里程碑、驗收標準與全景圖:[`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
 ## 架構
 
-連續影音無法逐格餵給模型。核心設計是一座**時間壓縮金字塔 (temporal compression pyramid)**;安全告警 MVP 的重心在 **L0→L2**:
+連續影音無法逐格餵給模型。核心設計是一座**時間壓縮金字塔**;安全告警 MVP 的重心在 **L0→L2**:
 
 ```
  相機 30 fps + 麥克風音訊
      │
- L0  閘控 (Gating)   motion diff · pose landmarks · 音訊事件 · frame embedding
-     │               → 決定哪些瞬間值得一次昂貴推論(目標 100×+ 壓縮)
+ L0  閘控        motion diff · pose landmarks · 音訊事件 · frame embedding
+     │           → 決定哪些瞬間值得一次昂貴推論(目標 100×+ 壓縮)
      ▼
- L1  感知 (Perceive) 裝置端 Gemma E2B/E4B(llama.rn / llama.cpp)→ 結構化 Kineme
+ L1  感知        裝置端 Gemma E2B/E4B(llama.rn / llama.cpp)→ 結構化 Kineme
      │
      ▼
- L2  告警 (Alert)    快路徑:pose / 音訊啟發式(recall)★ MVP 核心
-     │               慢路徑:VLM 確認(precision)→ 通知保全 / 聲光告警
+ L2  告警        快路徑:pose / 音訊啟發式(recall)★ MVP 核心
+     │           慢路徑:VLM 確認(precision)→ 通知保全 / 聲光告警
      ▼
- L3/L4 (延後)        摘要 Ethogram · 自然語言查詢
+ L3/L4 (延後)    摘要 Ethogram · 自然語言查詢
 ```
 
 完整細節,包含 L2 為何拆成兩條路徑,詳見 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
@@ -78,14 +92,9 @@ Pixel 10 · React Native + 原生 Rust/C++/Kotlin · llama.rn(llama.cpp)· Edge 
 |---|---|---|---|
 | `app/` | React Native + TS(+ 原生 Rust/C++ · Kotlin) | 🚧 進行中 | **產品本體** —— 裝置端感知/告警 App。**目前重點。** |
 | `schemas/` | JSON Schema | ✅ 就緒 | 領域型別的**單一真實來源**(跨 TS / Kotlin / Python) |
-| `core/` | Python | ✅ 就緒 | 領域型別參考實作,供離線 eval/bench 使用 |
-| `bench/` `eval/` | Python | ✅ 就緒 | 離線基準測試 / 評測(工具,非產品) |
+| `core/` `bench/` `eval/` | Python | ✅ 就緒 | 領域型別參考、離線基準測試 / 評測(工具,非產品) |
 
-裝置端的重負載(L0 閘控、影格/音訊串流、on-device 推論)以原生 **Rust/C++** 核心 + **Kotlin** 平台膠合實作,透過 NDK/JNI 橋接給 RN(ADR-0005)。**即時串流辨識**是終極目標。裝置端推論引擎 **llama.rn / llama.cpp** 已接入並建置於 Pixel 10(APK 內含 `librnllama.so`)。
-
-## 部署拓撲
-
-**現在 —— 手機優先、單節點** (ADR-0004):Pixel 10 一手包辦相機 + 麥克風擷取、L0–L2 偵測、告警。單一行程同時持有影格並判斷,因此影格隔離是靠**政策**(不外傳、用完即刪)而非拓撲來落實——這是手機優先所承擔、且刻意為之的暫時代價。**日後**一旦 Jetson 就緒,再恢復 [ADR-0003](docs/adr/0003-two-node-topology.md) 的雙節點結構性影格隔離。
+裝置端的重負載(L0 閘控、影格/音訊串流、on-device 推論)以原生 **Rust/C++** 核心 + **Kotlin** 平台膠合實作,透過 NDK/JNI 橋接給 RN(ADR-0005)。裝置端推論引擎 **llama.rn / llama.cpp** 已接入並建置於 Pixel 10(APK 內含 `librnllama.so`)。
 
 ## 快速上手
 
@@ -100,13 +109,33 @@ npm run android          # 建置並安裝到已連接的 Android 裝置(Pixel 1
 
 裝置端推論引擎(llama.rn)會一併編譯進 App。離線工具(bench/eval,Python)另見 [`bench/README.md`](bench/README.md)。
 
-## 路線圖
+## 部署拓撲
 
-全景圖(GitHub 原生渲染的 Mermaid)與各里程碑細節見 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
+**現在 —— 手機優先、單節點**(ADR-0004):Pixel 10 一手包辦相機 + 麥克風擷取、L0–L2 偵測、告警。單一行程同時持有影格並判斷,因此影格隔離是靠**政策**(不外傳、用完即刪)而非拓撲來落實——這是手機優先所承擔、且刻意為之的暫時代價。**日後**一旦 Jetson 就緒,再恢復 [ADR-0003](docs/adr/0003-two-node-topology.md) 的雙節點結構性影格隔離。
 
-- **Phase 1 — 基礎(已完成)**:領域模型與 schema · 開發規範(PR + AI 審查 · SA/SD · 測試)· RN App 產品本體並實機運行於 Pixel 10 · 裝置端 VLM 引擎 llama.rn/llama.cpp 接入。
-- **Phase 2 — MVP v1(進行中 · 手機驗證優先)**:**A** 感知閉環(相機 + 麥克風 → 裝置端偵測 → 告警)→ **B** 跌倒偵測(→ 通知保全)/ **C** 暴力偵測(音 + 視 → 聲光告警)→ **D** 告警通道 + 誤報抑制。
-- **Phase 3+ — 延後 / 未來**:藥袋辨識(軟體層已備)· 離線管線 / Ethogram / 自然語言查詢 · AppFunctions · 硬化(7 天連續)· 雙節點 Jetson 與機器人橋接(MCP / ROS 2)· 完整 ASR / TTS。
+## 名字的由來
+
+**claustrum**(屏狀核)是一薄層神經元,幾乎與每一個大腦皮質區都有連結。Crick 與 Koch 曾提出,它正是把各自獨立的感官模態綁定為單一統一體驗的結構 —— 他們將它比喻為管弦樂團的指揮。這正是本專案要做的事:把視覺與音訊(日後含語言)綁定為一份連貫、即時的理解,用於當下的防護判斷。
+
+## 領域詞彙
+
+這套程式碼刻意採用一組貫徹一致的詞彙,取自動物行為學 (ethology)、身勢學 (kinesics) 與行動者網絡理論 (actor-network theory)。這三個傳統共享同一項方法論承諾:**記錄觀察到的事,不臆測動機。**
+
+| 詞彙 | 在此的意義 | 出處 |
+|---|---|---|
+| **Actant** | 場景中的一個參與者 —— `person_1`、`cat`。是**角色槽位,而非身分。** | 行動者網絡理論 (Latour) |
+| **Kineme** | 觀察到的行為之最小記錄單位。一個動作、一段時間。 | 身勢學 (Birdwhistell) |
+| **Ethogram** | 一段期間內眾多 kineme 的目錄。 | 動物行為學 |
+
+`Actant` 之所以是角色槽位而非某個人,就是隱私設計本身:本專案不做人臉辨識,也不做身分歸屬。詳見 [`docs/adr/0002-naming-and-domain-language.md`](docs/adr/0002-naming-and-domain-language.md)。
+
+## 安全與限制
+
+這套系統是協助人力的**一層額外警覺**,不是唯一的安全網。
+
+- **不是醫療器材,也不能取代真人監看與保全。** 跌倒/暴力偵測會漏掉事件,也會產生誤報;對外告警(通報保全/園方)尤其需要誤報抑制與人工確認。
+- **需知情同意。** 任何部署都需取得現場相關人員同意。**幼兒園等涉及兒童的場景**,兒童個資屬高度敏感(PDPA),需機構同意、家長告知與明確治理。
+- **隱私。** 影像/聲音只在裝置端處理、不外傳、用完即刪。在把鏡頭對準任何人之前,請先讀 [`docs/PRIVACY.md`](docs/PRIVACY.md)。
 
 ## 關鍵指標
 
@@ -117,23 +146,22 @@ MVP 以這些指標評斷成敗,而非展示效果:
 | 跌倒偵測召回率 | > 90 % |
 | **每 24 小時誤報數** | **< 1** |
 | 端到端告警延遲 (p95) | < 5 秒 |
-| 影像描述幻覺率 | < 5 % |
 | 無熱節流的連續運轉時間 | 7 天 |
 
-每 24 小時誤報數是首要指標。一套每天狼來了一次的系統,會很快被靜音,到那時召回率再高也毫無意義——對「通報保全/驚動園方」這種對外告警尤其如此。
+每 24 小時誤報數是首要指標:一套每天狼來了一次的系統會很快被靜音,到那時召回率再高也毫無意義——對「通報保全」這種對外告警尤其如此。
 
 ## 開發
 
-工作透過 **PR** 交付,合併前以 **AI 程式碼審查**(本機 Antigravity CLI `agy`,不需 secret)與 CI 把關;merge 依查證事實決定。每個模組保有 SA/SD 設計文件;模組以可測試性為前提建置;App UI 以 Claude 設計至接近正式上線品質;文件隨每個里程碑一併更新。完整流程:[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。這些標準也編寫成 `dev-standards` skill,自動套用。
+工作透過 **PR** 交付,合併前以 **AI 程式碼審查**(本機 Antigravity CLI `agy`)與 CI 把關;merge 依查證事實決定。每個模組保有 SA/SD 設計文件;模組以可測試性為前提建置;App UI 以 Claude 設計;文件隨里程碑一併更新。完整流程:[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。這些標準也編寫成 `dev-standards` skill。
 
 ## 決策
 
-- [ADR-0001 — 平台:選擇 Jetson AGX Orin 而非 Android](docs/adr/0001-platform-choice.md)(已被 ADR-0004 取代)
+- [ADR-0001 — 平台:Jetson AGX Orin 而非 Android](docs/adr/0001-platform-choice.md)(已被 ADR-0004 取代)
 - [ADR-0002 — 命名與領域語言](docs/adr/0002-naming-and-domain-language.md)
 - [ADR-0003 — 雙節點拓撲與影格隔離邊界](docs/adr/0003-two-node-topology.md)(已被 ADR-0004 延後)
 - [ADR-0004 — 手機優先、單節點啟動](docs/adr/0004-phone-first-single-node.md)
-- [ADR-0005 — 產品主體為 React Native app,Python 降為離線工具](docs/adr/0005-react-native-app.md)
-- [ADR-0006 — MVP 重新聚焦:多模態主動安全告警(社區跌倒、幼兒園暴力)](docs/adr/0006-safety-alert-mvp.md)
+- [ADR-0005 — 產品主體為 React Native app](docs/adr/0005-react-native-app.md)
+- [ADR-0006 — MVP 重新聚焦:多模態主動安全告警](docs/adr/0006-safety-alert-mvp.md)
 
 ## 授權
 
