@@ -4,6 +4,7 @@ import {
   Camera,
   useCameraDevice,
   useCameraPermission,
+  useMicrophonePermission,
 } from 'react-native-vision-camera';
 import {colors, font, radius, space} from '../theme';
 
@@ -14,21 +15,27 @@ import {colors, font, radius, space} from '../theme';
  * detector so the perceive → detect → alert path is real end to end.
  */
 export default function MonitorScreen({onBack}: {onBack: () => void}): React.JSX.Element {
-  const {hasPermission, requestPermission} = useCameraPermission();
+  const {hasPermission: hasCamera, requestPermission: requestCamera} = useCameraPermission();
+  // Mic permission is requested as groundwork for on-device audio detection
+  // (violence-sound, ADR-0006). Audio capture is wired with detection in B/C.
+  const {requestPermission: requestMic} = useMicrophonePermission();
   const device = useCameraDevice('back');
   const [alerting, setAlerting] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Request on explicit user action (below), not abruptly on mount.
   useEffect(() => {
-    if (!hasPermission) {
-      requestPermission();
-    }
     return () => {
       if (timer.current) {
         clearTimeout(timer.current);
       }
     };
-  }, [hasPermission, requestPermission]);
+  }, []);
+
+  const requestAccess = async () => {
+    await requestCamera();
+    await requestMic(); // audio modality — needed for violence-sound detection (ADR-0006)
+  };
 
   const fireAlert = () => {
     setAlerting(true);
@@ -38,14 +45,14 @@ export default function MonitorScreen({onBack}: {onBack: () => void}): React.JSX
     timer.current = setTimeout(() => setAlerting(false), 4000);
   };
 
-  if (!hasPermission) {
+  if (!hasCamera) {
     return (
       <View style={styles.center}>
         <StatusBar barStyle="light-content" />
-        <Text style={styles.centerTitle}>需要相機權限</Text>
-        <Text style={styles.centerBody}>主動防護需要即時看到畫面。影像只在此裝置上處理,不上傳。</Text>
-        <Pressable style={styles.btn} onPress={requestPermission}>
-          <Text style={styles.btnText}>允許相機</Text>
+        <Text style={styles.centerTitle}>需要相機與麥克風權限</Text>
+        <Text style={styles.centerBody}>主動防護需要即時看到畫面、聽到聲音。影像與聲音只在此裝置上處理,不上傳。</Text>
+        <Pressable style={styles.btn} onPress={requestAccess}>
+          <Text style={styles.btnText}>允許相機與麥克風</Text>
         </Pressable>
         <Pressable style={styles.linkBtn} onPress={onBack}>
           <Text style={styles.linkText}>返回</Text>

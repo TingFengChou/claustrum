@@ -3,5 +3,6 @@
 module.exports = {
   Camera: () => null,
   useCameraDevice: () => null,
-  useCameraPermission: () => ({hasPermission: false, requestPermission: () => {}}),
+  useCameraPermission: () => ({hasPermission: false, requestPermission: async () => {}}),
+  useMicrophonePermission: () => ({hasPermission: false, requestPermission: async () => {}}),
 };

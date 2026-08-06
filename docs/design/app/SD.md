@@ -73,10 +73,26 @@ sequenceDiagram
 - camera 權限缺失 / 被暫停 → 顯示暫停狀態(隱私要求可見)。
 - bridge 事件塞車 → 背壓/丟棄舊事件,不阻塞 UI 執行緒。
 
+## 6.5 MVP A 實作附註(感知閉環,ADR-0006)
+
+已落地的第一個切片:相機從「事後回看」轉為「即時守護」。
+
+- `app/src/screens/MonitorScreen.tsx`:以 **react-native-vision-camera**(llama.cpp
+  同屬原生層)顯示即時預覽,疊上「監測中 · Edge AI」狀態、告警橫幅與權限流程。
+- 權限**由使用者點擊觸發**(非掛載時自動彈窗):相機必要,麥克風為音訊偵測(暴力聲音,
+  C)之groundwork,`useMicrophonePermission` 先請求。
+- 偵測模型(pose / 音訊)接上前,以「模擬偵測事件」示範 perceive→alert 閉環;偵測落地後
+  由裝置端 detector 觸發同一告警通道。
+- `App.tsx` 以狀態切換 Home↔Monitor。
+- vision-camera 為原生模組,Jest 以 `__mocks__/react-native-vision-camera.js` 替身,
+  測試不需裝置。
+
 ## 7. 相依性
 
-- `react-native`、TypeScript(現況)。
-- (後續)原生核心(Rust/C++;可引入 llama.cpp/LiteRT 等可商用開源)與 Kotlin 模組。
+- `react-native`、TypeScript、**react-native-vision-camera**(+ nitro-modules /
+  nitro-image)—— 相機即時預覽/影格。
+- (後續)原生核心(Rust/C++;可引入 llama.cpp/LiteRT 等可商用開源)與 Kotlin 模組;
+  裝置端推論引擎 **llama.rn / llama.cpp** 已接入。
 
 ## 8. 測試策略(必備)
 
@@ -84,8 +100,9 @@ sequenceDiagram
   RN 內建的 **Jest** 單元測試,不需裝置。
 - **原生核心**(Rust/C++)各自以其語言的單元測試覆蓋 L0/parse 邏輯。
 - **bridge 合約**以整合測試驗證(事件 payload 符合 schema、且不含影格欄位)。
-- **UI** 以元件/快照測試涵蓋關鍵畫面狀態(空狀態、串流中、暫停)。
-- CI 現以 `discover -s tests` 跑 Python;後續加入 app 的 `npm test`(Jest)。
+- **UI** 以元件測試涵蓋關鍵畫面狀態:目前已有 `__tests__/navigation.test.tsx`
+  (Home→Monitor 切換 + 無權限時要求相機/麥克風)與 `medicationParse` 純函式測試。
+- CI 現以 `discover -s tests` 跑 Python;app 的 `npm test`(Jest,含 vision-camera 替身)後續納入 CI。
 
 ## 追溯
 
