@@ -19,7 +19,7 @@ GitHub Milestones:#3 P2、#4 P2.5 UI 實作、#5 P3 事件、#6 P4 音訊、#7 M
 
 ## 下一步(依序)
 
-1. **HF 登入授權**(阻擋真模型下載):Gemma 全系列在 HF 為 gated。實作 HF OAuth/token,存 `EncryptedSharedPreferences`,注入 `ModelDownloadWorker` 的 `KEY_TOKEN`。參考 AI Edge Gallery `huggingface/HfModelUtils.kt`。
+1. ~~**HF 登入授權**~~ ✅ 已落地:`TokenStore`(EncryptedSharedPreferences)+ 目錄權杖 UI,gated 下載注入 `Bearer`。**owner 只需在 App 內貼上 HF read 權杖**(huggingface.co/settings/tokens)即可下載 gated Gemma。後續可加 HF OAuth 網頁登入。
 2. **`LiteRtCaptioner`**(真多模態):加依賴 `com.google.ai.edge.litertlm:litertlm-android:0.11.0`;`Engine(EngineConfig(modelPath, backend=GPU, visionBackend=GPU, maxNumTokens))` → `createConversation(ConversationConfig(SamplerConfig(topK,topP,temperature)))`;每放行幀 `Content.ImageBytes(bitmap.toPngByteArray())` + `Content.Text(客觀提示)` → `conversation.sendMessageAsync(...)`。載一次、跨幀重用;Kotlin 持有生命週期。實作 `Captioner` 介面,接到 analyzer 放行分支。
 3. **UI 實作(Compose,P2.5)**:依 `docs/design/ui/claustrum-uiux.html` 四畫面,替換目前的程式化 View。
 4. **P3 L2 事件引擎**:`core-rs` events 模組(Fall/Leave/Violence 狀態機),建 `schemas/event.schema.json`;risk 需畫面內可見證據。
@@ -28,7 +28,7 @@ GitHub Milestones:#3 P2、#4 P2.5 UI 實作、#5 P3 事件、#6 P4 音訊、#7 M
 ## 阻擋 / 需要人介入
 
 - **`GEMINI_API_KEY`**(repo secret,owner 才能加):未設時雲端 `ai-code-review.yml` 會 skip。設定後每個 PR 自動 AI 審查。
-- **HF 帳號授權**:下載 gated Gemma `.task` 需要;或在 Google AI Edge Gallery App 先確認可下載。
+- **HF read 權杖**:owner 在 App 模型目錄「設定」貼上 HF 權杖(read 權限)即可下載 gated Gemma;無需其他人介入(權杖加密存裝置,只作下載授權標頭)。
 
 ## 開發流程(硬性)
 

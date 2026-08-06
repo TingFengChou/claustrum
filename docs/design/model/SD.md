@@ -16,7 +16,8 @@ Android 端 `com.claustrum.model` 套件。移植/簡化自 Google AI Edge Galle
 | `ModelSpec`(data) | 目錄項:name/modelId/file/size/capabilities/gated/config;`resolveUrl()`、`localFile()`、`tempFile()`、`isPresent()`;`CATALOG`、`DEFAULT_L1`、`l1Candidates()` | ✅ |
 | `ModelDownloadWorker` | WorkManager `CoroutineWorker`:HTTP 下載、`.tmp`+`Range` 續傳、`Bearer` 權杖、200ms 進度、前景通知、完成後 rename | ✅ |
 | `ModelRepository` | present 判定、`enqueueUniqueWork` 下載、供 Activity 觀察進度 | ✅ |
-| HF 授權(規劃) | gated Gemma 的存取權杖/登入,注入 `KEY_TOKEN` | ⏳ 下一步 |
+| `TokenStore` | HF 存取權杖:EncryptedSharedPreferences(AES-256)加密儲存;`hfToken()`/`setHfToken()`/`hasHfToken()` | ✅ |
+| HF 授權 UI | 模型目錄頂部權杖列 + 對話框輸入;gated 下載注入 `Bearer`(`KEY_TOKEN`) | ✅ |
 
 ## 3. 介面與合約
 
@@ -48,9 +49,10 @@ Android 端 `com.claustrum.model` 套件。移植/簡化自 Google AI Edge Galle
 
 ## 6. 待辦(產品化下一步)
 
-1. **HF 授權**:登入取存取權杖(OAuth 或貼上 token),存 EncryptedSharedPreferences,注入下載。
-2. **模型切換 UI**:選定 L1 用哪顆 vision 模型;供 [`LiteRtCaptioner`](../vlm/SD.md) 載入。
-3. **UI/UX 定義**:目錄/下載/切換/即時偵測畫面在進入完整開發前先定稿(near-production,見 dev-standards)。
+1. ~~**HF 授權**~~ ✅ 已落地:`TokenStore`(EncryptedSharedPreferences)+ 目錄權杖 UI,gated 下載注入 `Bearer`。
+   後續可加 HF OAuth 網頁登入流程(目前為貼上 read 權杖)。
+2. **`LiteRtCaptioner`**:下載完成的多模態 Gemma 以 LiteRT-LM(`litertlm-android`)載入並推論(見 [vlm SD](../vlm/SD.md))。
+3. **模型切換 UI**:選定 L1 用哪顆 vision 模型(UI/UX 定稿見 [`ui`](../ui/README.md))。
 
 ## 追溯
 
