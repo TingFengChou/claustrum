@@ -14,6 +14,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import com.claustrum.core.ChangeGate
@@ -21,7 +22,9 @@ import com.claustrum.core.NativeCore
 import com.claustrum.model.ModelSpec
 import com.claustrum.model.ModelsController
 import com.claustrum.ui.AppShell
+import com.claustrum.ui.IntroScreen
 import com.claustrum.ui.MonitorUi
+import com.claustrum.ui.SplashScreen
 import com.claustrum.ui.theme.ClaustrumTheme
 import com.claustrum.vlm.Captioner
 import com.claustrum.vlm.FallbackCaptioner
@@ -50,6 +53,11 @@ class MonitorActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
     private val models by lazy { ModelsController(this) }
 
+    // App entry route: boot animation → (first-run) onboarding → guardian shell.
+    private enum class Route { SPLASH, INTRO, SHELL }
+    private val route = mutableStateOf(Route.SPLASH)
+    private var cameraStarted = false
+
     private val requestCamera =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startCamera()
@@ -63,24 +71,49 @@ class MonitorActivity : ComponentActivity() {
             // Signature Tesla/Optimus look is dark graphite — force it (guardian instrument),
             // don't follow the system light theme (design: docs/design/ui).
             ClaustrumTheme(darkTheme = true) {
-                // Single-Activity shell: 守護 / 事件 / 模型 / 設定 behind a bottom nav
-                // (no Activity transitions, no dead-ends).
-                AppShell(monitorUi = uiState.value, previewView = previewView, models = models)
+                when (route.value) {
+                    Route.SPLASH -> SplashScreen(onDone = {
+                        route.value = if (isOnboarded()) Route.SHELL else Route.INTRO
+                    })
+                    Route.INTRO -> IntroScreen(onFinish = {
+                        markOnboarded()
+                        route.value = Route.SHELL
+                    })
+                    // Single-Activity shell: 守護 / 事件 / 模型 / 設定 behind a bottom nav
+                    // (no Activity transitions, no dead-ends).
+                    Route.SHELL -> {
+                        LaunchedEffect(Unit) { ensureCameraRunning() }
+                        AppShell(monitorUi = uiState.value, previewView = previewView, models = models)
+                    }
+                }
             }
         }
-        // L0 + placeholder L1 run from the very first frame (cheap to construct).
-        // The real (possibly multi-GB) vision backend is built on the inference
-        // thread and swapped in once ready — never on the CameraX analyzer thread.
+        // Warm up perception while the splash/onboarding is on screen: L0 + a
+        // placeholder L1 are cheap to construct; the real (possibly multi-GB) vision
+        // backend is built on the inference thread and swapped in once ready — never
+        // on the CameraX analyzer thread.
         pipeline = PerceptionPipeline(ChangeGate(threshold = 8), PlaceholderCaptioner)
         inferenceExecutor.execute {
             val real = buildCaptioner()
             pipeline?.swapCaptioner(real)
             pushState()
         }
+    }
 
+    /** Start the camera exactly once, when the guardian shell is first shown. */
+    private fun ensureCameraRunning() {
+        if (cameraStarted) return
+        cameraStarted = true
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
         ) startCamera() else requestCamera.launch(Manifest.permission.CAMERA)
+    }
+
+    private fun isOnboarded(): Boolean =
+        getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_ONBOARDED, false)
+
+    private fun markOnboarded() {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_ONBOARDED, true).apply()
     }
 
     private fun buildCaptioner(): Captioner<Bitmap> {
@@ -235,5 +268,7 @@ class MonitorActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "claustrum"
+        private const val PREFS = "claustrum.prefs"
+        private const val KEY_ONBOARDED = "onboarded"
     }
 }

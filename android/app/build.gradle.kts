@@ -71,5 +71,8 @@ dependencies {
     // LiteRT-LM SDK: on-device multimodal Gemma inference for L1 (ADR-0009).
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
 
+    // Lottie: machine-eye splash / loading animation (vector, GPU-cheap).
+    implementation("com.airbnb.android:lottie-compose:6.6.6")
+
     testImplementation("junit:junit:4.13.2")
 }
