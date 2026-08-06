@@ -26,6 +26,9 @@ jobs:
       - name: Schema and domain type agreement
         run: python -m unittest discover -s tests -v
 
+      - name: Rust core (host cargo test)
+        run: cargo test --manifest-path core-rs/Cargo.toml
+
       - name: No committed imagery
         run: |
           # The rule protects against committing camera frames (see docs/PRIVACY.md).
