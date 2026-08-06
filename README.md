@@ -203,10 +203,14 @@ flowchart TB
   FB["FallbackCaptioner<br/>逾時/錯誤即降級 PlaceholderCaptioner(不成死路)"]
   L2["④ L2 事件引擎(Rust · 規劃 P3)<br/>跌倒/離開/暴力 → 告警"]
 
-  IA --> SIG --> GATE
-  GATE -- "放行(僅場景變化,~2%)" --> PREP --> ENG --> GEN --> L2
-  GATE -- "略過(~98%,回到取幀)" --> IA
-  GEN -. "逾時/錯誤" .-> FB
+  IA --> SIG
+  SIG --> GATE
+  GATE -->|"放行 · 僅場景變化 ~2%"| PREP
+  GATE -->|"略過 ~98% · 回到取幀"| IA
+  PREP --> ENG
+  ENG --> GEN
+  GEN --> L2
+  GEN -.->|"逾時 / 錯誤"| FB
 ```
 
 **每幀熱路徑(L0)在 Rust**;重模型(L1)只在**場景變化時**被喚醒、交給裝置 GPU 上的 LiteRT——「省算力 + 用對工具」。頻率一覽:CameraX 取幀 ~30 fps → L0 aHash+閘控每幀 → L1 僅在放行幀(靜態場景幾近 0 次)、單次 ~6.5s。
