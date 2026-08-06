@@ -46,6 +46,10 @@ ADR-0005 選了 React Native 為產品主體、原生為輔。實作過程證明
 - **Rust**:記憶體安全 + 接近 C 的效能;可攜(日後 Jetson/機器人共用核心);FFI 接 llama.cpp。
 - **對齊北極星**:即時串流辨識唯有原生熱路徑撐得起。
 
+**可測試性(必備原則):** Rust 核心的**純邏輯**(L0 變化閘控、L2/L3 事件狀態機)必須能在
+**Host(macOS/Linux)以 `cargo test` + 合成影格/觀察序列**獨立單元測試,不依賴 Android 硬體。
+只有 JNI 橋接與 CameraX/裝置膠合層是裝置端。這與 dev-standards 的可測試性規範一致。
+
 ## 什麼保留、什麼丟棄
 
 - **保留**:北極星與 ADR-0006 的 MVP 範圍(社區跌倒 / 幼兒園暴力告警)、領域概念與 schema、
@@ -64,7 +68,9 @@ ADR-0005 選了 React Native 為產品主體、原生為輔。實作過程證明
 
 ## 重建計畫(階段)
 
-- **P0** 骨架:Rust core crate + Android(Compose)app + JNI 橋接 + cargo-ndk 建置;裝置上「Rust core 回話」。
+- **P0** 骨架:Rust core crate + Android(Compose)app + JNI 橋接 + cargo-ndk 建置;裝置上
+  「Rust core 回話」。**並撰寫 `docs/design/core-rs`(JNI 介面 + 內部架構 + 純邏輯的
+  cargo test 策略)與 `docs/design/android` 的 SA/SD**(dev-standards:每個模組有設計文件)。
 - **P1** L0 變化閘控(Rust):影格差異 → 只在改變時往下走(省算力)。
 - **P2** L1:llama.cpp via Rust FFI → 被閘控的影格產生 Kineme/字幕 → Compose 字幕層。
 - **P3** L2 事件引擎(Rust):Fall/Leave/Violence 狀態機 → 告警。
