@@ -2,6 +2,59 @@
 
 時程估計以兼職投入為前提。排序的重要性高於數字本身。
 
+## 全景圖
+
+```mermaid
+flowchart TD
+  THESIS["🛡️ 核心命題:攝影機是主動防護的守護者,不是事後回看<br/>北極星:即時串流 · Edge AI · 綁定多模態 · 機器人視覺大腦"]
+
+  subgraph P1["Phase 1 — 基礎(已完成)"]
+    direction TB
+    P1a["領域模型 Kineme / Actant / Ethogram + JSON Schema"]
+    P1b["dev-standards:PR + AI 審查 · SA/SD · 測試 · 繁中 · 里程碑更新"]
+    P1c["RN app 產品本體(ADR-0005)· 實機運行於 Pixel 10"]
+    P1d["裝置端 VLM 引擎 llama.rn / llama.cpp(APK 內含 librnllama.so)"]
+    P1e["AI 審查改用 Antigravity agy(本機、免 secret)"]
+  end
+
+  subgraph P2["Phase 2 — MVP v1(進行中 · 手機驗證優先 · ADR-0006)"]
+    direction TB
+    A["A. 感知閉環:CameraX 影像 + 麥克風音訊 → 裝置端偵測 → 告警"]
+    B["B. 跌倒偵測:on-device pose 快路徑 recall + 確認 precision"]
+    C["C. 暴力偵測:音 + 視融合(尖叫/衝突聲 + 畫面)"]
+    D["D. 告警通道 + 抑制:去重 / 速率限制 / 冷卻 / 人工確認"]
+    V1(["社區:跌倒 → 通知保全"])
+    V2(["幼兒園:暴力 → 聲光告警(含兒童 → 高隱私門檻)"])
+    M["指標:fall recall 大於 90% · false-alerts/24h 小於 1 · p95 小於 5s"]
+    A --> B --> D
+    A --> C --> D
+    B --> V1
+    C --> V2
+    D --> M
+  end
+
+  subgraph P3["Phase 3+ — 延後 / 未來"]
+    direction TB
+    F1["藥袋辨識(軟體層已備,暫停)"]
+    F2["離線管線 · Ethogram · 自然語言查詢(原 M2–M3)"]
+    F3["AppFunctions provider(原 M4)"]
+    F4["硬化:7 天連續 · 熱 / 功耗(原 M6)"]
+    F5["雙節點 Jetson(ADR-0003)· 機器人橋接 MCP / ROS 2(原 M7)"]
+    F6["完整第二模態:ASR / TTS 融合"]
+  end
+
+  THESIS --> P1 --> P2 --> P3
+
+  classDef done fill:#12351f,stroke:#43e0d0,color:#dffdf5;
+  classDef active fill:#1f1940,stroke:#8be9ff,color:#eaf6ff;
+  classDef future fill:#1c1636,stroke:#6b6690,color:#c7c3e0;
+  class P1a,P1b,P1c,P1d,P1e done;
+  class A,B,C,D,V1,V2,M active;
+  class F1,F2,F3,F4,F5,F6 future;
+```
+
+> Phase 1 已完成、Phase 2 為目前 MVP、Phase 3+ 延後。以下為各里程碑細節。
+
 ## 進度附註(2026-07-31)
 
 - React Native app 為產品本體已建立並實機運行於 Pixel 10(ADR-0005)。
