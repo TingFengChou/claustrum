@@ -1,0 +1,25 @@
+# Maestro UI / journey 測試 —— 模型目錄 gate 與 HF 權杖對話框。
+# 執行(需連接裝置/模擬器 + 已安裝 app):
+#   maestro test .maestro/model-gate.yaml
+# UI/端到端自動化一律用 Maestro(見 docs/DEVELOPMENT.md 測試紀律)。
+appId: com.claustrum
+---
+- launchApp:
+    clearState: true
+    permissions:
+      camera: allow          # 預先授權,避免旅程卡在系統權限對話框
+- assertVisible: "claustrum · Edge AI 模型"
+- assertVisible: "Gemma-3n-E2B-it-int4"
+- assertVisible:
+    text: ".*Hugging Face.*"
+# 開啟權杖設定對話框並確認說明可見(不驗證任何真實權杖值)
+- tapOn: "設定"
+- assertVisible: "Hugging Face 存取權杖"
+- tapOn: "取消"
+# 真正走過 L0→L1 旅程:進入即時偵測並斷言偵測畫面出現
+- tapOn:
+    text: "進入即時偵測.*"
+# 斷言只會在 analyze() 處理「第一個影格」後才出現的內容 —— 真正驗證 L0→L1 管線
+# 有跑(而非只切換畫面;啟動中的「L1 後端」佔位不算)。
+- assertVisible:
+    text: "分析解析度.*"

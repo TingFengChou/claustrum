@@ -49,6 +49,11 @@ description: claustrum 專案的開發規範 — PR + AI 審查品質關卡、�
   呼叫)、副作用收攏在邊界、純邏輯與 I/O 可分離。
 - 每個模組交付時都要附帶由 CI 執行的測試。沒有測試的模組不算完成。SD 文件的測試策略一節
   要說明它如何被測試、用什麼假件(fake)。
+- **邊開發邊建立測試**:每個功能/phase 落地時,同步補上對應的**單元測試**(純邏輯,host/JVM,
+  由 CI 跑:Python `unittest`、Rust `cargo test`、Android `:app:testDebugUnitTest`)。
+- **UI / 使用者旅程(journey)自動化一律用 [Maestro](https://maestro.mobile.dev)**:flow 放
+  `.maestro/*.yaml`,涵蓋關鍵旅程(模型下載/切換、進入即時偵測、告警處置)。不自行造 UI 測試框架。
+  Maestro flow **不得**驗證任何真實機密(如 HF 權杖值)。
 
 ## 4. App UI 以 Claude 設計,達到接近產品化的品質
 

@@ -253,6 +253,46 @@ L1 目前為 `core-rs` 的**佔位後端**(誠實診斷:尺寸/亮度/2×2 網�
 
 影格只在裝置端流動、用完即刪(手機優先單節點,[ADR-0004](docs/adr/0004-phone-first-single-node.md));只有 L1 產出的**文字描述**進入後續 L2 判斷——不外傳、不落地、不留人物身分特徵。
 
+## 測試
+
+邊開發邊補測試(dev-standards);由 GitHub Actions 自動跑:
+
+| 類型 | 工具 | 範圍 |
+|---|---|---|
+| 單元(純邏輯) | Python `unittest` · Rust `cargo test` · Android JVM `:app:testDebugUnitTest` | schema/領域型別、L0 `gate`/`ChangeGate`、`ModelSpec` 目錄邏輯… |
+| UI / 使用者旅程 | **[Maestro](https://maestro.mobile.dev)**(`.maestro/*.yaml`) | 模型下載/切換、進入即時偵測、告警處置(`maestro test .maestro/`) |
+| 裝置整合 | 裝置實測 / `androidTest` | JNI、CameraX、LiteRT 推論 |
+
+CI(`.github/workflows/ci.yml`)硬性關卡跑上述單元測試 + schema/identity 守衛;Maestro journey 於裝置/模擬器執行。Maestro flow 不驗證任何真實機密(如 HF 權杖)。
+
+## 協作與 CI 流程
+
+我們用 **Claude Code 驅動開發 + GitHub PR 關卡**協作。每個功能/phase 都走同一條路,方便分享與交接:
+
+<img src="assets/design/ci-flow.png" width="100%" alt="協作與 CI 流程:Claude Code 分支開發(邊補單元/Maestro 測試)→ commit/PR → GitHub Actions(CI 硬關卡 + Codex/Gemini AI 審查)→ Claude 查證回覆 → 合併並更新 Milestones;有真問題則回到開發"/>
+
+**規則(硬性,見 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)):**
+
+- **不直接推 `main`**;一律分支 → PR。CI(`.github/workflows/ci.yml`)是**硬關卡**(測試 + schema/身分/影像守衛),紅燈不得合併。
+- **AI 助理審查**於 GitHub Actions 上跑:**Codex**(`AGENTS.md` 規則)與 **Gemini Code Assist**(`.gemini/`)為固定 reviewer;另有本機 `agy`。安裝方式見下。
+- **合併前先諮詢 AI 審查**:逐則檢視並**回覆**,經**查證事實**(讀程式、跑測試、Pixel 10 實機)確認不是真問題後才 merge —— 不看綠勾蓋章。
+- 完成里程碑同步更新 README/ROADMAP/SA-SD 與 **GitHub Milestones**;交接記於 [`docs/HANDOFF.md`](docs/HANDOFF.md)。
+
+**把 AI reviewer 變成固定 reviewer(owner 一次性設定):**
+
+- **Gemini Code Assist** —— 安裝 [GitHub App](https://github.com/apps/gemini-code-assist) 並選本 repo;依 [`.gemini/config.yaml`](.gemini/config.yaml) + [`.gemini/styleguide.md`](.gemini/styleguide.md) 自動審查每個 PR。
+- **OpenAI Codex** —— 於 [Codex GitHub 整合](https://developers.openai.com/codex/integrations/github) 連結 repo 並開 **Automatic reviews**;依 [`AGENTS.md`](AGENTS.md) 的 Code Review Rules 審查(或留言 `@codex review`)。
+- 我們自建的 `ai-review.yml`(需 `GEMINI_API_KEY` secret)為備援;裝上官方 App 後可退役。
+
+## Firebase(規劃)
+
+雲端後端採 Firebase,但**感知全在裝置端、影格永不上雲**([ADR-0010](docs/adr/0010-firebase-architecture.md)):
+
+- **Remote Config** —— 只放**非機密**設定(模型目錄、L0 閾值、告警冷卻、feature flags)。**權杖/機密絕不放 Remote Config**(用戶端可讀 → 會洩漏)。
+- **FCM** 告警推播給保全/家屬 · **Firestore** 只同步**文字事件**(無影格/PII)· **App Check** 防濫用 · **Auth / Cloud Functions + Secret Manager** 承載 gated 模型授權(HF OAuth 或伺服器代理,權杖不下 client)。
+
+> gated 模型授權的產品化正解是 **HF OAuth 登入**(像 AI Edge Gallery)或**伺服器下載代理**;目前 App 內為 interim 的加密「貼權杖」。
+
 ## 部署拓撲
 
 **現在 —— 手機優先、單節點**(ADR-0004):Pixel 10 一手包辦相機 + 麥克風擷取、L0–L2 偵測、告警。單一行程同時持有影格並判斷,因此影格隔離是靠**政策**(不外傳、用完即刪)而非拓撲來落實——這是手機優先所承擔、且刻意為之的暫時代價。**日後**一旦 Jetson 就緒,再恢復 [ADR-0003](docs/adr/0003-two-node-topology.md) 的雙節點結構性影格隔離。
@@ -309,6 +349,7 @@ MVP 以這些指標評斷成敗,而非展示效果:
 - [ADR-0007 — 打掉重練:Rust 優先、效能優先的原生架構](docs/adr/0007-rust-first-redesign.md)
 - [ADR-0008 — L1 場景描述引擎:可抽換 Captioner 邊界](docs/adr/0008-l1-caption-engine.md)(llama.cpp 後端已被 ADR-0009 取代;邊界/佔位仍有效)
 - [ADR-0009 — L1 改用 Google AI Edge / LiteRT(不自建 llama.cpp)](docs/adr/0009-edge-ai-litert-ai-edge.md)
+- [ADR-0010 — Firebase 架構(雲端後端;影格不上雲、機密不進 Remote Config)](docs/adr/0010-firebase-architecture.md)
 
 ## 授權
 
