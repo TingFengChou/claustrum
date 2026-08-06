@@ -1,0 +1,19 @@
+# Maestro UI / journey 測試 —— 模型目錄 gate 與 HF 權杖對話框。
+# 執行(需連接裝置/模擬器 + 已安裝 app):
+#   maestro test .maestro/model-gate.yaml
+# UI/端到端自動化一律用 Maestro(見 docs/DEVELOPMENT.md 測試紀律)。
+appId: com.claustrum
+---
+- launchApp:
+    clearState: true
+- assertVisible: "claustrum · Edge AI 模型"
+- assertVisible: "Gemma-3n-E2B-it-int4"
+- assertVisible:
+    text: ".*Hugging Face.*"
+# 開啟權杖設定對話框並確認說明可見(不驗證任何真實權杖值)
+- tapOn: "設定"
+- assertVisible: "Hugging Face 存取權杖"
+- tapOn: "取消"
+# 可進入即時偵測(L0→L1)畫面
+- assertVisible:
+    text: "進入即時偵測.*"

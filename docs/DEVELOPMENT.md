@@ -38,10 +38,19 @@ System Design 文件。從 [`docs/design/_template/`](design/_template/) 開始�
 相同的 PR 中一併更新它們 — 見 [`docs/design/README.md`](design/README.md)。`core`
 是完整的示範範例。
 
-## 可測試性
+## 可測試性與測試紀律
 
 模組的建構方式讓它無需硬體即可測試:相依項置於介面之後、副作用集中在邊界、測試隨模組一起
 出貨並由 CI 執行。沒有測試的模組就不算完成。
+
+**邊開發邊補測試(每個功能/phase):**
+
+- **單元測試(純邏輯,由 CI 跑):** Python `python -m unittest`、Rust `cargo test`、
+  Android JVM `./gradlew :app:testDebugUnitTest`。CI 三者皆自動執行(`.github/workflows/ci.yml`)。
+- **UI / 使用者旅程(journey)自動化一律用 [Maestro](https://maestro.mobile.dev):** flow 放
+  `.maestro/*.yaml`,涵蓋關鍵旅程(模型下載/切換、進入即時偵測、告警處置)。
+  執行:`maestro test .maestro/`(需連接裝置/模擬器)。**flow 不得驗證任何真實機密(如 HF 權杖值)。**
+- 裝置專屬的整合(JNI/相機/LiteRT 推論)以裝置實測或 `androidTest` 覆蓋。
 
 ## App UI
 
