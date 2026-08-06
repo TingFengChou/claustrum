@@ -215,6 +215,13 @@ flowchart TB
 
 **每幀熱路徑(L0)在 Rust**;重模型(L1)只在**場景變化時**被喚醒、交給裝置 GPU 上的 LiteRT——「省算力 + 用對工具」。頻率一覽:CameraX 取幀 ~30 fps → L0 aHash+閘控每幀 → L1 僅在放行幀(靜態場景幾近 0 次)、單次 ~6.5s。
 
+**設計原則:不漏球,但也不卡住。** 這是即時守護者的關鍵取捨,由三件事共同保證:
+- **不卡住**:L1 在**獨立背景 executor**、**單飛(single-flight)**執行;取幀與 L0 永遠不被 6.5s 的推論阻塞,預覽也不卡。
+- **不漏球**:推論進行中若又有場景變化被放行,**保留為最新 pending 幀**,當前描述一結束立即接手——`ChangeGate` 基準雖已前進,也不會讓變化被永久略過。
+- **不重工**:同時最多一個推論在跑(避免 GPU 過載 / OOM);連續變化只追最新一張。
+
+一句話:**丟掉的是重複的靜態幀(省算力),不是事件(不漏報)**。
+
 **MediaPipe 在哪?** MediaPipe LLM Inference(`tasks-genai`)是 Gallery **早期**採用、吃 `.task` 的路徑;本專案改用**更新的 LiteRT-LM SDK(`litertlm-android`)吃 `.litertlm` 原生檔**——因為同一顆 Gemma 的 MediaPipe `.task` 在 litertlm 0.11.0 只會吐 `<pad>`(格式不相容,見 [vlm/SD §6.1](docs/design/vlm/SD.md))。兩者皆屬「Google AI Edge / LiteRT」家族。
 
 #### 與 Google AI Edge Gallery 的關鍵差異
