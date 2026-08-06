@@ -4,9 +4,11 @@
 
 **把攝影機從「事後回看」變成「主動防護」的即時守護者。** 在裝置端(edge AI)即時融合視覺與音訊,主動偵測跌倒、暴力等安全事件,並在當下告警——而不是事發後才調閱錄影。全程在邊緣硬體上執行,影像不外傳。
 
-Pixel 10 · React Native + 原生 Rust/C++/Kotlin · llama.rn(llama.cpp)· Edge AI
+Pixel 10 · **Rust 感知核心** · llama.cpp · Kotlin / Jetpack Compose · Edge AI
 
 > **核心命題:** 相機是主動防護的守護者,不是事後回看的記錄器——這正是為什麼整個系統必須**即時 · 串流 · 裝置端**(詳見 [ADR-0006](docs/adr/0006-safety-alert-mvp.md))。目前**手機優先、單節點**([ADR-0004](docs/adr/0004-phone-first-single-node.md))。
+>
+> 🦀 **架構重設計中(打掉重練,效能優先):Rust 感知核心 + 原生 Android**,移除 React Native([ADR-0007](docs/adr/0007-rust-first-redesign.md))。先前的 RN 版本(即時字幕已在其上驗證可行)留在 git 歷史作為參考。
 >
 > ⚠️ 這不是醫療器材,也不能取代真人監看與保全;偵測會漏報也會誤報。詳見下方「[安全與限制](#安全與限制)」。
 
@@ -21,9 +23,25 @@ Pixel 10 · React Native + 原生 Rust/C++/Kotlin · llama.rn(llama.cpp)· Edge 
 
 重點是**主動**:偵測與告警在事件當下於裝置上完成,影像不外傳。居家查詢、藥袋辨識等能力保留於路線圖後段。
 
+## 技術棧
+
+效能優先、**Rust 為感知核心**的原生架構(ADR-0007;取代 ADR-0005 的 React Native)。
+
+| 層 | 技術 | 說明 |
+|---|---|---|
+| 感知核心(L0 閘控 · 影格管線 · L2/L3 事件引擎) | **Rust**(cargo-ndk → `.so`,JNI) | 記憶體安全 + 接近 C 的效能;逐幀比較與狀態機的家 |
+| L1 VLM 推論 | **llama.cpp(C/C++)** via Rust FFI(`llama-cpp-2`) | on-device 多模態(SmolVLM / Gemma),已裝置驗證 |
+| 相機擷取 | **CameraX(Kotlin)** | 影格交給 Rust,**永不進 UI 層** |
+| 平台 / UI | **Kotlin + Jetpack Compose**(原生 Android) | 預覽 / 字幕 / 告警 / 控制;**無 React Native** |
+| 領域契約 | **JSON Schema** | 跨 Rust / Kotlin / Python 單一真實來源 |
+| 離線工具 | **Python**(bench / eval) | 基準測試、評測 |
+| 建置 | Gradle + cargo-ndk(NDK 27) | Rust `.so` 隨 App 打包 |
+
+資料流:`CameraX →(JNI)Rust:L0 閘控 → 變化才叫 VLM(llama.cpp)→ Kineme → L2 事件 →(JNI)→ Compose UI`。**影格與像素只在原生層流動**(隱私 + 效能)。設計詳見 [ADR-0007](docs/adr/0007-rust-first-redesign.md)。
+
 ## 路線圖與現階段重點
 
-> **現在:Phase 2 — MVP(手機驗證優先)。** 感知閉環(A)已完成並在 Pixel 10 實機驗證 ✅;**下一步是 B:跌倒偵測**。
+> **現在:架構重建(ADR-0007,Rust 優先、效能優先)。** 感知閉環與即時字幕已在 RN 版於 Pixel 10 驗證可行(概念驗證);正以 **Rust 原生核心 + Android(Compose)** 重建。重建階段 P0–P4 見 [ADR-0007](docs/adr/0007-rust-first-redesign.md)。下方全景圖為 MVP 的功能目標(A–D),不隨此次技術重建改變。
 
 ```mermaid
 flowchart TD
@@ -73,7 +91,7 @@ flowchart TD
  L0  閘控        motion diff · pose landmarks · 音訊事件 · frame embedding
      │           → 決定哪些瞬間值得一次昂貴推論(目標 100×+ 壓縮)
      ▼
- L1  感知        裝置端 Gemma E2B/E4B(llama.rn / llama.cpp)→ 結構化 Kineme
+ L1  感知        裝置端 VLM(llama.cpp via Rust FFI;SmolVLM / Gemma)→ 結構化 Kineme
      │
      ▼
  L2  告警        快路徑:pose / 音訊啟發式(recall)★ MVP 核心
@@ -86,28 +104,31 @@ flowchart TD
 
 ## 模組
 
-**產品主體是一支 React Native App**(ADR-0005);Python 是離線工具,不是產品。
+**產品是原生 Android app + Rust 感知核心**(ADR-0007);Python 是離線工具。
 
 | 模組 | 語言 | 狀態 | 用途 |
 |---|---|---|---|
-| `app/` | React Native + TS(+ 原生 Rust/C++ · Kotlin) | 🚧 進行中 | **產品本體** —— 裝置端感知/告警 App。**目前重點。** |
-| `schemas/` | JSON Schema | ✅ 就緒 | 領域型別的**單一真實來源**(跨 TS / Kotlin / Python) |
-| `core/` `bench/` `eval/` | Python | ✅ 就緒 | 領域型別參考、離線基準測試 / 評測(工具,非產品) |
+| `core-rs/` | Rust | 🚧 重建中 | 感知核心:L0 閘控 · 影格管線 · L2/L3 事件引擎(→ `.so`) |
+| `android/` | Kotlin + Compose | 🚧 重建中 | 原生 App:CameraX 擷取 · UI(預覽/字幕/告警) |
+| `schemas/` | JSON Schema | ✅ 就緒 | 領域型別**單一真實來源**(跨 Rust / Kotlin / Python) |
+| `core/` `bench/` `eval/` | Python | ✅ 就緒 | 領域型別參考、離線基準測試 / 評測(工具) |
+| `app/`(舊) | React Native | 🗄️ 已淘汰 | 概念驗證(即時字幕 on-device 已驗證);保留於 git 歷史,ADR-0007 取代 |
 
-裝置端的重負載(L0 閘控、影格/音訊串流、on-device 推論)以原生 **Rust/C++** 核心 + **Kotlin** 平台膠合實作,透過 NDK/JNI 橋接給 RN(ADR-0005)。裝置端推論引擎 **llama.rn / llama.cpp** 已接入並建置於 Pixel 10(APK 內含 `librnllama.so`)。
+L1 推論用 **llama.cpp**(via Rust FFI),已在 Pixel 10 驗證 on-device 多模態(SmolVLM / Gemma)。影格與像素只在原生層流動。
 
 ## 快速上手
 
-產品是 App;先跑起來看:
+架構重建中(ADR-0007)。目標建置流程:Rust 感知核心 → `.so`(cargo-ndk),再由 Android(Gradle)打包。
 
 ```bash
 git clone https://github.com/TingFengChou/claustrum.git
-cd claustrum/app
-npm install
-npm run android          # 建置並安裝到已連接的 Android 裝置(Pixel 10)
+cd claustrum
+# core-rs/  → cargo ndk -t arm64-v8a build --release   (產生 .so)
+# android/  → ./gradlew assembleRelease                (打包並安裝到 Pixel 10)
+# P0 骨架建置中;詳見 docs/adr/0007-rust-first-redesign.md 與 docs/ROADMAP.md
 ```
 
-裝置端推論引擎(llama.rn)會一併編譯進 App。離線工具(bench/eval,Python)另見 [`bench/README.md`](bench/README.md)。
+離線工具(bench/eval,Python)見 [`bench/README.md`](bench/README.md)。
 
 ## 部署拓撲
 
@@ -160,8 +181,9 @@ MVP 以這些指標評斷成敗,而非展示效果:
 - [ADR-0002 — 命名與領域語言](docs/adr/0002-naming-and-domain-language.md)
 - [ADR-0003 — 雙節點拓撲與影格隔離邊界](docs/adr/0003-two-node-topology.md)(已被 ADR-0004 延後)
 - [ADR-0004 — 手機優先、單節點啟動](docs/adr/0004-phone-first-single-node.md)
-- [ADR-0005 — 產品主體為 React Native app](docs/adr/0005-react-native-app.md)
+- [ADR-0005 — 產品主體為 React Native app](docs/adr/0005-react-native-app.md)(已被 ADR-0007 取代)
 - [ADR-0006 — MVP 重新聚焦:多模態主動安全告警](docs/adr/0006-safety-alert-mvp.md)
+- [ADR-0007 — 打掉重練:Rust 優先、效能優先的原生架構](docs/adr/0007-rust-first-redesign.md)
 
 ## 授權
 

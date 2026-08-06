@@ -2,6 +2,13 @@
 
 時程估計以兼職投入為前提。排序的重要性高於數字本身。
 
+> **技術重建中(2026-08-06,ADR-0007,效能優先)。** 產品由 React Native 打掉重練為
+> **Rust 感知核心 + 原生 Android(Kotlin/Compose)+ llama.cpp**。MVP 的功能目標(下方
+> A–D、社區/幼兒園)不變;實作技術棧改變。重建階段:
+> **P0** 骨架(Rust `.so` + Android + JNI)· **P1** L0 變化閘控(省算力)·
+> **P2** L1 字幕(llama.cpp via Rust FFI)· **P3** L2 事件引擎 · **P4** 音訊融合。
+> 詳見 [ADR-0007](adr/0007-rust-first-redesign.md)。
+
 ## 全景圖
 
 ```mermaid
