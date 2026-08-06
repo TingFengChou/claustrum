@@ -69,7 +69,7 @@ flowchart TD
     P0["P0 Rust 核心 → JNI → Kotlin ✅"]
     P1["P1 CameraX × L0 變化閘控(省算力)✅"]
     P2["P2 L1 場景描述:LiteRT + App 內模型管理 + UI 定稿 🔶"]
-    P25["P2.5 UI 以 Compose 實作(機器之眼)"]
+    P25["P2.5 Compose UI:進入流程 + 底部導覽 + 機器之眼 ✅"]
     P3T["P3 L2 事件引擎(Rust)· P4 音訊融合"]
     P0 --> P1 --> P2 --> P25 --> P3T
   end
@@ -94,9 +94,9 @@ flowchart TD
   classDef now fill:#241a52,stroke:#8be9ff,color:#eaf6ff;
   classDef next fill:#3a2a10,stroke:#ffb054,color:#ffe9cf;
   classDef future fill:#1c1636,stroke:#6b6690,color:#c7c3e0;
-  class P0,P1 done;
+  class P0,P1,P25 done;
   class P2 now;
-  class P25,B next;
+  class B next;
   class C,D,P3T,F future;
 ```
 
@@ -130,7 +130,7 @@ flowchart TD
 | 模組 | 語言 | 狀態 | 用途 |
 |---|---|---|---|
 | `core-rs/` | Rust | 🟢 P0/P1 · P2 seam | 感知核心:L0 閘控(host 測綠)· L1 `Captioner` 邊界(佔位)· L2/L3 事件引擎(→ `.so`) |
-| `android/` | Kotlin(P0/P1)→ Compose | 🟢 P1 · P2 seam | 原生 App:CameraX luma → Rust L0 閘控 → 放行幀喚醒 L1(Pixel 10 實測省 ~100% 運算);真 VLM 後端待接 |
+| `android/` | Kotlin + Compose | 🟢 P1 · P2.5 UI | 原生 App:進入流程(Splash→介紹→守護)+ 底部導覽(守護/事件/模型/設定)+ 機器之眼;CameraX luma → Rust L0 閘控 → 放行幀喚醒 L1(Pixel 10 實測省 ~100% 運算)· LiteRT 引擎背景初始化就緒(單張 `describe` 逾時 debug 中) |
 | `schemas/` | JSON Schema | ✅ 就緒 | 領域型別**單一真實來源**(跨 Rust / Kotlin / Python) |
 | `core/` `bench/` `eval/` | Python | ✅ 就緒 | 領域型別參考、離線基準測試 / 評測(工具) |
 | `app/`(舊) | React Native | 🗄️ 已淘汰 | 概念驗證(即時字幕 on-device 已驗證);保留於 git 歷史,ADR-0007 取代 |
