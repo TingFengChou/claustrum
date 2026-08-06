@@ -68,6 +68,7 @@ class MonitorActivity : ComponentActivity() {
     private val evalSummary = mutableStateOf<ModelEval.Summary?>(null)
     private val devVideoPlaying = mutableStateOf(false)
     private val devVideoFrame = mutableStateOf<Bitmap?>(null)
+    @Volatile private var l1Source = "相機" // CaptionLog source for the single-flight L1 path
 
     private val requestCamera =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -182,9 +183,11 @@ class MonitorActivity : ComponentActivity() {
     }
 
     /**
-     * Play a test video from `<externalFiles>/dev_videos/` through the pipeline:
-     * sample frames, show each in the visor ([devVideoFrame]) and feed L0→L1, so we
-     * can validate on real footage without physically aiming the camera.
+     * Play test videos from `<externalFiles>/dev_videos/` through the pipeline. The
+     * display advances on its own thread (smooth) while L1 samples frames single-flight
+     * off the inference executor — same "不漏球但不卡住" discipline as the camera, so
+     * playback never freezes on a 6.5s describe. Lets us validate on real footage
+     * without physically aiming the camera.
      */
     private fun playDevVideo() {
         if (devVideoPlaying.value) return
@@ -197,43 +200,44 @@ class MonitorActivity : ComponentActivity() {
             return
         }
         devVideoPlaying.value = true
-        inferenceExecutor.execute {
+        Thread({
             try {
-                for (v in vids) sampleVideoThroughPipeline(v)
+                for (v in vids) { if (!devVideoPlaying.value) break; playbackLoop(v) }
             } finally {
+                l1Source = "相機"
                 devVideoPlaying.value = false
                 runOnUiThread { devVideoFrame.value = null }
             }
-        }
+        }, "dev-video").apply { isDaemon = true }.start()
     }
 
-    /** Sample [video] at ~1.4 fps, display each frame in the visor + run L0→L1 on it. */
-    private fun sampleVideoThroughPipeline(video: java.io.File) {
+    /** Advance [video] frames on this thread (display); sample to L1 every ~1.5s of video. */
+    private fun playbackLoop(video: java.io.File) {
         val mmr = android.media.MediaMetadataRetriever()
         try {
             mmr.setDataSource(video.absolutePath)
             val durMs = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: return
-            val stepMs = 700L
+            l1Source = "影片:${video.name}"
+            val displayStepMs = 150L   // ~6.7 fps display
+            val l1EveryMs = 1500L      // sample L1 at most every 1.5s of video
             var t = 0L
-            while (t < durMs) {
-                val frame = mmr.getFrameAtTime(t * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST) ?: run { t += stepMs; return@run null } ?: continue
-                runOnUiThread { devVideoFrame.value = frame }
-                // Feed the perception pipeline (L0 gate then L1 on admit), like a camera frame.
-                val luma = lumaOf(frame)
-                val sig = NativeCore.frameSignature(luma, frame.width, frame.height)
-                val p = pipeline
-                val admitted = p?.admit(sig) ?: false
-                if (admitted) {
-                    val t0 = System.currentTimeMillis()
-                    try { p?.describe(frame) } catch (th: Throwable) { Log.e(TAG, "devvideo describe failed", th) }
-                    val dt = System.currentTimeMillis() - t0
-                    p?.let { CaptionLog.add(System.currentTimeMillis(), it.lastCaption, "影片:${video.name}", dt) }
-                    pushState()
+            var lastL1 = -l1EveryMs
+            while (t < durMs && devVideoPlaying.value) {
+                val frame = mmr.getFrameAtTime(t * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST) ?: break
+                runOnUiThread { devVideoFrame.value = frame }   // display (never recycled here)
+                if (t - lastL1 >= l1EveryMs) {
+                    lastL1 = t
+                    // Copy for L1 so the displayed frame is never recycled underneath Compose.
+                    val copy = frame.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                    val luma = lumaOf(copy)
+                    val sig = NativeCore.frameSignature(luma, copy.width, copy.height)
+                    if (pipeline?.admit(sig) == true) enqueueL1(copy) else copy.recycle()
                 }
-                t += stepMs
+                Thread.sleep(displayStepMs)
+                t += displayStepMs
             }
         } catch (th: Throwable) {
-            Log.e(TAG, "sampleVideo failed", th)
+            Log.e(TAG, "playbackLoop failed", th)
         } finally {
             try { mmr.release() } catch (_: Throwable) {}
         }
@@ -348,7 +352,7 @@ class MonitorActivity : ComponentActivity() {
                 val t0 = System.currentTimeMillis()
                 try { pipeline?.describe(cur) } catch (t: Throwable) { Log.e(TAG, "describe failed", t) }
                 finally { cur.recycle() }
-                pipeline?.let { CaptionLog.add(System.currentTimeMillis(), it.lastCaption, "相機", System.currentTimeMillis() - t0) }
+                pipeline?.let { CaptionLog.add(System.currentTimeMillis(), it.lastCaption, l1Source, System.currentTimeMillis() - t0) }
                 pushState()
                 cur = pending.getAndSet(null)
                 if (cur == null) {
