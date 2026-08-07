@@ -35,17 +35,19 @@ Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G
 - **模型:** `google/gemma-3n-E2B-it-litert-lm` → `gemma-3n-E2B-it-int4.litertlm`(**3,655,827,456 bytes**,gated)。
 - **為何是 `.litertlm` 不是 `.task`:** litertlm 0.11.0 **無法解碼 MediaPipe `.task`**(文字/視覺都只吐 `<pad>`);原生 `.litertlm` 才正常。詳見 `docs/design/vlm/SD.md` §6.1 與記憶 `l1-litertlm-task-pad-incompat`。
 - **輸入品質邊界(=相機選型依歸):** 主體佔畫面 **≥ ~⅓** 才穩;遠景/小主體/偏心會漏或幻覺;避免超廣角,寧可多機分區。**L1 ≠ 跌倒偵測器**,偵測交給 L2。全文 `docs/design/vlm/SD.md` §8。
+- **待釐清:模型能力 vs 輸入取景(兩條獨立軸線)。** 目前用 Gemma 3n **E2B**(小變體),對細粒度姿態/動作較弱、較易幻覺(出現過「驚慌駕駛」等畫面不存在描述)。**尚未隔離**是取景還是能力主導。**釐清法**:用開發者模式以同一組近景 `dev_eval/` 影格跑 **E2B vs E4B** 比 pass-rate/幻覺/延遲(**issue #29**)。若 E4B 明顯較佳 → 能力是瓶頸,權衡換 E4B/他模型;若都不穩 → 更該靠 L2。
 
 ## 下一步(建議順序)
 
 1. **Merge PR #24**(owner 決定;CI 綠 + AI 審查過)。`gh pr merge 24 --squash`。
 2. **L2 事件引擎(issue #26,P3)—— 這才是真偵測**:`core-rs` events 模組(Fall/Leave/Violence 狀態機,pose/動作/時序快路徑),建 `schemas/event.schema.json`;風險判斷需**畫面內可見證據**(ADR-0006);L1 描述作輔助語意。
 3. **相機佈建準則落地**:依 §8,關注區主體佔比 ≥ ⅓、多機分區;dev 模式的模型驗證(`dev_eval/` + `dev_videos/`)用來量測。
-4. **L1 效能**(issues #25/#27/#28):變化閘控外加「L1 最小間隔」節流(壓熱/耗電)· 評估 NPU delegate · prefill/輸出優化。
-5. **#3 HF OAuth 網頁登入**(取代貼權杖;現況:App 內貼 HF read 權杖即可,已加密存裝置)。
-6. **#4 Firebase 接線**(Remote Config 模型目錄 + FCM 告警;`google-services.json` 已放置,ADR-0010)。
-7. **#5 升級 library**(targetSdk 已 36;逐一升 lib 並驗證建置)。
-8. **P4 音訊融合**(目前音訊誠實標示「未啟用」,不誤報)。
+4. **釐清模型能力 vs 取景(issue #29)**:用開發者模式跑 E2B vs E4B 同組近景影格,比 pass-rate/幻覺/延遲 → 決定 `DEFAULT_L1` 與是否需更強模型。
+5. **L1 效能**(issues #25/#27/#28):變化閘控外加「L1 最小間隔」節流(壓熱/耗電)· 評估 NPU delegate · prefill/輸出優化。
+6. **#3 HF OAuth 網頁登入**(取代貼權杖;現況:App 內貼 HF read 權杖即可,已加密存裝置)。
+7. **#4 Firebase 接線**(Remote Config 模型目錄 + FCM 告警;`google-services.json` 已放置,ADR-0010)。
+8. **#5 升級 library**(targetSdk 已 36;逐一升 lib 並驗證建置)。
+9. **P4 音訊融合**(目前音訊誠實標示「未啟用」,不誤報)。
 
 ## 開發者模式(驗證工具)用法
 
@@ -100,4 +102,4 @@ Gradle 9.3.1 · AGP 8.12.0 · **Kotlin 2.2.10**(為 litertlm metadata 升)· com
 
 ADR:[0006](adr/0006-safety-alert-mvp.md) MVP、[0007](adr/0007-rust-first-redesign.md) Rust 重建、[0009](adr/0009-edge-ai-litert-ai-edge.md) LiteRT、[0010](adr/0010-firebase-architecture.md) Firebase。
 設計:[`docs/design/`](design/README.md)(尤其 [`vlm/SD.md`](design/vlm/SD.md) §6.1 pad 根因、§8 相機選型)。
-開放 issues:#25/#26/#27/#28。GitHub Milestones:P2 / P2.5 / P3 / P4 / MVP。
+開放 issues:#25/#26/#27/#28/#29。GitHub Milestones:P2 / P2.5 / P3 / P4 / MVP。
