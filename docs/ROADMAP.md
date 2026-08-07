@@ -69,8 +69,11 @@ flowchart TD
 - **L1 執行期改用 Google AI Edge / LiteRT-LM**(ADR-0009,取代 llama.rn / llama.cpp)。
   裝置端(Pixel 10)以 `.litertlm`-native Gemma 3n 產生真實場景描述 ~6.5s;
   MediaPipe `.task` 格式在 litertlm 0.11.0 只吐 `<pad>`,已改用原生 `.litertlm`。
-- 裝置 App 已具:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
-  App 內 gated 模型下載、L0 變化閘控(靜態場景省 ~98% 運算)。
+- 裝置 App 已具(PR #24,未 merge):進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
+  App 內 gated 模型下載、L0 變化閘控(靜態場景省 ~98% 運算)、**L1 真實場景描述**、
+  開發者模式(測試影片/模型驗證/描述記錄)。
+- **關鍵發現:L1 場景描述非可靠跌倒偵測器**(遠景/小主體會漏或幻覺)→ 事件偵測須 L2;
+  相機佈建須讓主體佔畫面 ≥ ⅓(見 [`docs/design/vlm/SD.md`](design/vlm/SD.md) §8、issue #26)。
 - 首個應用**藥單辨識**的軟體層(schema、prompt、安全解析、單元測試、SA/SD)完成
   ——**現已延後**(見下方 MVP 重新聚焦)。
 
