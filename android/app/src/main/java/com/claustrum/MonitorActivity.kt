@@ -227,7 +227,12 @@ class MonitorActivity : ComponentActivity() {
                 runOnUiThread { devVideoFrame.value = frame }   // display (never recycled here)
                 if (t - lastL1 >= l1EveryMs) {
                     lastL1 = t
-                    // Copy for L1 so the displayed frame is never recycled underneath Compose.
+                    // Full frame (copied so the displayed frame is never recycled under
+                    // Compose). NOTE: a centre-crop was tried to enlarge far subjects but
+                    // it cut OFF-centre subjects (dashcam fall was left-of-centre) and the
+                    // model then hallucinated — without subject detection a blind crop is
+                    // not a reliable fix. Real answer: frame the subject via camera
+                    // placement, and detect events in L2 (see docs/design/vlm/SD.md §8).
                     val copy = frame.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
                     val luma = lumaOf(copy)
                     val sig = NativeCore.frameSignature(luma, copy.width, copy.height)

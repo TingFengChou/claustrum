@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -40,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.material3.Text
+import com.claustrum.model.CaptionLog
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
@@ -75,7 +78,8 @@ fun LiveMonitorScreen(ui: MonitorUi, previewView: View, active: Boolean, onActiv
     val c = ClaustrumTheme.colors
     val videoMode = dev.videoFrame != null
     Column(
-        Modifier.fillMaxSize().background(c.ground).statusBarsPadding().padding(horizontal = 16.dp)
+        Modifier.fillMaxSize().background(c.ground).statusBarsPadding()
+            .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(14.dp))
         AppBar(active = active || videoMode, guarding = ui.guarding || videoMode)
@@ -105,8 +109,46 @@ fun LiveMonitorScreen(ui: MonitorUi, previewView: View, active: Boolean, onActiv
         SenseCard(label = "聽到 · 音訊(規劃)", body = ui.audio, eye = false)
         Spacer(Modifier.height(12.dp))
         TelemetryRow(ui, active = active || videoMode)
+        Spacer(Modifier.height(14.dp))
+        DescriptionStream()
+        Spacer(Modifier.height(20.dp))
     }
 }
+
+/** Row-by-row L1 descriptions with timestamps (newest first) — the recent window;
+ *  the full 100-record log lives in the 事件 tab. */
+@Composable
+private fun DescriptionStream(maxRows: Int = 10) {
+    val c = ClaustrumTheme.colors
+    val entries = CaptionLog.entries
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("描述串流", color = c.steel, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.weight(1f))
+        Text(
+            if (entries.isEmpty()) "尚無" else "最近 ${minOf(entries.size, maxRows)} / 共 ${entries.size}(上限 ${CaptionLog.MAX})· 完整見事件頁",
+            color = c.faint, fontFamily = Mono, fontSize = 10.sp,
+        )
+    }
+    Spacer(Modifier.height(6.dp))
+    if (entries.isEmpty()) {
+        Text("啟動守護或跑測試影片後,L1 每筆描述會逐列記錄於此(含時間)。",
+            color = c.faint, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+    } else {
+        entries.take(maxRows).forEach { e ->
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(hhmmss(e.tsMillis), color = c.steel, fontFamily = Mono, fontSize = 11.sp,
+                    modifier = Modifier.padding(end = 8.dp))
+                Text(e.text, color = c.ink, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+private fun hhmmss(ts: Long): String =
+    java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.TAIWAN).format(java.util.Date(ts))
 
 @Composable
 private fun AppBar(active: Boolean, guarding: Boolean) {
