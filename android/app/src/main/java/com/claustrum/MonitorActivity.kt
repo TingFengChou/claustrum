@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -18,6 +19,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import com.claustrum.core.ChangeGate
 import com.claustrum.core.NativeCore
+import com.claustrum.events.NativeEventEngine
+import com.claustrum.events.PoseFrame
+import com.claustrum.events.PoseObservationExtractor
+import com.claustrum.events.toPoseFrame
 import com.claustrum.model.CaptionLog
 import com.claustrum.model.DevMode
 import com.claustrum.model.ModelSpec
@@ -34,6 +39,9 @@ import com.claustrum.vlm.FallbackCaptioner
 import com.claustrum.vlm.LiteRtCaptioner
 import com.claustrum.vlm.PerceptionPipeline
 import com.claustrum.vlm.PlaceholderCaptioner
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.pose.PoseDetection
+import com.google.mlkit.vision.pose.defaults.PoseDetectorOptions
 import java.util.concurrent.Executors
 
 /**
@@ -41,14 +49,29 @@ import java.util.concurrent.Executors
  * and renders the designed Compose UI ([LiveMonitorScreen]). L1 uses the real
  * [LiteRtCaptioner] when a vision model is present, else the placeholder.
  */
+@ExperimentalGetImage
 class MonitorActivity : ComponentActivity() {
 
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private val inferenceExecutor = Executors.newSingleThreadExecutor() // L1 off the analyzer thread
     private val inFlight = java.util.concurrent.atomic.AtomicBoolean(false) // single-flight L1
+    private val poseTaskInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val destroyed = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val poseFastPathEnabled = java.util.concurrent.atomic.AtomicBoolean(true)
+    private val poseDetectorClosed = java.util.concurrent.atomic.AtomicBoolean(false)
     // Latest admitted frame that arrived while L1 was busy. Intermediate admitted frames
     // are intentionally coalesced: this bounds L1 work but is not an event-recall guarantee.
     private val pending = java.util.concurrent.atomic.AtomicReference<Bitmap?>(null)
+    private val poseExtractor = PoseObservationExtractor()
+    private val poseDetectorDelegate = lazy(LazyThreadSafetyMode.NONE) {
+        PoseDetection.getClient(
+            PoseDetectorOptions.Builder()
+                .setDetectorMode(PoseDetectorOptions.STREAM_MODE)
+                .build(),
+        )
+    }
+    private val poseDetector by poseDetectorDelegate
+    @Volatile private var eventEngine: NativeEventEngine? = null
     @Volatile private var pipeline: PerceptionPipeline<Bitmap>? = null
     @Volatile private var lastRes = "—"
     private val guardian = GuardianSession()
@@ -289,6 +312,16 @@ class MonitorActivity : ComponentActivity() {
     }
 
     private fun startCamera() {
+        // Start the bundled base detector before binding. STREAM_MODE is deliberately
+        // single-person and low latency; Rust still owns every event threshold/state.
+        try {
+            poseDetector
+            ensureEventEngine()
+        } catch (t: Throwable) {
+            // Fail closed: camera/L0/L1 remain useful, but no event is claimed when the
+            // fast path cannot initialize.
+            disablePoseFastPath("L2 pose fast path initialization failed", t)
+        }
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             try {
@@ -311,26 +344,131 @@ class MonitorActivity : ComponentActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
+    /**
+     * One CameraX analyzer owns the proxy. ML Kit runs first and closes over the media
+     * image; once its task completes, the same still-open proxy feeds L0/L1 and is then
+     * closed exactly once. KEEP_ONLY_LATEST bounds work at detector throughput.
+     */
     private fun analyze(image: ImageProxy) {
+        // Reserve ownership before checking destroy so onDestroy cannot shut the executor
+        // in the gap between accepting this proxy and registering ML Kit's callback.
+        poseTaskInFlight.set(true)
+        if (destroyed.get()) {
+            finishAnalysis(image)
+            return
+        }
+        if (!poseFastPathEnabled.get()) {
+            analyzeWithoutPose(image)
+            return
+        }
+        val mediaImage = image.image
+        if (mediaImage == null) {
+            try {
+                processFastPath(PoseFrame(System.currentTimeMillis(), emptyMap()))
+                analyzePerception(image)
+            } catch (t: Throwable) {
+                Log.e(TAG, "image without media payload failed", t)
+                guardian.frameFailed("影格分析持續失敗:${t.message ?: t.javaClass.simpleName}")
+                pushState()
+            } finally {
+                finishAnalysis(image)
+            }
+            return
+        }
+        val atMs = System.currentTimeMillis()
+        val rotation = image.imageInfo.rotationDegrees
+        val uprightWidth = if (rotation % 180 == 0) image.width else image.height
+        val uprightHeight = if (rotation % 180 == 0) image.height else image.width
         try {
-            val p = pipeline ?: return
-            val w = image.width
-            val h = image.height
-            lastRes = "${w}×${h}"
-            val luma = extractLuma(image)
-            val sig = NativeCore.frameSignature(luma, w, h)
-            val admitted = p.admit(sig) // fast L0 on this (analyzer) thread
-            // Only on a scene change: copy the frame out (rotated upright per sensor
-            // metadata) BEFORE we close the proxy, then hand it to the L1 executor.
-            if (admitted) enqueueL1(rotatedCopy(image))
-            guardian.frameProcessed()
-            pushState()
+            val input = InputImage.fromMediaImage(mediaImage, rotation)
+            poseDetector.process(input).addOnCompleteListener(analysisExecutor) { task ->
+                try {
+                    if (destroyed.get()) return@addOnCompleteListener
+                    val frame = if (task.isSuccessful) {
+                        task.result.toPoseFrame(atMs, uprightWidth, uprightHeight)
+                    } else {
+                        Log.w(TAG, "ML Kit pose frame failed; interrupting L2 track", task.exception)
+                        PoseFrame(atMs, emptyMap())
+                    }
+                    processFastPath(frame)
+                    analyzePerception(image)
+                } catch (t: Throwable) {
+                    Log.e(TAG, "pose/L0 analysis failed", t)
+                    guardian.frameFailed("影格分析持續失敗:${t.message ?: t.javaClass.simpleName}")
+                    pushState()
+                } finally {
+                    finishAnalysis(image)
+                }
+            }
         } catch (t: Throwable) {
-            Log.e(TAG, "analyze failed", t)
+            // A broken detector must not take the existing L0/L1 monitor down with it.
+            // Disable only L2, then process this same still-open proxy without pose.
+            disablePoseFastPath("pose analysis submission failed; L2 disabled", t)
+            analyzeWithoutPose(image)
+        }
+    }
+
+    private fun analyzeWithoutPose(image: ImageProxy) {
+        try {
+            analyzePerception(image)
+        } catch (t: Throwable) {
+            Log.e(TAG, "L0/L1 fallback analysis failed", t)
             guardian.frameFailed("影格分析持續失敗:${t.message ?: t.javaClass.simpleName}")
             pushState()
         } finally {
-            image.close()
+            finishAnalysis(image)
+        }
+    }
+
+    private fun finishAnalysis(image: ImageProxy) {
+        poseTaskInFlight.set(false)
+        image.close()
+        if (destroyed.get()) analysisExecutor.shutdown()
+    }
+
+    /** Existing L0→L1 route, invoked after ML Kit has released its read of the image. */
+    private fun analyzePerception(image: ImageProxy) {
+        val p = pipeline ?: return
+        val w = image.width
+        val h = image.height
+        lastRes = "${w}×${h}"
+        val luma = extractLuma(image)
+        val sig = NativeCore.frameSignature(luma, w, h)
+        val admitted = p.admit(sig)
+        if (admitted) enqueueL1(rotatedCopy(image))
+        guardian.frameProcessed()
+        pushState()
+    }
+
+    private fun ensureEventEngine() {
+        if (eventEngine == null) eventEngine = NativeEventEngine(L2_SOURCE_ID)
+    }
+
+    private fun processFastPath(frame: PoseFrame) {
+        val observation = poseExtractor.extract(frame)
+        val engine = eventEngine ?: return
+        try {
+            // Policy/UI/notification intentionally remain disconnected until recorded
+            // footage calibration. Structured event text is safe to log; pixels are not.
+            engine.process(observation).forEach { eventJson -> Log.i(TAG, "L2_EVENT $eventJson") }
+        } catch (t: Throwable) {
+            disablePoseFastPath("Rust L2 event engine disabled after processing failure", t)
+        }
+    }
+
+    private fun disablePoseFastPath(message: String, cause: Throwable? = null) {
+        if (!poseFastPathEnabled.compareAndSet(true, false)) return
+        if (cause == null) Log.i(TAG, message) else Log.e(TAG, message, cause)
+        val engine = eventEngine
+        eventEngine = null
+        engine?.close()
+        poseExtractor.reset()
+        closePoseDetector()
+    }
+
+    private fun closePoseDetector() {
+        if (poseDetectorDelegate.isInitialized() && poseDetectorClosed.compareAndSet(false, true)) {
+            poseDetector.close()
         }
     }
 
@@ -408,7 +546,9 @@ class MonitorActivity : ComponentActivity() {
         val w = image.width
         val h = image.height
         val plane = image.planes[0]
-        val buffer = plane.buffer
+        // Isolate position/limit from the SDK-owned buffer and reset both in case an
+        // earlier consumer changed its view before this completion callback runs.
+        val buffer = plane.buffer.duplicate().apply { clear() }
         val rowStride = plane.rowStride
         val out = ByteArray(w * h)
         if (rowStride == w) {
@@ -424,11 +564,15 @@ class MonitorActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        destroyed.set(true)
         super.onDestroy()
+        disablePoseFastPath("L2 pose fast path closed")
         val p = pipeline
         inferenceExecutor.execute { try { p?.close() } catch (_: Throwable) {} }
         inferenceExecutor.shutdown()
-        analysisExecutor.shutdown()
+        // Do not reject the registered ML Kit completion callback: it owns the only
+        // in-flight ImageProxy and will close it before shutting down this executor.
+        if (!poseTaskInFlight.get()) analysisExecutor.shutdown()
         pending.getAndSet(null)?.recycle()
     }
 
@@ -436,5 +580,6 @@ class MonitorActivity : ComponentActivity() {
         private const val TAG = "claustrum"
         private const val PREFS = "claustrum.prefs"
         private const val KEY_ONBOARDED = "onboarded"
+        private const val L2_SOURCE_ID = "camera_back"
     }
 }

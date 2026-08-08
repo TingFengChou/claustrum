@@ -10,9 +10,10 @@
 
 成本低、永遠開著、毫秒級。決定哪些瞬間值得付出昂貴的一次呼叫。
 
-目前已實作的訊號是 luma 64-bit aHash 與前一影格的 Hamming distance。物件偵測、pose
-landmarks、frame embedding 都是候選或後續 extractor，不得在文件中當成現況。尤其 pose/
-motion observation 必須走獨立 L2 fast path，不得被只為 L1 節流的 aHash gate 擋住。
+目前 L0 訊號是 luma 64-bit aHash 與前一影格的 Hamming distance。另有 ML Kit base pose
+`STREAM_MODE` + Kotlin 時序特徵作為獨立 L2 fast path；它在 L0 gate 之前處理每個 CameraX
+analysis frame，不被只為 L1 節流的 aHash gate 擋住。物件偵測、frame embedding、impact 與
+多人 action extractor 仍是候選或後續工作，不得當成現況。
 
 下列是目標策略草圖，不是目前已上線的行為:
 
@@ -47,7 +48,8 @@ confidence。若後續建 Kineme，由管線填入 model/prompt/novelty 等 meta
 <1 秒偵測或對外通報的唯一 gate。L2 改用可回歸的 pose/motion/action 多訊號時序證據:
 
 ```
-lightweight extractor(待接) → FastPathObservation(timestamp + anonymous role + scores)
+ML Kit 單人 pose + Kotlin extractor(已接、待校準)
+    → FastPathObservation(timestamp + anonymous role + pose/descent/motion)
     → NativeEventEngine / JNI opaque handle → Rust EventEngine
     │
     ├── Fall:站立 → ≤1s 快速下降 + 水平/倒臥
@@ -60,8 +62,10 @@ lightweight extractor(待接) → FastPathObservation(timestamp + anonymous role
                 └── L1 caption 後到時只附加客觀文字脈絡,不改 status/risk
 ```
 
-目前 `FastPathObservation`、JNI create/process/destroy 與 Rust engine registry 已實作；還沒有
-extractor 將實際 pose/action 特徵餵入此路徑，因此 App 仍不宣稱已能偵測或告警。
+目前 `FastPathObservation`、JNI create/process/destroy、Rust engine registry 與 CameraX→ML Kit
+單人 pose 餐取均已實作。ML Kit 沒有公開 tracking ID；Android 在追蹤遺失/gap/大跳位時輪替
+匿名 role slot，避免跨人拼接。Pose-only 不產生 impact、第二人、contact 或 strike，因此首版只
+能建立單人 fall candidate，並在持續倒臥後 confirmed；Event 目前只寫 log，尚未進 UI/通知。
 JNI 傳輸不含 pixels/landmarks，每個返回字串是一份 schema-aligned Event JSON。
 
 正常坐下、單一高動作 sample、不同人物 pair 的動作不得拼成 confirmed。上層再做去重、類別

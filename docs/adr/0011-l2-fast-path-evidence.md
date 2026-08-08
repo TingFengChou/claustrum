@@ -32,8 +32,8 @@ ADR-0006 原先的「pose 快路徑(recall)+確認(precision)」仍成立，但�
 
 ## 後果
 
-- 必須接上並校準高 precision 的 pose/action extractor；在此之前只完成 event-engine foundation，
-  不宣稱真機告警已可用。
+- 首條 ML Kit 單人 pose fast path 已接上，但仍須校準 high-precision thresholds、補 impact/多人
+  action 與 negative corpus；在此之前不宣稱真機告警已可用。
 - 無 impact 的 fall 會先 candidate，持續倒臥後才 confirmed；這是為降低誤報接受的確認延遲。
 - VLM 仍有價值:提供人工檢視/事件記錄的客觀文字脈絡，但不是安全裁決者。
 - ADR-0006 的 MVP 場景、多模態方向與人工確認原則不變；只取代「VLM 作確認 gate」的解讀。

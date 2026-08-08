@@ -8,7 +8,8 @@
 > **P0** 骨架(Rust `.so` + Android + JNI)〔✅ 完成:L0 變化閘控(host `cargo test` 綠)、JNI/`.so`、Android 外殼在 Pixel 10 實測 `nativeHello()` 回話 + L0 閘控 PASS〕· **P1** L0 變化閘控接 CameraX luma 流〔✅ 完成:Pixel 10 實測 640×480 即時串流,靜態場景 1/2250 放行 → 省下 ~100% 運算;`ChangeGate` 7 個 JVM 單元測試綠〕·
 > **P2** L1 場景描述(**Google AI Edge / LiteRT-LM SDK**,不自建 llama.cpp — ADR-0009)〔✅ 大致完成:L0→L1、App 內模型下載、Compose 全貌、`.litertlm` 原生 Gemma 3n 真描述〕·
 > **P2.5** Compose UI ✅ · **P3** L2 事件引擎 🟡〔Rust Fall/ZoneExit/Violence 狀態機 +
-> Event serde/schema + Android/JNI observation bridge 已落地；pose/action extractor、CameraX 餐取、通知與實機校準待續〕·
+> Event serde/schema + Android/JNI bridge + ML Kit 單人 pose/CameraX fast path 已落地；實機校準、
+> impact/多人 action、通知待續〕·
 > **P4** 音訊融合(#6)。續作見 [`HANDOFF.md`](HANDOFF.md)。
 > 詳見 [ADR-0007](adr/0007-rust-first-redesign.md)。
 
@@ -74,8 +75,8 @@ flowchart TD
   MediaPipe `.task` 格式在 litertlm 0.11.0 只吐 `<pad>`,已改用原生 `.litertlm`。
 - PR #24/#30 已 merge 至 `main`：裝置 App 已具進入流程、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、L0 變化閘控、**L1 真實場景描述**與開發者驗證工具；Rust L2
-  Fall/ZoneExit/Violence engine + Event schema 已有 foundation；Android/JNI observation bridge 已完成，
-  pose/action extractor 與 CameraX 餐取待續。
+  Fall/ZoneExit/Violence engine + Event schema 已有 foundation；後續已接上 Android/JNI bridge 與
+  ML Kit base `STREAM_MODE` 單人 pose fast path。尚未完成實機素材校準、impact/多人 action 與告警。
 - **關鍵發現:L1 場景描述非可靠跌倒偵測器**(遠景/小主體會漏或幻覺)→ 事件偵測須 L2;
   相機佈建須讓主體佔畫面 ≥ ⅓(見 [`docs/design/vlm/SD.md`](design/vlm/SD.md) §8、issue #26)。
 - 首個應用**藥單辨識**的軟體層(schema、prompt、安全解析、單元測試、SA/SD)完成
@@ -97,6 +98,10 @@ MVP 里程碑(取代下方 M0–M7 的近期優先序;M2–M7 的概念仍適用
 - **B. 跌倒偵測**:on-device pose(快路徑,recall)+ 確認(precision);指標:recall、false-alerts/24h。
 - **C. 暴力偵測(音+視)**:裝置端聲音事件(尖叫/衝突)+ 畫面,融合升級告警。
 - **D. 告警通道 + 抑制**:通知保全 / 聲光告警;去重、速率限制、冷卻、人工確認。
+
+目前 B 的第一條單人 fast path 已接線：ML Kit pose 只提供最顯著一人的 landmark，Kotlin 只推導
+pose/descent/motion，不臆造 impact 或多人 strike。Event 暫只寫 log；需先以固定鏡位跌倒/正常
+坐下/躺下素材建立 confusion matrix、p95 與 72h negative corpus，達標後才接 D。
 
 ---
 
