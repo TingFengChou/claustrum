@@ -90,6 +90,7 @@ class MonitorActivity : ComponentActivity() {
     private val inferenceExecutor = Executors.newSingleThreadExecutor() // L1 off the analyzer thread
     private val objectExecutor = Executors.newSingleThreadExecutor()
     private val objectDetectorStarting = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val guardianSessionVersion = java.util.concurrent.atomic.AtomicLong(0L)
     private val poseTaskInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val destroyed = java.util.concurrent.atomic.AtomicBoolean(false)
     private val foreground = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -124,6 +125,7 @@ class MonitorActivity : ComponentActivity() {
     @Volatile private var previewUseCase: Preview? = null
     @Volatile private var analysisUseCase: ImageAnalysis? = null
     @Volatile private var boundCamera: Camera? = null
+    @Volatile private var cameraProvider: ProcessCameraProvider? = null
     @Volatile private var lastRes = "—"
     @Volatile private var trackedPeople: List<TrackedPersonUi> = emptyList()
     @Volatile private var objectCandidates: List<ObjectCandidateUi> = emptyList()
@@ -156,6 +158,7 @@ class MonitorActivity : ComponentActivity() {
         val bitmap: Bitmap,
         val atMs: Long,
         val sourceTransform: OutputTransform,
+        val guardianSessionVersion: Long,
     )
 
     /** Keep CameraX output upright through all four physical mounting directions. */
@@ -177,7 +180,9 @@ class MonitorActivity : ComponentActivity() {
 
     private val requestCamera =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) startCamera()
+            val version = guardianSessionVersion.get()
+            if (!isGuardianSessionCurrent(version)) return@registerForActivityResult
+            if (granted) startCamera(version)
             else {
                 guardian.activationFailed("需要相機權限才能守護；允許後可再次啟動。")
                 pushState()
@@ -215,6 +220,7 @@ class MonitorActivity : ComponentActivity() {
                         // Manual activation: the machine eye wakes (camera starts) only
                         // when the user taps 啟動守護 — never automatically on entry.
                         onActivate = { activateGuardian() },
+                        onDeactivate = { deactivateGuardian() },
                         onZoomChange = { setZoomRatio(it) },
                         dev = com.claustrum.ui.DevUi(
                             enabled = DevMode.enabled.value,
@@ -245,8 +251,42 @@ class MonitorActivity : ComponentActivity() {
     /** User tapped 啟動守護 — arm the guardian and wake the camera (once). */
     private fun activateGuardian() {
         if (!guardian.beginActivation()) return
+        val version = guardianSessionVersion.incrementAndGet()
         pushState()
-        ensureCameraRunning()
+        ensureCameraRunning(version)
+    }
+
+    /** Explicit foreground stop: revoke this session before releasing camera/runtime state. */
+    private fun deactivateGuardian() {
+        if (!guardian.stop()) return
+        guardianSessionVersion.incrementAndGet()
+
+        analysisUseCase?.clearAnalyzer()
+        boundCamera?.cameraInfo?.zoomState?.removeObservers(this)
+        cameraProvider?.unbindAll()
+        previewUseCase = null
+        analysisUseCase = null
+        boundCamera = null
+        lastRes = "—"
+
+        l1Queue.clear()
+        objectQueue.clear()
+        objectModelCheckedAtMs = Long.MIN_VALUE
+        clearPoseOverlay()
+        stopObjectDetectorRuntime("物件候選待命 · 守護已停止")
+
+        val engine = eventEngine
+        eventEngine = null
+        try {
+            analysisExecutor.execute {
+                try { engine?.close() } catch (t: Throwable) { Log.w(TAG, "L2 stop failed", t) }
+                poseExtractor.reset()
+                objectGate.reset()
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Activity destruction owns executor shutdown.
+        }
+        pushState()
     }
 
     // ---- Developer-mode validation tooling (never affects production paths) ------
@@ -375,11 +415,15 @@ class MonitorActivity : ComponentActivity() {
     }
 
     /** Start permission/binding work once per activation attempt. */
-    private fun ensureCameraRunning() {
+    private fun ensureCameraRunning(version: Long) {
+        if (!isGuardianSessionCurrent(version)) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
-        ) startCamera() else requestCamera.launch(Manifest.permission.CAMERA)
+        ) startCamera(version) else requestCamera.launch(Manifest.permission.CAMERA)
     }
+
+    private fun isGuardianSessionCurrent(version: Long): Boolean =
+        !destroyed.get() && guardianSessionVersion.get() == version && guardian.snapshot().active
 
     private fun isOnboarded(): Boolean =
         getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_ONBOARDED, false)
@@ -404,7 +448,8 @@ class MonitorActivity : ComponentActivity() {
         return PlaceholderCaptioner
     }
 
-    private fun startCamera() {
+    private fun startCamera(version: Long) {
+        if (!isGuardianSessionCurrent(version)) return
         // Start the bundled base detector before binding. STREAM_MODE is deliberately
         // single-person and low latency; Rust still owns every event threshold/state.
         try {
@@ -415,11 +460,13 @@ class MonitorActivity : ComponentActivity() {
             // fast path cannot initialize.
             disablePoseFastPath("L2 pose fast path initialization failed", t)
         }
-        ensureObjectDetector()
+        ensureObjectDetector(version)
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             try {
                 val provider = future.get()
+                cameraProvider = provider
+                if (!isGuardianSessionCurrent(version)) return@addListener
                 val initialRotation = previewView.display?.rotation ?: Surface.ROTATION_0
                 val preview = Preview.Builder()
                     .setTargetRotation(initialRotation)
@@ -440,6 +487,10 @@ class MonitorActivity : ComponentActivity() {
                     preview,
                     analysis,
                 )
+                if (!isGuardianSessionCurrent(version)) {
+                    provider.unbind(preview, analysis)
+                    return@addListener
+                }
                 boundCamera = camera
                 camera.cameraInfo.zoomState.observe(this) { state ->
                     zoomRatio = state.zoomRatio
@@ -452,8 +503,10 @@ class MonitorActivity : ComponentActivity() {
                 pushState()
             } catch (t: Throwable) {
                 Log.e(TAG, "bindToLifecycle failed", t)
-                guardian.activationFailed("相機啟動失敗:${t.message ?: t.javaClass.simpleName}；可再次嘗試。")
-                pushState()
+                if (isGuardianSessionCurrent(version)) {
+                    guardian.activationFailed("相機啟動失敗:${t.message ?: t.javaClass.simpleName}；可再次嘗試。")
+                    pushState()
+                }
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -467,19 +520,23 @@ class MonitorActivity : ComponentActivity() {
         // Reserve ownership before checking destroy so onDestroy cannot shut the executor
         // in the gap between accepting this proxy and registering ML Kit's callback.
         poseTaskInFlight.set(true)
-        if (destroyed.get()) {
+        val sessionVersion = guardianSessionVersion.get()
+        if (!isGuardianSessionCurrent(sessionVersion)) {
             finishAnalysis(image)
             return
         }
         if (!poseFastPathEnabled.get()) {
-            analyzeWithoutPose(image)
+            analyzeWithoutPose(image, sessionVersion)
             return
         }
         val mediaImage = image.image
         if (mediaImage == null) {
             try {
-                processFastPath(PoseFrame(System.currentTimeMillis(), emptyMap()))
-                analyzePerception(image)
+                processFastPath(
+                    PoseFrame(System.currentTimeMillis(), emptyMap()),
+                    sessionVersion,
+                )
+                analyzePerception(image, sessionVersion)
             } catch (t: Throwable) {
                 Log.e(TAG, "image without media payload failed", t)
                 guardian.frameFailed("影格分析持續失敗:${t.message ?: t.javaClass.simpleName}")
@@ -497,16 +554,16 @@ class MonitorActivity : ComponentActivity() {
             val input = InputImage.fromMediaImage(mediaImage, rotation)
             poseDetector.process(input).addOnCompleteListener(analysisExecutor) { task ->
                 try {
-                    if (destroyed.get()) return@addOnCompleteListener
+                    if (!isGuardianSessionCurrent(sessionVersion)) return@addOnCompleteListener
                     val frame = if (task.isSuccessful) {
                         task.result.toPoseFrame(atMs, uprightWidth, uprightHeight)
                     } else {
                         Log.w(TAG, "ML Kit pose frame failed; interrupting L2 track", task.exception)
                         PoseFrame(atMs, emptyMap())
                     }
-                    val slot = processFastPath(frame)
-                    publishPoseOverlay(image, frame, slot)
-                    analyzePerception(image)
+                    val slot = processFastPath(frame, sessionVersion)
+                    publishPoseOverlay(image, frame, slot, sessionVersion)
+                    analyzePerception(image, sessionVersion)
                 } catch (t: Throwable) {
                     Log.e(TAG, "pose/L0 analysis failed", t)
                     clearPoseOverlay()
@@ -520,13 +577,15 @@ class MonitorActivity : ComponentActivity() {
             // A broken detector must not take the existing L0/L1 monitor down with it.
             // Disable only L2, then process this same still-open proxy without pose.
             disablePoseFastPath("pose analysis submission failed; L2 disabled", t)
-            analyzeWithoutPose(image)
+            analyzeWithoutPose(image, sessionVersion)
         }
     }
 
-    private fun analyzeWithoutPose(image: ImageProxy) {
+    private fun analyzeWithoutPose(image: ImageProxy, sessionVersion: Long) {
         try {
-            analyzePerception(image)
+            if (isGuardianSessionCurrent(sessionVersion)) {
+                analyzePerception(image, sessionVersion)
+            }
         } catch (t: Throwable) {
             Log.e(TAG, "L0/L1 fallback analysis failed", t)
             guardian.frameFailed("影格分析持續失敗:${t.message ?: t.javaClass.simpleName}")
@@ -543,7 +602,8 @@ class MonitorActivity : ComponentActivity() {
     }
 
     /** Existing L0→L1 plus bounded object-candidate route after ML Kit releases the image. */
-    private fun analyzePerception(image: ImageProxy) {
+    private fun analyzePerception(image: ImageProxy, sessionVersion: Long) {
+        if (!isGuardianSessionCurrent(sessionVersion)) return
         val p = pipeline ?: return
         val w = image.width
         val h = image.height
@@ -575,10 +635,12 @@ class MonitorActivity : ComponentActivity() {
                         throw t
                     }
                     enqueueL1(l1Copy)
-                    enqueueObject(ObjectFrame(upright, atMs, sourceTransform))
+                    enqueueObject(ObjectFrame(upright, atMs, sourceTransform, sessionVersion))
                 }
                 l1Admitted -> enqueueL1(upright)
-                sourceTransform != null -> enqueueObject(ObjectFrame(upright, atMs, sourceTransform))
+                sourceTransform != null -> enqueueObject(
+                    ObjectFrame(upright, atMs, sourceTransform, sessionVersion),
+                )
                 else -> upright.recycle()
             }
         }
@@ -595,13 +657,13 @@ class MonitorActivity : ComponentActivity() {
         if (!MediaPipeMetricsConsent.isGranted(this)) {
             disableObjectDetectorForConsent()
         } else if (objectDetector == null && !objectDetectorStarting.get()) {
-            ensureObjectDetector()
+            ensureObjectDetector(guardianSessionVersion.get())
         }
     }
 
     /** MediaPipe objects stay on their own executor; create/use/close are serialized. */
-    private fun ensureObjectDetector() {
-        if (destroyed.get() || objectDetector != null ||
+    private fun ensureObjectDetector(sessionVersion: Long) {
+        if (!isGuardianSessionCurrent(sessionVersion) || objectDetector != null ||
             !objectDetectorStarting.compareAndSet(false, true)
         ) return
         if (!MediaPipeMetricsConsent.isGranted(this)) {
@@ -623,9 +685,15 @@ class MonitorActivity : ComponentActivity() {
             var created: MediaPipeObjectDetector? = null
             try {
                 created = MediaPipeObjectDetector(applicationContext, spec.localFile(this))
-                if (destroyed.get() || !MediaPipeMetricsConsent.isGranted(this)) {
+                if (!isGuardianSessionCurrent(sessionVersion) ||
+                    !MediaPipeMetricsConsent.isGranted(this)
+                ) {
                     created.close()
-                    objectDetectorStatus = "物件候選未啟用 · 到模型頁查看"
+                    if (!guardian.snapshot().active) {
+                        objectDetectorStatus = "物件候選待命 · 守護已停止"
+                    } else if (!MediaPipeMetricsConsent.isGranted(this)) {
+                        objectDetectorStatus = "物件候選未啟用 · 到模型頁查看"
+                    }
                 } else {
                     objectStats.reset()
                     objectTracker.reset()
@@ -650,32 +718,31 @@ class MonitorActivity : ComponentActivity() {
 
     /** Consent withdrawal stops new submissions before serialized close. */
     private fun disableObjectDetectorForConsent() {
-        val detector = objectDetector ?: run {
-            objectQueue.clear()
-            resetObjectTemporalState()
-            val status = "物件候選未啟用 · 到模型頁查看"
-            if (objectDetectorStatus != status || objectCandidates.isNotEmpty()) {
-                objectDetectorStatus = status
-                clearObjectOverlay()
-                pushState()
-            }
-            return
-        }
+        stopObjectDetectorRuntime("物件候選已停止 · 未同意效能統計")
+    }
+
+    /** Stop new frames immediately, then serialize tracker reset and native close. */
+    private fun stopObjectDetectorRuntime(status: String) {
+        val detector = objectDetector
         objectDetector = null
-        objectDetectorStatus = "物件候選已停止 · 未同意效能統計"
+        objectDetectorStatus = status
         objectQueue.clear()
         clearObjectOverlay()
         pushState()
-        objectExecutor.execute {
-            objectTracker.reset()
-            litterEvidenceTracker.reset()
-            try { detector.close() } catch (_: Throwable) {}
+        try {
+            objectExecutor.execute {
+                objectTracker.reset()
+                litterEvidenceTracker.reset()
+                try { detector?.close() } catch (_: Throwable) {}
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Activity teardown already owns native resource shutdown.
         }
     }
 
     /** Current + latest pending queue: bounded memory and no stale detector backlog. */
     private fun enqueueObject(frame: ObjectFrame) {
-        if (destroyed.get() || objectDetector == null) {
+        if (!isGuardianSessionCurrent(frame.guardianSessionVersion) || objectDetector == null) {
             frame.bitmap.recycle()
             return
         }
@@ -706,7 +773,10 @@ class MonitorActivity : ComponentActivity() {
                         }
                         // Withdrawal may race an already-running native call. Never let its
                         // late result restore an overlay after consent has been revoked.
-                        if (objectDetector != null && MediaPipeMetricsConsent.isGranted(this)) {
+                        if (objectDetector != null &&
+                            isGuardianSessionCurrent(frame.guardianSessionVersion) &&
+                            MediaPipeMetricsConsent.isGranted(this)
+                        ) {
                             val samples = detected.mapNotNull { detection ->
                                 detection.toTrackingSample(frame.bitmap.width, frame.bitmap.height)
                             }
@@ -719,13 +789,17 @@ class MonitorActivity : ComponentActivity() {
                                 latencyMs = latencyMs,
                                 inputWidth = frame.bitmap.width,
                                 inputHeight = frame.bitmap.height,
+                                guardianSessionVersion = frame.guardianSessionVersion,
                             )
                         }
                     } catch (t: Throwable) {
                         Log.e(TAG, "MediaPipe object frame failed", t)
-                        objectDetectorStatus = "物件候選本幀失敗:${t.message ?: t.javaClass.simpleName}"
-                        clearObjectOverlay()
-                        pushState()
+                        if (isGuardianSessionCurrent(frame.guardianSessionVersion)) {
+                            objectDetectorStatus =
+                                "物件候選本幀失敗:${t.message ?: t.javaClass.simpleName}"
+                            clearObjectOverlay()
+                            pushState()
+                        }
                     } finally {
                         frame.bitmap.recycle()
                     }
@@ -745,10 +819,13 @@ class MonitorActivity : ComponentActivity() {
         latencyMs: Long,
         inputWidth: Int,
         inputHeight: Int,
+        guardianSessionVersion: Long,
     ) {
         val version = objectOverlayVersion.incrementAndGet()
         previewView.post {
-            if (objectOverlayVersion.get() != version) return@post
+            if (objectOverlayVersion.get() != version ||
+                !isGuardianSessionCurrent(guardianSessionVersion)
+            ) return@post
             val targetTransform = previewView.outputTransform
             val viewWidth = previewView.width
             val viewHeight = previewView.height
@@ -880,14 +957,19 @@ class MonitorActivity : ComponentActivity() {
         if (eventEngine == null) eventEngine = NativeEventEngine(L2_SOURCE_ID)
     }
 
-    private fun processFastPath(frame: PoseFrame): Int? {
+    private fun processFastPath(frame: PoseFrame, guardianSessionVersion: Long): Int? {
+        if (!isGuardianSessionCurrent(guardianSessionVersion)) return null
         val observation = poseExtractor.extract(frame)
         val visibleSlot = observation.actant.takeIf { observation.visiblePeople > 0 }
         val engine = eventEngine ?: return visibleSlot
         try {
             // Policy/UI/notification intentionally remain disconnected until recorded
             // footage calibration. Structured event text is safe to log; pixels are not.
-            engine.process(observation).forEach { eventJson -> Log.i(TAG, "L2_EVENT $eventJson") }
+            engine.process(observation).forEach { eventJson ->
+                if (isGuardianSessionCurrent(guardianSessionVersion)) {
+                    Log.i(TAG, "L2_EVENT $eventJson")
+                }
+            }
         } catch (t: Throwable) {
             disablePoseFastPath("Rust L2 event engine disabled after processing failure", t)
             return null
@@ -900,7 +982,12 @@ class MonitorActivity : ComponentActivity() {
      * CameraX owns rotation/crop/scale math; the UI receives only normalized, pixel-free
      * points. The list contract is multi-person-ready, while today's detector emits one.
      */
-    private fun publishPoseOverlay(image: ImageProxy, frame: PoseFrame, slot: Int?) {
+    private fun publishPoseOverlay(
+        image: ImageProxy,
+        frame: PoseFrame,
+        slot: Int?,
+        guardianSessionVersion: Long,
+    ) {
         val version = overlayVersion.incrementAndGet()
         if (slot == null || frame.points.isEmpty()) {
             applyPoseOverlay(emptyList(), version)
@@ -921,7 +1008,9 @@ class MonitorActivity : ComponentActivity() {
         }
         val subjectHeightPx = frame.estimatedSubjectHeightPx(uprightHeight)
         previewView.post {
-            if (overlayVersion.get() != version) return@post
+            if (overlayVersion.get() != version ||
+                !isGuardianSessionCurrent(guardianSessionVersion)
+            ) return@post
             val targetTransform = previewView.outputTransform
             val viewWidth = previewView.width
             val viewHeight = previewView.height
@@ -1121,9 +1210,14 @@ class MonitorActivity : ComponentActivity() {
             maxZoomRatio = maxZoomRatio,
         )
         // Projection is posted independently on the main thread. Merge the latest
-        // overlay at apply time so an older telemetry snapshot cannot erase it.
+        // guardian/overlay state at apply time so an older background snapshot cannot
+        // resurrect a stopped session or erase a newer projection.
         runOnUiThread {
+            val latestGuard = guardian.snapshot()
             uiState.value = snap.copy(
+                active = latestGuard.active,
+                guarding = latestGuard.guarding,
+                statusError = latestGuard.error,
                 trackedPeople = trackedPeople,
                 objectCandidates = objectCandidates,
                 objectDetectorStatus = objectDetectorStatus,

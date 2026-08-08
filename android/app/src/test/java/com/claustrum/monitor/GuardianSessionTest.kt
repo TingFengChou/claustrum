@@ -67,4 +67,31 @@ class GuardianSessionTest {
         assertTrue(session.snapshot().guarding)
         assertNull(session.snapshot().error)
     }
+
+    @Test
+    fun `stop cancels activation before bind and is idempotent`() {
+        val session = GuardianSession()
+        session.beginActivation()
+
+        assertTrue(session.stop())
+        assertFalse(session.stop())
+        assertFalse(session.snapshot().active)
+        assertFalse(session.snapshot().guarding)
+        assertTrue(session.beginActivation())
+    }
+
+    @Test
+    fun `stop clears bound healthy and degraded sessions`() {
+        val session = GuardianSession(analysisFailureThreshold = 1)
+        session.beginActivation()
+        session.cameraBound()
+        session.frameProcessed()
+        session.frameFailed("分析失敗")
+
+        assertTrue(session.stop())
+        val stopped = session.snapshot()
+        assertFalse(stopped.active)
+        assertFalse(stopped.guarding)
+        assertNull(stopped.error)
+    }
 }

@@ -13,8 +13,8 @@
 | 影格保存 | **預設不保存**；現行 App 沒有錄影或影格資料庫。開發者測試素材只讀使用者主動放入的 app external-files |
 | Caption/Kineme 保存 | 現行 `CaptionLog` 只在 RAM 最多 100 筆，process death 清除；未來若持久化需另立 retention ADR |
 | 雲端升級預設關閉 | 政策 — 需逐次同意授權 |
-| 攝影機啟停 | **部分落地** — App 預設待命、需手動啟動；Activity 退背景時 CameraX lifecycle 停止取幀。目前尚缺前景內明確的「停止守護」控制與硬體遮蓋，追蹤於 issue #42。 |
-| 相機狀態指示 | **部分落地** — 守護頁 badge 與 Android 系統 camera privacy indicator 可見；跨 tab 的 App 內指示、常駐通知／硬體 LED 待 issue #42。 |
+| 攝影機啟停 | **App 層已落地** — 預設待命、需手動啟動；前景內可明確停止。停止先讓 session generation 失效，再 clear analyzer、CameraX unbind、清 pending queue/overlay、重設匿名 tracker 並關閉 L2 session；舊非同步 callback 不得恢復輸出。Activity 退背景另由 CameraX lifecycle 停止取幀。App 控制不能取代硬體遮蓋。 |
+| 相機狀態指示 | **App／OS 層已落地** — 啟動期間四個 tab 都顯示 App 內相機狀態與停止控制，Android 系統 camera privacy indicator 亦獨立可見；常駐通知／硬體 LED 只適用未來 background/固定式部署。 |
 
 浴室與臥室預設不在範圍內。若真要部署於此,也僅限純文字模式且不保留任何影格。
 
@@ -35,6 +35,9 @@ version、task/mode、呼叫／丟幀數、延遲與 init error；沒有 image�
 - `AnonymousObjectTracker` 只保存同類別 bbox 幾何、短時速度與 session-local `P/O` 整數槽位；
   不使用臉、外觀 embedding、硬體識別碼或跨 session re-identification。退背景、撤回、track gap
   或 Activity destroy 會重設；這些槽位與 evidence stage 不落地、不跨 JNI、不外傳。
+- 使用者明確停止時不等待下一幀：CameraX 立即 unbind 並清 pending Bitmap。已進入 ML Kit、
+  MediaPipe 或 LiteRT 的單一本機工作可能完成資源收尾，但 session generation 會阻止其結果恢復
+  疊圖、tracker 或 L2 event；影格仍不寫檔、不外傳，完成後 recycle／釋放。
 - 這仍不是「零網路 metadata」。完全停用／隔離 SDK metrics 的可重現方案追蹤於
   [issue #41](https://github.com/TingFengChou/claustrum/issues/41)；完成前文件與 UI 必須持續揭露。
 

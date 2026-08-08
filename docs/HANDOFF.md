@@ -6,15 +6,16 @@
 
 - **裝置端 App 已成形**:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、**L1 真實場景描述已通**(`.litertlm`-native Gemma 3n)、開發者模式驗證工具。
-- **PR #24/#30/#33/#34/#35/#40/#43 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
+- **PR #24/#30/#33/#34/#35/#40/#43/#44 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
   merge commit 為 `65905cd2`，#40 的 FIT_CENTER／rotation／zoom／匿名框 merge commit 為
-  `898662ba`，#43 的 object candidate merge commit 為 `bd258aed`。checks 與 review threads 均
+  `898662ba`，#43 的 object candidate merge commit 為 `bd258aed`，#44 的 litter tracker merge
+  commit 為 `f41fa46f`。checks 與 review threads 均
   逐則處理後合併；Pixel 10 已驗證相機、pose/JNI、
   前後景恢復與 2F→1F 初測。
-- **本輪續作 PR #44:** #43 後新增 session-local `AnonymousObjectTracker` 與 `LitterEvidenceTracker`：
+- **PR #44:** #43 後新增 session-local `AnonymousObjectTracker` 與 `LitterEvidenceTracker`：
   顯示 P/O 槽位、bbox motion、連續近接→可見分離→分離後靜置→人離開待檢視；仍不建立
-  litter Event。合併前仍須逐則通過 CI／AI review；本輪不關閉場域／多人 association #39、
-  no-telemetry #41 或明確停止守護 #42。
+  litter Event。已逐則完成 CI／AI review 後合併；場域／多人 association #39 與 no-telemetry
+  #41 保持 open。
 - **最重要的發現**:**L1 場景描述不是可靠的跌倒偵測器**(遠景/小主體會漏、會幻覺)。L2
   已接 ML Kit 單人 pose fast path，但仍須固定鏡位素材校準後才可告警(issue #26)。
 - **多人能力仍未完成:** 現行 ML Kit 只回最顯著一人；交錯/遮擋/人物切換限制、MediaPipe
@@ -44,8 +45,12 @@
 - **旋轉驗證邊界:** Pixel 以 WindowManager 強制 ROTATION_90 已確認 landscape 雙欄、底部導覽與
   zoom 控制可操作；因手機實體感測器仍為 portrait，強制畫面下 camera buffer 會側轉，不能冒充
   `OrientationEventListener` 實體四向驗收。裝置原 rotation 設定已還原，#37 仍需手動轉機驗證。
-- **相機停止控制仍缺:** 目前手動啟動、退背景由 lifecycle 停止，但前景內沒有「停止守護」且
-  跨 tab 缺 App 內指示；已修正 PRIVACY 的過度承諾並立 issue #42。
+- **本輪續作 issue #42:** 前景內「停止守護」與跨 tab 狀態列已接線；停止會讓 session
+  generation 失效、unbind CameraX、清 queue/overlay/tracker 並關 L2，舊 callback 不可污染重啟。
+  Pixel 10 已從模型 tab 停止，CameraService 實測 40 次 CONNECT／40 次 DISCONNECT；100ms
+  啟動中快速停止亦回待命／camera closed，無 crash、ANR、bind、MediaPipe 或 L2 stop error。
+  實機曾抓到停止前背景 snapshot 恢復「幽靈守護中」；已改為 Compose apply 時重讀最新
+  `GuardianSession` 後重跑通過。
 
 ## 目前狀態
 
@@ -61,6 +66,7 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 | 進入流程 Splash(機器之眼 Lottie)→ 首次介紹頁 → 守護 | ✅ |
 | 底部導覽 App Shell(守護/事件/模型/設定,無死路) | ✅ |
 | 機器之眼**手動啟動**(進頁不自動開相機,點「啟動守護」才開) | ✅ |
+| 前景明確停止／跨 tab camera indicator／安全重啟 | ✅ Pixel 10 跨頁停止 + 40 次 CameraService 對稱循環 + 100ms 快停 |
 | 啟動白畫面修正(深色 `Theme.Claustrum`) | ✅ |
 | **L1 真實場景描述**(`.litertlm`-native,GPU/GPU,~6.5–11.5s) | ✅ |
 | L1 輸出:emoji/符號過濾 + 非中文/碎片拒絕 + 保留最後有效描述 | ✅ |
@@ -108,8 +114,8 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
    不得成事件。模型不足則訓練客製 detector；MediaPipe no-telemetry 替代獨立追 #41。
 3. **2F→1F 場域 commissioning(issue #38):** 實測 1×/2×/3× 的人物、小物 recall、完整 FOV、
    陡峭俯角遮擋、多人與日夜；單鏡不成立就分區／多鏡，不以數位 zoom 製造盲區。
-4. **明確停止守護(issue #42):** 補 start/stop 狀態、CameraX unbind、queue/overlay 清理、安全重啟與
-   跨 tab camera indicator；20 次循環實機驗收，不再只依靠 Activity 退背景。
+4. **明確停止守護(issue #42):** 程式、host tests、Pixel 10 非守護 tab 停止、100ms 快停與
+   40 次 CameraService 對稱循環已完成；待本 PR CI／review／merge 後關 issue。
 5. **清除 legacy Rust L1 seam:** `NativeCore.describe` + `core-rs/src/vlm.rs` 是 ADR-0008 的未使用
    佔位；另開小 PR 移除 JNI symbol、Rust module/tests 並更新 ADR-0008/0009。**保留**仍在用的
    Rust `frameSignature` 與 L2 engine。
@@ -180,4 +186,4 @@ Gradle 9.3.1 · AGP 8.12.0 · **Kotlin 2.2.10**(為 litertlm metadata 升)· com
 
 ADR:[0006](adr/0006-safety-alert-mvp.md) 歷史 MVP、[0007](adr/0007-rust-first-redesign.md) Rust 重建、[0009](adr/0009-edge-ai-litert-ai-edge.md) LiteRT、[0010](adr/0010-firebase-architecture.md) Firebase、[0011](adr/0011-l2-fast-path-evidence.md) L2 fast path、[0012](adr/0012-two-scenario-mvp-and-object-gating.md) 兩情境收斂。
 設計:[`docs/design/`](design/README.md)(尤其 [`vlm/SD.md`](design/vlm/SD.md) §6.1 pad 根因、§8 相機選型)。
-開放 issues:#25/#26/#27/#28/#29/#36/#37/#38/#39/#41。GitHub Milestones:P2 / P2.5 / P3 / P4 / MVP。
+開放 issues:#25/#26/#27/#28/#29/#36/#37/#38/#39/#41/#42。GitHub Milestones:P2 / P2.5 / P3 / P4 / MVP。

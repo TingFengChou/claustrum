@@ -77,6 +77,18 @@ class GuardianSession(
         if (consecutiveAnalysisFailures >= analysisFailureThreshold) error = message
     }
 
+    /** Explicit user stop. Returns true only when an activation/session was actually armed. */
+    @Synchronized
+    fun stop(): Boolean {
+        if (!starting && !cameraBound) return false
+        starting = false
+        cameraBound = false
+        receivedFrame = false
+        consecutiveAnalysisFailures = 0
+        error = null
+        return true
+    }
+
     @Synchronized
     fun snapshot(): Snapshot = Snapshot(
         active = starting || cameraBound,
