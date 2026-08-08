@@ -54,7 +54,6 @@ fun AppShell(
     monitorUi: MonitorUi,
     previewView: View,
     models: ModelsController,
-    guardActive: Boolean,
     onActivate: () -> Unit,
     dev: DevUi = DevUi(),
 ) {
@@ -64,7 +63,7 @@ fun AppShell(
     Column(Modifier.fillMaxSize().background(c.ground)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
-                ClaustrumTab.GUARD -> LiveMonitorScreen(monitorUi, previewView, active = guardActive, onActivate = onActivate, dev = dev)
+                ClaustrumTab.GUARD -> LiveMonitorScreen(monitorUi, previewView, onActivate = onActivate, dev = dev)
                 ClaustrumTab.EVENTS -> EventsScreen()
                 ClaustrumTab.MODELS -> ModelsScreen(models)
                 ClaustrumTab.SETTINGS -> SettingsScreen(monitorUi.backend, dev = dev)

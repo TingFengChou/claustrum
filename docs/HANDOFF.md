@@ -1,12 +1,14 @@
 # HANDOFF — 交接與續作事項
 
-**最後更新:** 2026-08-07 · 給下一個接手的人 / 下一個 session。記錄「現況、決策、下一步、怎麼繼續」。
+**最後更新:** 2026-08-08 · 給下一個接手的人 / 下一個 session。記錄「現況、決策、下一步、怎麼繼續」。
 
 ## TL;DR
 
 - **裝置端 App 已成形**:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、**L1 真實場景描述已通**(`.litertlm`-native Gemma 3n)、開發者模式驗證工具。
-- **一切都在 PR #24**(分支 `feat/litert-captioner`,20 commits,**尚未 merge**)。CI 全綠 + AI 審查通過、無未解 P1 → **等 owner 決定 merge**。
+- **一切都在 PR #24**(分支 `feat/litert-captioner`,**尚未 merge**)。既有 AI review 的 7 個
+  P1 threads 已 outdated；2026-08-08 再審新增修正相機失敗不可重試、analyzer 健康狀態與
+  LiteRT fallback 前的 Engine 資源釋放。合併前以 PR 最新 SHA 的 checks 為準。
 - **最重要的發現**:**L1 場景描述不是可靠的跌倒偵測器**(遠景/小主體會漏、會幻覺)。真偵測要 **L2**(見 issue #26)+ 相機佈建讓主體佔比足夠(見 `docs/design/vlm/SD.md` §8)。
 
 ## 目前狀態
@@ -26,9 +28,11 @@ Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G
 | **L1 真實場景描述**(`.litertlm`-native,GPU/GPU,~6.5–11.5s) | ✅ |
 | L1 輸出:emoji/符號過濾 + 非中文/碎片拒絕 + 保留最後有效描述 | ✅ |
 | Codex P1(初始化移出 analyzer、保留放行幀、旋正、有界輸出) | ✅ |
+| 相機權限/bind 失敗可重試、連續 analyzer 失敗顯示「需處理」並可恢復 | ✅ |
+| LiteRT delegate 初始化失敗先 close Engine，再嘗試下一個 backend(防 OOM) | ✅ |
 | 開發者模式:測試影片播放(過 L0→L1)、模型驗證(pass-rate+延遲)、描述串流+記錄 | ✅ |
 | 移除 legacy RN `app/` | ✅ |
-| 34 個 host 單元測試(ChangeGate/ModelSpec/PerceptionPipeline/Fallback/CaptionText/ModelEval) | ✅ |
+| 43 個 Android host 單元測試(含 GuardianSession) + Rust 10 + Python 18 | ✅ |
 
 ## L1 模型現況(重要)
 
@@ -39,7 +43,7 @@ Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G
 
 ## 下一步(建議順序)
 
-1. **Merge PR #24**(owner 決定;CI 綠 + AI 審查過)。`gh pr merge 24 --squash`。
+1. **複核並 Merge PR #24**(owner 決定；先確認最新 SHA checks 與 review threads)。`gh pr merge 24 --squash`。
 2. **L2 事件引擎(issue #26,P3)—— 這才是真偵測**:`core-rs` events 模組(Fall/Leave/Violence 狀態機,pose/動作/時序快路徑),建 `schemas/event.schema.json`;風險判斷需**畫面內可見證據**(ADR-0006);L1 描述作輔助語意。
 3. **相機佈建準則落地**:依 §8,關注區主體佔比 ≥ ⅓、多機分區;dev 模式的模型驗證(`dev_eval/` + `dev_videos/`)用來量測。
 4. **釐清模型能力 vs 取景(issue #29)**:用開發者模式跑 E2B vs E4B 同組近景影格,比 pass-rate/幻覺/延遲 → 決定 `DEFAULT_L1` 與是否需更強模型。

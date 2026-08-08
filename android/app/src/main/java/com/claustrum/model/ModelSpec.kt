@@ -76,7 +76,7 @@ data class ModelSpec(
             sizeBytes = 3_655_827_456L,
             capabilities = setOf(Capability.ASK_IMAGE, Capability.CHAT),
             gated = true,
-            description = "Gemma 3n E2B(圖+文)· LiteRT-LM 原生 · 較輕、較快,適合即時串流首選",
+            description = "Gemma 3n E2B(圖+文)· LiteRT-LM 原生 · 目前 L1 預設；能力與取景邊界仍待基準評測",
         )
 
         val GEMMA_3N_E4B_VISION = ModelSpec(
@@ -86,7 +86,7 @@ data class ModelSpec(
             sizeBytes = 4_919_541_760L,
             capabilities = setOf(Capability.ASK_IMAGE, Capability.CHAT),
             gated = true,
-            description = "Gemma 3n E4B(圖+文)· LiteRT-LM 原生 · 較準、較重",
+            description = "Gemma 3n E4B(圖+文)· LiteRT-LM 原生 · 較大；是否優於 E2B 待同組影格基準評測",
         )
 
         val GEMMA3_1B_TEXT = ModelSpec(

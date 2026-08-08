@@ -22,6 +22,7 @@ import com.claustrum.model.CaptionLog
 import com.claustrum.model.DevMode
 import com.claustrum.model.ModelSpec
 import com.claustrum.model.ModelsController
+import com.claustrum.monitor.GuardianSession
 import com.claustrum.vlm.ModelEval
 import com.claustrum.ui.AppShell
 import com.claustrum.ui.IntroScreen
@@ -49,8 +50,8 @@ class MonitorActivity : ComponentActivity() {
     // so a scene change during inference is never lost (ChangeGate.prev already advanced).
     private val pending = java.util.concurrent.atomic.AtomicReference<Bitmap?>(null)
     @Volatile private var pipeline: PerceptionPipeline<Bitmap>? = null
-    @Volatile private var guarding = false
     @Volatile private var lastRes = "—"
+    private val guardian = GuardianSession()
     private val uiState = mutableStateOf(MonitorUi())
     private lateinit var previewView: PreviewView
     private val models by lazy { ModelsController(this) }
@@ -58,11 +59,6 @@ class MonitorActivity : ComponentActivity() {
     // App entry route: boot animation → (first-run) onboarding → guardian shell.
     private enum class Route { SPLASH, INTRO, SHELL }
     private val route = mutableStateOf(Route.SPLASH)
-    private var cameraStarted = false
-    // The guardian is armed only when the user deliberately activates it — the camera
-    // preview does NOT start on entering the shell (the machine eye stays in standby).
-    private val guardActive = mutableStateOf(false)
-
     // Developer-mode validation state (only surfaced when DevMode is on).
     private val evalRunning = mutableStateOf(false)
     private val evalSummary = mutableStateOf<ModelEval.Summary?>(null)
@@ -74,8 +70,8 @@ class MonitorActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startCamera()
             else {
-                guardActive.value = false // fall back to standby so the user can retry
-                uiState.value = uiState.value.copy(caption = "需要相機權限才能守護。")
+                guardian.activationFailed("需要相機權限才能守護；允許後可再次啟動。")
+                pushState()
             }
         }
 
@@ -101,7 +97,6 @@ class MonitorActivity : ComponentActivity() {
                         monitorUi = uiState.value,
                         previewView = previewView,
                         models = models,
-                        guardActive = guardActive.value,
                         // Manual activation: the machine eye wakes (camera starts) only
                         // when the user taps 啟動守護 — never automatically on entry.
                         onActivate = { activateGuardian() },
@@ -133,8 +128,8 @@ class MonitorActivity : ComponentActivity() {
 
     /** User tapped 啟動守護 — arm the guardian and wake the camera (once). */
     private fun activateGuardian() {
-        if (guardActive.value) return
-        guardActive.value = true
+        if (!guardian.beginActivation()) return
+        pushState()
         ensureCameraRunning()
     }
 
@@ -262,10 +257,8 @@ class MonitorActivity : ComponentActivity() {
         return out
     }
 
-    /** Start the camera exactly once, when the guardian is activated. */
+    /** Start permission/binding work once per activation attempt. */
     private fun ensureCameraRunning() {
-        if (cameraStarted) return
-        cameraStarted = true
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
         ) startCamera() else requestCamera.launch(Manifest.permission.CAMERA)
@@ -297,20 +290,22 @@ class MonitorActivity : ComponentActivity() {
     private fun startCamera() {
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
-            val provider = future.get()
-            val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
-            val analysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-                .build()
-                .also { it.setAnalyzer(analysisExecutor, ::analyze) }
             try {
+                val provider = future.get()
+                val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
+                val analysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                    .build()
+                    .also { it.setAnalyzer(analysisExecutor, ::analyze) }
                 provider.unbindAll()
                 provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                guardian.cameraBound()
+                pushState()
             } catch (t: Throwable) {
                 Log.e(TAG, "bindToLifecycle failed", t)
-                guarding = false
-                uiState.value = uiState.value.copy(caption = "相機綁定失敗:${t.message}", guarding = false)
+                guardian.activationFailed("相機啟動失敗:${t.message ?: t.javaClass.simpleName}；可再次嘗試。")
+                pushState()
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -324,13 +319,15 @@ class MonitorActivity : ComponentActivity() {
             val luma = extractLuma(image)
             val sig = NativeCore.frameSignature(luma, w, h)
             val admitted = p.admit(sig) // fast L0 on this (analyzer) thread
-            guarding = true
             // Only on a scene change: copy the frame out (rotated upright per sensor
             // metadata) BEFORE we close the proxy, then hand it to the L1 executor.
             if (admitted) enqueueL1(rotatedCopy(image))
+            guardian.frameProcessed()
             pushState()
         } catch (t: Throwable) {
             Log.e(TAG, "analyze failed", t)
+            guardian.frameFailed("影格分析持續失敗:${t.message ?: t.javaClass.simpleName}")
+            pushState()
         } finally {
             image.close()
         }
@@ -388,6 +385,7 @@ class MonitorActivity : ComponentActivity() {
 
     private fun pushState() {
         val p = pipeline ?: return
+        val guard = guardian.snapshot()
         val snap = MonitorUi(
             backend = p.backend,
             resolution = lastRes,
@@ -398,7 +396,9 @@ class MonitorActivity : ComponentActivity() {
             total = p.total,
             savedPct = p.savedPct,
             caption = p.lastCaption,
-            guarding = guarding,
+            active = guard.active,
+            guarding = guard.guarding,
+            statusError = guard.error,
         )
         runOnUiThread { uiState.value = snap }
     }

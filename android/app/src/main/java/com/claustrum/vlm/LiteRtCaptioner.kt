@@ -54,8 +54,9 @@ class LiteRtCaptioner(
         )
         var last: Throwable? = null
         for ((name, be) in combos) {
+            var candidate: Engine? = null
             try {
-                val e = Engine(
+                candidate = Engine(
                     EngineConfig(
                         modelPath = modelPath,
                         backend = be.first,
@@ -67,12 +68,18 @@ class LiteRtCaptioner(
                         cacheDir = cacheDir,
                     )
                 )
-                e.initialize()
+                candidate.initialize()
                 Log.i(TAG, "engine initialized (backend=$name)")
-                return e
+                return candidate
             } catch (t: Throwable) {
                 last = t
                 Log.w(TAG, "engine init $name failed; trying next", t)
+                // A failed delegate initialization can already own large model/GPU
+                // allocations. Release it before trying the next backend or fallback
+                // itself may OOM on memory-constrained devices.
+                try { candidate?.close() } catch (closeError: Throwable) {
+                    Log.w(TAG, "engine cleanup after $name failure also failed", closeError)
+                }
             }
         }
         throw last ?: IllegalStateException("engine init failed")

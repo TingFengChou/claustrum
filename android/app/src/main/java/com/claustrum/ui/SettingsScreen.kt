@@ -41,7 +41,7 @@ fun SettingsScreen(l1Backend: String, dev: DevUi = DevUi()) {
         )
         InfoRow("L0 變化閘控閾值", "8 bits(靜態場景省 ~100% 運算)")
         InfoRow("L1 場景描述後端", l1Backend)
-        InfoRow("加速", "Tensor G5 GPU(LiteRT delegate)")
+        InfoRow("加速", "LiteRT 自動嘗試 GPU/GPU → CPU/GPU → CPU/CPU；實際後端見上方狀態")
         InfoRow("隱私", "影格只在裝置端、用完即刪;只有文字描述/事件可外傳。無人物身分特徵。")
         InfoRow("關於", "claustrum · 主動防護的即時守護者 · edge AI")
     }

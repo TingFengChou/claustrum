@@ -62,7 +62,9 @@ data class MonitorUi(
     val total: Long = 0,
     val savedPct: Double = 0.0,
     val caption: String = "（尚無:等待第一個放行幀）",
+    val active: Boolean = false,
     val guarding: Boolean = false,
+    val statusError: String? = null,
     // Audio modality isn't captured yet — say so honestly; never claim "all clear"
     // (no RECORD_AUDIO / pipeline). See ADR-0006 (no false assurance).
     val audio: String = "音訊模態尚未啟用(規劃中)——目前不監聽聲音,不代表無聲響事件。",
@@ -74,7 +76,7 @@ data class MonitorUi(
  * sees (L1) and hears reads out below. Design: docs/design/ui.
  */
 @Composable
-fun LiveMonitorScreen(ui: MonitorUi, previewView: View, active: Boolean, onActivate: () -> Unit, dev: DevUi = DevUi()) {
+fun LiveMonitorScreen(ui: MonitorUi, previewView: View, onActivate: () -> Unit, dev: DevUi = DevUi()) {
     val c = ClaustrumTheme.colors
     val videoMode = dev.videoFrame != null
     Column(
@@ -82,13 +84,14 @@ fun LiveMonitorScreen(ui: MonitorUi, previewView: View, active: Boolean, onActiv
             .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(14.dp))
-        AppBar(active = active || videoMode, guarding = ui.guarding || videoMode)
+        AppBar(active = ui.active || videoMode, guarding = ui.guarding || videoMode, hasError = ui.statusError != null)
         Spacer(Modifier.height(12.dp))
-        RobotEye(previewView, resolution = ui.resolution, active = active, onActivate = onActivate, videoFrame = dev.videoFrame)
+        RobotEye(previewView, resolution = ui.resolution, active = ui.active, onActivate = onActivate, videoFrame = dev.videoFrame)
         Text(
             when {
                 videoMode -> "機器之眼 · 測試影片 · 過 L0→L1 管線"
-                !active -> "機器之眼 · 待命 · 點擊上方開啟"
+                ui.statusError != null -> "機器之眼 · 需處理 · ${ui.statusError}"
+                !ui.active -> "機器之眼 · 待命 · 點擊上方開啟"
                 ui.guarding -> "機器之眼 · 守護中 · 影格不離裝置"
                 else -> "機器之眼 · 啟動中… · 影格不離裝置"
             },
@@ -102,13 +105,17 @@ fun LiveMonitorScreen(ui: MonitorUi, previewView: View, active: Boolean, onActiv
         }
         SenseCard(
             label = "看到 · L1 ${ui.backend}",
-            body = if (active || videoMode) ui.caption else "待命中──尚未開始守護。點擊上方「啟動守護」開啟機器之眼。",
+            body = when {
+                videoMode || ui.active -> ui.caption
+                ui.statusError != null -> "${ui.statusError} 點擊上方「啟動守護」重試。"
+                else -> "待命中──尚未開始守護。點擊上方「啟動守護」開啟機器之眼。"
+            },
             eye = true,
         )
         Spacer(Modifier.height(8.dp))
         SenseCard(label = "聽到 · 音訊(規劃)", body = ui.audio, eye = false)
         Spacer(Modifier.height(12.dp))
-        TelemetryRow(ui, active = active || videoMode)
+        TelemetryRow(ui, active = ui.active || videoMode)
         Spacer(Modifier.height(14.dp))
         DescriptionStream()
         Spacer(Modifier.height(20.dp))
@@ -151,9 +158,10 @@ private fun hhmmss(ts: Long): String =
     java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.TAIWAN).format(java.util.Date(ts))
 
 @Composable
-private fun AppBar(active: Boolean, guarding: Boolean) {
+private fun AppBar(active: Boolean, guarding: Boolean, hasError: Boolean) {
     val c = ClaustrumTheme.colors
     val (dot, label, on) = when {
+        hasError -> Triple(c.accent, "需處理", false)
         !active -> Triple(c.faint, "待命", false)
         guarding -> Triple(c.accent, "守護中", true)
         else -> Triple(c.warn, "啟動中…", false)
