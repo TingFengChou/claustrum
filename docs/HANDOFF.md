@@ -11,9 +11,10 @@
   `898662ba`，#43 的 object candidate merge commit 為 `bd258aed`。checks 與 review threads 均
   逐則處理後合併；Pixel 10 已驗證相機、pose/JNI、
   前後景恢復與 2F→1F 初測。
-- **本輪續作:** #43 後新增 session-local `AnonymousObjectTracker` 與 `LitterEvidenceTracker`：
+- **本輪續作 PR #44:** #43 後新增 session-local `AnonymousObjectTracker` 與 `LitterEvidenceTracker`：
   顯示 P/O 槽位、bbox motion、連續近接→可見分離→分離後靜置→人離開待檢視；仍不建立
-  litter Event。本輪不關閉場域／多人 association #39、no-telemetry #41 或明確停止守護 #42。
+  litter Event。合併前仍須逐則通過 CI／AI review；本輪不關閉場域／多人 association #39、
+  no-telemetry #41 或明確停止守護 #42。
 - **最重要的發現**:**L1 場景描述不是可靠的跌倒偵測器**(遠景/小主體會漏、會幻覺)。L2
   已接 ML Kit 單人 pose fast path，但仍須固定鏡位素材校準後才可告警(issue #26)。
 - **多人能力仍未完成:** 現行 ML Kit 只回最顯著一人；交錯/遮擋/人物切換限制、MediaPipe
