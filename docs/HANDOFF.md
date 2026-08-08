@@ -10,6 +10,9 @@
   merge commit 為 `65905cd2`，#40 的 FIT_CENTER／rotation／zoom／匿名框 merge commit 為
   `898662ba`。checks 與 review threads 均逐則處理後合併；Pixel 10 已驗證相機、pose/JNI、
   前後景恢復與 2F→1F 初測。
+- **本輪交付:** PR #43 導入 MediaPipe Lite2 object candidates、movement gate、latest-only queue、
+  metrics opt-in／撤回與完整影像路徑文件；合併前仍須逐則通過 CI／AI review。本 PR 不關閉
+  場域／tracker #39、no-telemetry #41 或明確停止守護 #42。
 - **最重要的發現**:**L1 場景描述不是可靠的跌倒偵測器**(遠景/小主體會漏、會幻覺)。L2
   已接 ML Kit 單人 pose fast path，但仍須固定鏡位素材校準後才可告警(issue #26)。
 - **多人能力仍未完成:** 現行 ML Kit 只回最顯著一人；交錯/遮擋/人物切換限制、MediaPipe
