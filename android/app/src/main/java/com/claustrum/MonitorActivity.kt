@@ -48,6 +48,8 @@ import com.claustrum.objects.LatestOnlyQueue
 import com.claustrum.objects.NormalizedObjectBounds
 import com.claustrum.objects.ObjectCandidateGate
 import com.claustrum.objects.ObjectDetectionSample
+import com.claustrum.objects.ObjectEval
+import com.claustrum.objects.ObjectEvalManifest
 import com.claustrum.objects.ObjectMotion
 import com.claustrum.objects.ObjectRuntimeStats
 import com.claustrum.objects.ObjectTrackKind
@@ -150,6 +152,9 @@ class MonitorActivity : ComponentActivity() {
     // Developer-mode validation state (only surfaced when DevMode is on).
     private val evalRunning = mutableStateOf(false)
     private val evalSummary = mutableStateOf<ModelEval.Summary?>(null)
+    private val objectEvalRunning = mutableStateOf(false)
+    private val objectEvalSummary = mutableStateOf<ObjectEval.Summary?>(null)
+    private val objectEvalStatus = mutableStateOf<String?>(null)
     private val devVideoPlaying = mutableStateOf(false)
     private val devVideoFrame = mutableStateOf<Bitmap?>(null)
     @Volatile private var l1Source = "相機" // CaptionLog source for the single-flight L1 path
@@ -228,6 +233,10 @@ class MonitorActivity : ComponentActivity() {
                             evalRunning = evalRunning.value,
                             evalSummary = evalSummary.value,
                             onRunEval = { runModelEval() },
+                            objectEvalRunning = objectEvalRunning.value,
+                            objectEvalSummary = objectEvalSummary.value,
+                            objectEvalStatus = objectEvalStatus.value,
+                            onRunObjectEval = { runObjectEval() },
                             videoPlaying = devVideoPlaying.value,
                             videoFrame = devVideoFrame.value,
                             onPlayVideo = { playDevVideo() },
@@ -250,6 +259,10 @@ class MonitorActivity : ComponentActivity() {
 
     /** User tapped 啟動守護 — arm the guardian and wake the camera (once). */
     private fun activateGuardian() {
+        if (objectEvalRunning.value) {
+            objectEvalStatus.value = "物件評估執行中；完成後才能啟動守護。"
+            return
+        }
         if (!guardian.beginActivation()) return
         val version = guardianSessionVersion.incrementAndGet()
         pushState()
@@ -330,6 +343,116 @@ class MonitorActivity : ComponentActivity() {
             } finally {
                 evalRunning.value = false
             }
+        }
+    }
+
+    /**
+     * Run raw MediaPipe detections against normalized bbox annotations in
+     * `<externalFiles>/dev_object_eval/manifest.json`. A separate detector instance is serialized
+     * on [objectExecutor]; no tracker, litter state, event, image write, or upload is involved.
+     */
+    private fun runObjectEval() {
+        if (objectEvalRunning.value) return
+        if (guardian.snapshot().active) {
+            objectEvalStatus.value = "請先停止守護，避免評估與即時 detector 共用資源。"
+            return
+        }
+        if (!MediaPipeMetricsConsent.isGranted(this)) {
+            objectEvalStatus.value = "尚未同意 MediaPipe 效能統計；請先到模型頁確認。"
+            return
+        }
+        val spec = ModelSpec.EFFICIENTDET_LITE2_OBJECTS
+        if (!spec.isPresent(this)) {
+            objectEvalStatus.value = "物件模型未下載；請先到模型頁下載 Lite2。"
+            return
+        }
+        val directory = java.io.File(getExternalFilesDir(null), "dev_object_eval")
+        val manifestFile = java.io.File(directory, "manifest.json")
+        if (!manifestFile.isFile) {
+            objectEvalStatus.value = "找不到 dev_object_eval/manifest.json。"
+            return
+        }
+
+        objectEvalSummary.value = null
+        objectEvalStatus.value = "讀取本機標註集…"
+        objectEvalRunning.value = true
+        try {
+            objectExecutor.execute {
+                var detector: MediaPipeObjectDetector? = null
+                try {
+                    val cases = ObjectEvalManifest.parse(
+                        manifestFile.readText(),
+                        MediaPipeObjectDetector.ALLOWED_CATEGORIES.toSet(),
+                    )
+                    val evalDetector = MediaPipeObjectDetector(applicationContext, spec.localFile(this))
+                    detector = evalDetector
+                    val results = cases.mapIndexed { index, case ->
+                        check(MediaPipeMetricsConsent.isGranted(this)) {
+                            "MediaPipe 同意已撤回，評估停止"
+                        }
+                        val imageFile = java.io.File(directory, case.imageFileName)
+                        require(imageFile.isFile) { "找不到標註影格: ${case.imageFileName}" }
+                        val bitmap = android.graphics.BitmapFactory.decodeFile(imageFile.absolutePath)
+                            ?: error("無法解碼影格: ${case.imageFileName}")
+                        try {
+                            val startedAt = SystemClock.uptimeMillis()
+                            val detected = evalDetector.detect(bitmap, index * 1_000L)
+                            val latencyMs = SystemClock.uptimeMillis() - startedAt
+                            check(MediaPipeMetricsConsent.isGranted(this)) {
+                                "MediaPipe 同意已撤回，評估停止"
+                            }
+                            ObjectEval.evaluate(
+                                label = case.label,
+                                imageWidth = bitmap.width,
+                                imageHeight = bitmap.height,
+                                groundTruth = case.objects,
+                                predictions = detected.mapNotNull {
+                                    it.toTrackingSample(bitmap.width, bitmap.height)
+                                },
+                                latencyMs = latencyMs,
+                            )
+                        } finally {
+                            bitmap.recycle()
+                        }
+                    }
+                    val summary = ObjectEval.summarize(results)
+                    Log.i(
+                        TAG,
+                        "OBJECT_EVAL images=${summary.images} tp=${summary.truePositive} " +
+                            "fp=${summary.falsePositive} fn=${summary.falseNegative} " +
+                            "precision=${summary.precision} recall=${summary.recall} " +
+                            "mean_iou=${summary.meanMatchedIou} hard_negative_failures=" +
+                            "${summary.hardNegativeFailures}/${summary.hardNegativeImages} " +
+                            "p50_ms=${summary.p50LatencyMs} p95_ms=${summary.p95LatencyMs} " +
+                            "min_short_side_px=${summary.minGroundTruthShortSidePx}",
+                    )
+                    summary.categories.forEach {
+                        Log.i(
+                            TAG,
+                            "OBJECT_EVAL_CATEGORY category=${it.category} tp=${it.truePositive} " +
+                                "fp=${it.falsePositive} fn=${it.falseNegative} " +
+                                "precision=${it.precision} recall=${it.recall} " +
+                                "min_short_side_px=${it.minGroundTruthShortSidePx} " +
+                                "min_area_px=${it.minGroundTruthAreaPx}",
+                        )
+                    }
+                    if (!destroyed.get()) runOnUiThread {
+                        objectEvalSummary.value = summary
+                        objectEvalStatus.value = "完成；只保留 RAM 彙總與本機 log，影格未另存或上傳。"
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG, "object evaluation failed", t)
+                    if (!destroyed.get()) runOnUiThread {
+                        objectEvalStatus.value = "物件評估失敗:${t.message ?: t.javaClass.simpleName}"
+                    }
+                } finally {
+                    try { detector?.close() } catch (_: Throwable) {}
+                    if (!destroyed.get()) runOnUiThread { objectEvalRunning.value = false }
+                }
+            }
+        } catch (rejected: java.util.concurrent.RejectedExecutionException) {
+            objectEvalRunning.value = false
+            if (!destroyed.get()) throw rejected
         }
     }
 

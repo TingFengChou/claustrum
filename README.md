@@ -244,6 +244,9 @@ flowchart TB
   OBJECT["MediaPipe EfficientDet-Lite2 int8 · 448×448<br/>✅ VIDEO 受控串流；13 類 allowlist；score≥0.35"]
   OBJECTUI["CameraX CoordinateTransform<br/>✅ category/score/bbox → 本機橘色候選框"]
   ASSOC["匿名人—物 association ✅<br/>近接→可見分離→靜置/dwell→person-left 待檢視"]
+  DEVMAN["開發者主動放入 external-files<br/>dev_object_eval/manifest.json + 標註影格"]
+  DEVEVAL["獨立 MediaPipe VIDEO detector<br/>同類別 confidence-greedy IoU≥0.5 配對"]
+  DEVMETRIC["RAM 彙總 + 本機 log<br/>TP/FP/FN · P/R · IoU · min px · p50/p95"]
   LUMA["extractLuma()<br/>Y plane → width×height ByteArray"]
   JNI["JNI convert_byte_array<br/>Java heap → Rust Vec copy"]
   HASH["Rust frame_signature()<br/>8×8 average hash → 64-bit jlong"]
@@ -266,6 +269,8 @@ flowchart TB
   CAMERA --> ANALYSIS --> POSE --> FEATURE --> OBS --> L2
   HASH --> MOTION -->|"放行候選幀"| OBJECTCOPY --> OBJECT --> OBJECTUI --> PREVIEW
   OBJECT --> ASSOC -.->|"litter observation / Event 尚未接線"| L2
+  DEVMAN -->|"只在停止守護時執行"| DEVEVAL --> DEVMETRIC
+  DEVEVAL -.->|"量測同一模型，不接 tracker / Event"| OBJECT
   FEATURE -->|"同一組客觀 landmarks"| OVERLAY --> PREVIEW
   POSE -->|"task 完成；同一個仍開啟的 proxy"| LUMA --> JNI --> HASH --> GATE
   GATE -->|"未放行"| CLOSE
@@ -298,6 +303,7 @@ Rust；L0 只有 luma copy，L2 只有匿名數值 observation。重模型 L1 �
 | 匿名物件短時追蹤 | `objectExecutor` → `AnonymousObjectTracker` | normalized bbox → 同類別幾何 association、session-local P/O 槽位、速度／靜止 | 不用臉、外觀 embedding 或跨 session ID；3 秒 gap／明確停止／退背景／撤回即重設。候選過載會合併影格，所以槽位不是逐幀或身分保證 |
 | 亂丟垃圾 evidence | `LitterEvidenceTracker`(純 Kotlin) | 連續人—物近接 → 可見分離 → 分離後靜置 → 人離開待檢視 | 人漏偵不能當分離；離開需同一槽位至少兩次可見拉遠、物件連續可見且靜置 ≥30 秒。最終仍不產生 Event/告警；ROI、多人 association 與場域門檻見 #39 |
 | 物件疊圖 | main thread / Compose Canvas | CameraX transform → 橘色 bbox + P/O 槽位、移動／靜止、客觀 evidence stage、延遲／合併數 | 只在本機 RAM；不顯示身分或「垃圾」結論；rotation/FIT_CENTER/zoom 使用 CameraX transform；明確停止、退背景、撤回同意或 destroy 清除 |
+| 固定鏡位物件評估(dev only) | `objectExecutor` 上的獨立 MediaPipe instance | 使用者標註影格 + normalized bbox → TP/FP/FN、precision/recall、matched IoU、最小 GT 像素、p50/p95 | 守護中禁止執行；不接 tracker/Event、不另存或上傳影格，只在 RAM/UI 與本機 log 留 aggregate；仍受 MediaPipe consent gate 約束 |
 | L0 特徵 | Kotlin → JNI → Rust → Kotlin | Y plane `ByteArray` → 64-bit aHash | JNI 會複製 luma 到 Rust；Rust 不保存，回傳 hash 後釋放 |
 | L0 決策 | Kotlin `PerceptionPipeline` / `ChangeGate` | hash → admit/skip + telemetry | 只保存 64-bit「最後放行 hash」；節流比例依場景而變 |
 | L1 取圖 | analyzer，僅 admit | `ImageProxy` → 旋正 `Bitmap` | 必須在 proxy close 前複製；之後 proxy 立即關閉 |
@@ -314,6 +320,47 @@ Rust；L0 只有 luma copy，L2 只有匿名數值 observation。重模型 L1 �
 撤回後停止 detector。影像、bbox 與 category 不進該 telemetry。長期的無遙測替代／可重現 no-op
 patch 追蹤於 [issue #41](https://github.com/TingFengChou/claustrum/issues/41)，完整說明見
 [`docs/PRIVACY.md`](docs/PRIVACY.md)。
+
+### 固定鏡位 Object Detector 評估
+
+開發者模式新增「固定鏡位物件評估」，用來回答 Lite2 在 2F→1F 的 person／portable-object
+候選究竟有多少 recall、false positive 與定位誤差；它**不是 litter 準確率**，也不會把結果接成
+Event。先停止守護並在模型頁完成 MediaPipe consent／Lite2 下載，再把資料放入
+`<externalFiles>/dev_object_eval/`：
+
+```json
+{
+  "version": 1,
+  "cases": [{
+    "image": "roi2_day_001.jpg",
+    "label": "roi2-day-person-bottle",
+    "objects": [
+      {"category":"person", "left":0.12, "top":0.08, "right":0.31, "bottom":0.91},
+      {"category":"bottle", "left":0.42, "top":0.70, "right":0.46, "bottom":0.82}
+    ]
+  }, {
+    "image": "roi2_rain_empty.jpg",
+    "label": "roi2-rain-hard-negative",
+    "objects": []
+  }]
+}
+```
+
+座標是相對解碼影像的 `0..1` bbox；category 必須在目前 detector allowlist。parser 拒絕路徑穿越、
+重複影格、allowlist 外類別及任何未知欄位（包含 identity）。預測依 confidence 由高到低，以同類別
+最高 IoU 的未配對 GT 做一對一配對，門檻固定 `IoU ≥ 0.5`；重複框算 FP，錯類別同時計 FP/FN，
+空 `objects` 用來量 hard-negative failure。UI／log 回報 overall 與 per-category precision/recall、
+matched mean IoU、最小 GT 短邊／面積，以及 detector avg/p50/p95/max latency。`—` 代表分母為零，
+不可當成 100%。每張影格必須標完所有 allowlisted 物件，否則未標物件的正確 detection 會被算成
+FP；含 EXIF rotation 的 JPEG 也要先轉正，使標註座標與 Android 解碼結果一致。min-pixel 是解碼後
+來源影像的短邊／面積，供 zoom/FOV 比較，不冒充 448×448 模型內部特徵尺寸。標註影格不進 git、
+不被 App 寫回或上傳；評估結束即 recycle Bitmap。
+
+2026-08-08 Pixel 10 已用既有兩張非固定鏡位 dev 影格做**功能 smoke（不能列入場域驗收）**：
+2 張／3 個 person GT 得 TP 0、FP 4（person 2 + suitcase 2）、FN 3；兩次 p50/p95 為
+180/241 ms（首次）與 138/185 ms（重裝後暖機），
+最小 GT 短邊 54 px。這只證明 parser→真 Lite2→metrics→Compose 接線可執行，也再次顯示通用 COCO
+模型不可宣稱精確；issue #39 仍須用實際 2F→1F、1×/2×/3×、日夜／雨天／多人／小物正負標註集。
 
 開發者模式的測試影片是另一個**本機來源**：`MediaMetadataRetriever` 取 Bitmap，顯示用 frame
 留在 Compose，送 L1 的 copy 則轉 luma 後進入同一套 L0→single-flight→LiteRT 路徑；不會上傳

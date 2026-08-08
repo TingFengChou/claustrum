@@ -82,4 +82,6 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.google.truth:truth:1.4.4")
+    // Android's org.json API is a stub in host tests; use its compatible JVM implementation.
+    testImplementation("org.json:json:20250517")
 }

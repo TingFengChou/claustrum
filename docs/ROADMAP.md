@@ -91,6 +91,9 @@ flowchart TD
   多人 association、場域門檻與 L2 Event 仍待續。
   COCO 類別不直接等於垃圾，完整實作與 72h hard-negative 驗收見 issue #39。MediaPipe API
   metrics 採獨立同意，無遙測替代見 #41。
+- 固定鏡位 object eval harness 已能以 strict anonymous bbox manifest，在 Pixel 真 Lite2 回報
+  TP/FP/FN、P/R、IoU、hard-negative、min-pixel 與 p50/p95；非固定鏡位 smoke 不等於場域驗收。
+  下一步是實際 2F→1F 的 1×/2×/3×、日夜／雨天／多人／小物標註集，不再靠目測調 threshold。
 - 前景內明確停止守護與跨 tab 相機狀態已接線：停止先讓 session generation 失效，再 unbind
   CameraX、清 queue/overlay/tracker/L2，避免舊非同步結果污染重啟後 session；Pixel 10 已完成
   跨頁停止、100ms 快停與 40 次 CameraService CONNECT/DISCONNECT 對稱循環，見 #42。

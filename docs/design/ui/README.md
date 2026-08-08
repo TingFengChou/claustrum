@@ -76,8 +76,11 @@ UI/UX**」,本目錄收錄 claustrum App 的介面與互動定義。實作(Jetpa
   同時抽幀經 **L0→L1** 管線——不需實體對準鏡頭即可用真實影片驗證。
 - **▶ 模型驗證**:讀 `dev_eval/` 標註影格(檔名 `label__關鍵詞1,關鍵詞2.jpg`)過 L1,
   以關鍵詞 any-match 計 **pass-rate** + 量測 **延遲(avg/p50)**;**換模型時的基本正確率與效能驗證**。
+- **◎ 固定鏡位物件評估**:守護停止時讀 `dev_object_eval/manifest.json` 與 normalized bbox，使用
+  獨立 Lite2 instance 顯示 TP/FP/FN、P/R、IoU、hard-negative failure、min-pixel 與 p50/p95；
+  不接 tracker/Event。守護中按鈕禁用，模型／consent／manifest 錯誤會明示。
 - **描述記錄(事件頁)**:L1 逐筆描述時間序記錄(時間戳 + 來源 + 延遲,上限 100),dev+prod 皆記錄,便於驗證與 A/B 比較。
-- 純函式 `ModelEval` / `CaptionText` 皆有 host 單元測試(換模型驗證可 CI 化)。
+- 純函式 `ModelEval` / `CaptionText` / `ObjectEval` 與 strict manifest parser 皆有 host 單元測試。
 
 ## 互動與狀態
 
