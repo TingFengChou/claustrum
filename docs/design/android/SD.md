@@ -137,6 +137,9 @@ main thread
   當幀後停止，不發布部分 summary。manifest 只允許 basename、normalized bbox 與 allowlisted
   category；未知欄位全部拒絕，所以不會悄悄引入 person ID 或拼字錯誤標註。評估刻意跳過 movement
   gate、tracker 與 litter state，量到的是 detector frame-level capability，不是事件 precision。
+  lifecycle generation 在每個 case 前、native detect 返回後與 summary 發布前檢查；`onStop`／
+  `onDestroy` 會使整批失效。不可安全中斷的當前 native call 只允許收尾，之後立即 close detector，
+  不繼續下一張也不發布 partial summary，避免重開 Activity 後兩批推論重疊。
 - Pixel 10 以既有兩張非固定鏡位影格完成 end-to-end smoke：3 個 person GT 為 TP 0／FP 4／FN 3，
   兩次 p50/p95 為 180/241 與 138/185 ms、min short side 54 px。素材不代表 2F→1F 場域，數字不可當驗收結果；
   它只驗證真 model、UI 與 metrics 接線並暴露該素材上的 detector domain gap。

@@ -93,6 +93,7 @@ class MonitorActivity : ComponentActivity() {
     private val objectExecutor = Executors.newSingleThreadExecutor()
     private val objectDetectorStarting = java.util.concurrent.atomic.AtomicBoolean(false)
     private val guardianSessionVersion = java.util.concurrent.atomic.AtomicLong(0L)
+    private val objectEvalVersion = java.util.concurrent.atomic.AtomicLong(0L)
     private val poseTaskInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val destroyed = java.util.concurrent.atomic.AtomicBoolean(false)
     private val foreground = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -376,17 +377,21 @@ class MonitorActivity : ComponentActivity() {
         objectEvalSummary.value = null
         objectEvalStatus.value = "讀取本機標註集…"
         objectEvalRunning.value = true
+        val evalVersion = objectEvalVersion.incrementAndGet()
         try {
             objectExecutor.execute {
                 var detector: MediaPipeObjectDetector? = null
                 try {
+                    ensureObjectEvalCurrent(evalVersion)
                     val cases = ObjectEvalManifest.parse(
                         manifestFile.readText(),
                         MediaPipeObjectDetector.ALLOWED_CATEGORIES.toSet(),
                     )
+                    ensureObjectEvalCurrent(evalVersion)
                     val evalDetector = MediaPipeObjectDetector(applicationContext, spec.localFile(this))
                     detector = evalDetector
                     val results = cases.mapIndexed { index, case ->
+                        ensureObjectEvalCurrent(evalVersion)
                         check(MediaPipeMetricsConsent.isGranted(this)) {
                             "MediaPipe 同意已撤回，評估停止"
                         }
@@ -398,6 +403,7 @@ class MonitorActivity : ComponentActivity() {
                             val startedAt = SystemClock.uptimeMillis()
                             val detected = evalDetector.detect(bitmap, index * 1_000L)
                             val latencyMs = SystemClock.uptimeMillis() - startedAt
+                            ensureObjectEvalCurrent(evalVersion)
                             check(MediaPipeMetricsConsent.isGranted(this)) {
                                 "MediaPipe 同意已撤回，評估停止"
                             }
@@ -415,6 +421,7 @@ class MonitorActivity : ComponentActivity() {
                             bitmap.recycle()
                         }
                     }
+                    ensureObjectEvalCurrent(evalVersion)
                     val summary = ObjectEval.summarize(results)
                     Log.i(
                         TAG,
@@ -440,6 +447,11 @@ class MonitorActivity : ComponentActivity() {
                         objectEvalSummary.value = summary
                         objectEvalStatus.value = "完成；只保留 RAM 彙總與本機 log，影格未另存或上傳。"
                     }
+                } catch (cancelled: java.util.concurrent.CancellationException) {
+                    Log.i(TAG, cancelled.message ?: "object evaluation cancelled")
+                    if (!destroyed.get()) runOnUiThread {
+                        objectEvalStatus.value = "物件評估已隨畫面停止；未發布部分結果。"
+                    }
                 } catch (t: Throwable) {
                     Log.e(TAG, "object evaluation failed", t)
                     if (!destroyed.get()) runOnUiThread {
@@ -453,6 +465,13 @@ class MonitorActivity : ComponentActivity() {
         } catch (rejected: java.util.concurrent.RejectedExecutionException) {
             objectEvalRunning.value = false
             if (!destroyed.get()) throw rejected
+        }
+    }
+
+    /** A native detect cannot be interrupted safely; cancel before the next case and publication. */
+    private fun ensureObjectEvalCurrent(version: Long) {
+        if (destroyed.get() || version != objectEvalVersion.get()) {
+            throw java.util.concurrent.CancellationException("object evaluation lifecycle expired")
         }
     }
 
@@ -1371,6 +1390,7 @@ class MonitorActivity : ComponentActivity() {
 
     override fun onDestroy() {
         destroyed.set(true)
+        objectEvalVersion.incrementAndGet()
         super.onDestroy()
         disablePoseFastPath("L2 pose fast path closed")
         val p = pipeline
@@ -1400,6 +1420,7 @@ class MonitorActivity : ComponentActivity() {
 
     override fun onStop() {
         foreground.set(false)
+        objectEvalVersion.incrementAndGet()
         orientationEventListener.disable()
         clearPoseOverlay()
         clearObjectOverlay()

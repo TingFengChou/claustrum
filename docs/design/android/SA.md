@@ -45,7 +45,7 @@
 | FR-15 | MediaPipe metrics 未取得獨立知情同意時不得初始化 detector；模型頁可撤回，撤回後停止新輸入並序列化 close |
 | FR-16 | 啟動後須能明確停止守護；跨 tab 顯示相機狀態，停止時 unbind/清 queue/overlay 且可安全重啟；舊 callback 不得污染新 session |
 | FR-17 | Object 槽位不得使用臉、外觀 embedding 或跨 session re-identification；同類別幾何 track gap、退背景、撤回與 destroy 均須重設，evidence 最終只可標待檢視 |
-| FR-18 | Dev object eval 只讀 external-files 標註集，以獨立 detector 量 bbox 指標；守護中不得執行，不接 tracker/Event、不保存影格，未知／身分欄位須拒絕 |
+| FR-18 | Dev object eval 只讀 external-files 標註集，以獨立 detector 量 bbox 指標；守護中不得執行，不接 tracker/Event、不保存影格，未知／身分欄位須拒絕；離開前景或 destroy 須取消整批且不發布 partial summary |
 | NFR-1 | Host 單元測試不依賴模型、相機或 Android 裝置 |
 | NFR-2 | `ImageProxy` 必定 close；複製 Bitmap 在 L1 使用後 recycle；影格不外傳 |
 | NFR-3 | 相機啟動、首幀、連續分析錯誤與恢復狀態必須如實反映於 UI |
