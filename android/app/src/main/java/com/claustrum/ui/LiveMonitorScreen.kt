@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -48,6 +49,7 @@ import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.claustrum.R
+import com.claustrum.camera.CameraZoomPolicy
 import com.claustrum.ui.theme.ClaustrumTheme
 import com.claustrum.ui.theme.Mono
 
@@ -65,6 +67,10 @@ data class MonitorUi(
     val active: Boolean = false,
     val guarding: Boolean = false,
     val statusError: String? = null,
+    val trackedPeople: List<TrackedPersonUi> = emptyList(),
+    val zoomRatio: Float = 1f,
+    val minZoomRatio: Float = 1f,
+    val maxZoomRatio: Float = 1f,
     // Audio modality isn't captured yet — say so honestly; never claim "all clear"
     // (no RECORD_AUDIO / pipeline). See ADR-0006 (no false assurance).
     val audio: String = "音訊模態尚未啟用(規劃中)——目前不監聽聲音,不代表無聲響事件。",
@@ -76,50 +82,116 @@ data class MonitorUi(
  * sees (L1) and hears reads out below. Design: docs/design/ui.
  */
 @Composable
-fun LiveMonitorScreen(ui: MonitorUi, previewView: View, onActivate: () -> Unit, dev: DevUi = DevUi()) {
+fun LiveMonitorScreen(
+    ui: MonitorUi,
+    previewView: View,
+    onActivate: () -> Unit,
+    onZoomChange: (Float) -> Unit,
+    dev: DevUi = DevUi(),
+) {
     val c = ClaustrumTheme.colors
     val videoMode = dev.videoFrame != null
-    Column(
-        Modifier.fillMaxSize().background(c.ground).statusBarsPadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
-    ) {
-        Spacer(Modifier.height(14.dp))
-        AppBar(active = ui.active || videoMode, guarding = ui.guarding || videoMode, hasError = ui.statusError != null)
-        Spacer(Modifier.height(12.dp))
-        RobotEye(previewView, resolution = ui.resolution, active = ui.active, onActivate = onActivate, videoFrame = dev.videoFrame)
-        Text(
-            when {
-                videoMode -> "機器之眼 · 測試影片 · 過 L0→L1 管線"
-                ui.statusError != null -> "機器之眼 · 需處理 · ${ui.statusError}"
-                !ui.active -> "機器之眼 · 待命 · 點擊上方開啟"
-                ui.guarding -> "機器之眼 · 守護中 · 影格不離裝置"
-                else -> "機器之眼 · 啟動中… · 影格不離裝置"
-            },
-            color = c.faint, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
-        )
-        if (dev.enabled) {
-            DevControls(dev)
-            Spacer(Modifier.height(10.dp))
+    BoxWithConstraints(Modifier.fillMaxSize().background(c.ground).statusBarsPadding()) {
+        if (maxWidth > maxHeight) {
+            Row(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+                Column(
+                    Modifier.weight(0.9f).fillMaxHeight().verticalScroll(rememberScrollState())
+                        .padding(end = 8.dp),
+                ) {
+                    EyeHeader(ui, previewView, onActivate, onZoomChange, dev, videoMode)
+                    TelemetryRow(ui, active = ui.active || videoMode)
+                    Spacer(Modifier.height(12.dp))
+                }
+                Column(
+                    Modifier.weight(1.1f).fillMaxHeight().verticalScroll(rememberScrollState())
+                        .padding(start = 8.dp),
+                ) {
+                    Spacer(Modifier.height(14.dp))
+                    MonitorDetails(ui, dev, videoMode, includeTelemetry = false, maxStreamRows = 6)
+                }
+            }
+        } else {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+            ) {
+                EyeHeader(ui, previewView, onActivate, onZoomChange, dev, videoMode)
+                MonitorDetails(ui, dev, videoMode, includeTelemetry = true, maxStreamRows = 10)
+            }
         }
-        SenseCard(
-            label = "看到 · L1 ${ui.backend}",
-            body = when {
-                videoMode || ui.active -> ui.caption
-                ui.statusError != null -> "${ui.statusError} 點擊上方「啟動守護」重試。"
-                else -> "待命中──尚未開始守護。點擊上方「啟動守護」開啟機器之眼。"
-            },
-            eye = true,
-        )
-        Spacer(Modifier.height(8.dp))
-        SenseCard(label = "聽到 · 音訊(規劃)", body = ui.audio, eye = false)
+    }
+}
+
+@Composable
+private fun EyeHeader(
+    ui: MonitorUi,
+    previewView: View,
+    onActivate: () -> Unit,
+    onZoomChange: (Float) -> Unit,
+    dev: DevUi,
+    videoMode: Boolean,
+) {
+    val c = ClaustrumTheme.colors
+    Spacer(Modifier.height(14.dp))
+    AppBar(active = ui.active || videoMode, guarding = ui.guarding || videoMode, hasError = ui.statusError != null)
+    Spacer(Modifier.height(12.dp))
+    RobotEye(
+        previewView,
+        resolution = ui.resolution,
+        active = ui.active,
+        onActivate = onActivate,
+        videoFrame = dev.videoFrame,
+        trackedPeople = ui.trackedPeople,
+        zoomRatio = ui.zoomRatio,
+        minZoomRatio = ui.minZoomRatio,
+        maxZoomRatio = ui.maxZoomRatio,
+        onZoomChange = onZoomChange,
+    )
+    Text(
+        when {
+            videoMode -> "機器之眼 · 測試影片 · 過 L0→L1 管線"
+            ui.statusError != null -> "機器之眼 · 需處理 · ${ui.statusError}"
+            !ui.active -> "機器之眼 · 待命 · 點擊上方開啟"
+            ui.guarding -> "機器之眼 · 守護中 · 影格不離裝置"
+            else -> "機器之眼 · 啟動中… · 影格不離裝置"
+        },
+        color = c.faint,
+        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
+    )
+}
+
+@Composable
+private fun MonitorDetails(
+    ui: MonitorUi,
+    dev: DevUi,
+    videoMode: Boolean,
+    includeTelemetry: Boolean,
+    maxStreamRows: Int,
+) {
+    if (dev.enabled) {
+        DevControls(dev)
+        Spacer(Modifier.height(10.dp))
+    }
+    SenseCard(
+        label = "看到 · L1 ${ui.backend}",
+        body = when {
+            videoMode || ui.active -> ui.caption
+            ui.statusError != null -> "${ui.statusError} 點擊上方「啟動守護」重試。"
+            else -> "待命中──尚未開始守護。點擊上方「啟動守護」開啟機器之眼。"
+        },
+        eye = true,
+    )
+    Spacer(Modifier.height(8.dp))
+    SenseCard(label = "聽到 · 音訊(規劃)", body = ui.audio, eye = false)
+    if (includeTelemetry) {
         Spacer(Modifier.height(12.dp))
         TelemetryRow(ui, active = ui.active || videoMode)
-        Spacer(Modifier.height(14.dp))
-        DescriptionStream()
-        Spacer(Modifier.height(20.dp))
     }
+    Spacer(Modifier.height(14.dp))
+    DescriptionStream(maxRows = maxStreamRows)
+    Spacer(Modifier.height(20.dp))
 }
 
 /** Row-by-row L1 descriptions with timestamps (newest first) — the recent window;
@@ -188,7 +260,18 @@ private fun AppBar(active: Boolean, guarding: Boolean, hasError: Boolean) {
 }
 
 @Composable
-private fun RobotEye(previewView: View, resolution: String, active: Boolean, onActivate: () -> Unit, videoFrame: android.graphics.Bitmap? = null) {
+private fun RobotEye(
+    previewView: View,
+    resolution: String,
+    active: Boolean,
+    onActivate: () -> Unit,
+    videoFrame: android.graphics.Bitmap? = null,
+    trackedPeople: List<TrackedPersonUi> = emptyList(),
+    zoomRatio: Float = 1f,
+    minZoomRatio: Float = 1f,
+    maxZoomRatio: Float = 1f,
+    onZoomChange: (Float) -> Unit = {},
+) {
     val c = ClaustrumTheme.colors
     val helmet = Brush.verticalGradient(listOf(c.surface2, c.surface, c.ground))
     Box(
@@ -227,6 +310,7 @@ private fun RobotEye(previewView: View, resolution: String, active: Boolean, onA
                 StandbyEye(onActivate)
             } else {
                 AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+                PersonTrackingOverlay(trackedPeople, Modifier.fillMaxSize())
                 // Scan line (animated) — the eye is "alive".
                 val t = rememberInfiniteTransition(label = "scan")
                 val frac by t.animateFloat(
@@ -244,8 +328,56 @@ private fun RobotEye(previewView: View, resolution: String, active: Boolean, onA
                         .clip(RoundedCornerShape(5.dp)).background(c.ground.copy(alpha = 0.7f))
                         .padding(horizontal = 6.dp, vertical = 3.dp),
                 )
+                ZoomControl(
+                    zoomRatio = zoomRatio,
+                    minZoomRatio = minZoomRatio,
+                    maxZoomRatio = maxZoomRatio,
+                    onZoomChange = onZoomChange,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun ZoomControl(
+    zoomRatio: Float,
+    minZoomRatio: Float,
+    maxZoomRatio: Float,
+    onZoomChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = ClaustrumTheme.colors
+    val canDecrease = zoomRatio > minZoomRatio + 0.01f
+    val canIncrease = zoomRatio < maxZoomRatio - 0.01f
+    Row(
+        modifier.clip(RoundedCornerShape(5.dp)).background(c.ground.copy(alpha = 0.78f))
+            .border(1.dp, c.line, RoundedCornerShape(5.dp)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "−",
+            color = if (canDecrease) c.ink else c.faint,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.clickable(enabled = canDecrease) {
+                onZoomChange(CameraZoomPolicy.next(zoomRatio, false, minZoomRatio, maxZoomRatio))
+            }.padding(horizontal = 10.dp, vertical = 5.dp),
+        )
+        Text(
+            "${"%.1f".format(java.util.Locale.ROOT, zoomRatio)}×",
+            color = c.steel,
+            fontFamily = Mono,
+            fontSize = 11.sp,
+        )
+        Text(
+            "+",
+            color = if (canIncrease) c.ink else c.faint,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.clickable(enabled = canIncrease) {
+                onZoomChange(CameraZoomPolicy.next(zoomRatio, true, minZoomRatio, maxZoomRatio))
+            }.padding(horizontal = 10.dp, vertical = 5.dp),
+        )
     }
 }
 

@@ -5,7 +5,8 @@
 
 ## 1. 目的與範圍
 
-L2 把裝置端輕量 pose/motion/action extractor 產生的時間序列，轉成可查證的安全事件。
+L2 把裝置端輕量 pose/motion/object extractor 產生的時間序列，轉成可查證事件。近期產品範圍
+只含跌倒／倒地與亂丟垃圾(ADR-0012)；既有 ZoneExit/Violence foundation 不代表近期產品承諾。
 它是 <1 秒快路徑的狀態機，不等待單次約 6.5–11.5 秒的 L1 VLM。VLM 只在事件建立後附加
 客觀描述，不能單獨升級 candidate、risk 或 alert。
 
@@ -25,6 +26,7 @@ L2 把裝置端輕量 pose/motion/action extractor 產生的時間序列，轉�
 | FR-6 | L1 caption 可作 VLM 二階佐證，但不得改變 status/risk/confidence/latency |
 | FR-7 | 輸出可序列化為 `schemas/event.schema.json`，不含影格、人物身分或年齡/臉部欄位 |
 | FR-8 | Android 以可關閉的 opaque handle 管理每個 camera source 狀態；JNI 只傳 observation，每個返回字串為單一 Event JSON |
+| FR-9(規劃) | Litter:只有匿名人—物 association 顯示 carried→separated→stationary/dwell，且人離開後物仍在 ROI，才建立 candidate；單一物件 detection 不成立 |
 
 ## 3. 非功能需求
 
@@ -40,6 +42,8 @@ L2 把裝置端輕量 pose/motion/action extractor 產生的時間序列，轉�
 - `Event`:type/status/time/source/actants/evidence/risk/confidence/detector/latency。
 - `Evidence.source`:`fast_path` 或 `vlm`；非 none risk 至少一筆必須為 `fast_path`。
 - `ZoneExit`:客觀事件但 `risk.none`；若日後要變成 child hazard，須由另一條具可見證據的規則處理。
+- `ObjectObservation`(規劃):匿名 person/object slots、category、bbox/zone、association confidence、
+  motion state 與 dwell；不含 crop、影格、臉或跨 session ID。
 
 ## 5. 驗收
 
@@ -49,6 +53,8 @@ L2 把裝置端輕量 pose/motion/action extractor 產生的時間序列，轉�
 - 正常坐下、孤立高動作、stale/out-of-order、不同 pair 的動作都不 confirmed。
 - VLM-only payload 無法通過非 none risk 的 schema 驗證。
 - Rust serialization 欄位/enum 與 JSON Schema transport shape 一致。
+- Litter 必須以丟棄、合法暫放後取回、既有物、撿拾／清潔、多人交錯與日夜資料驗收；
+  association 不確定或 dwell 未滿不得 confirmed。
 
 ## 6. 限制
 
@@ -65,9 +71,13 @@ L2 把裝置端輕量 pose/motion/action extractor 產生的時間序列，轉�
   速度/姿態條件式門檻，不能只為 recall 直接放寬。
 - 預設 thresholds 是保守起點，不等於已達 `<1/24h`；須用 72 小時無事件語料與演練素材校準。
 - `latency_ms` 是事件時窗延遲，不含 CameraX/extractor/JNI/通知；端到端 p95 需實機量測。
+- MediaPipe Object Detector 只提供 category/score/bbox，`LIVE_STREAM` 忙碌會略過輸入，且沒有可
+  依賴的 tracking ID；COCO 的 bottle/cup 也不等於垃圾。litter adapter/schema/state machine 尚未
+  實作，追蹤於 issue #39。
 
 ## 追溯
 
 [issue #26](https://github.com/TingFengChou/claustrum/issues/26)、
-[ADR-0006](../../adr/0006-safety-alert-mvp.md)、[core-rs](../core-rs/SA.md)、
+[ADR-0006](../../adr/0006-safety-alert-mvp.md)、
+[ADR-0012](../../adr/0012-two-scenario-mvp-and-object-gating.md)、[core-rs](../core-rs/SA.md)、
 [`event.schema.json`](../../../schemas/event.schema.json)。

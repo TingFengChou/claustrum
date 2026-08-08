@@ -5,23 +5,31 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.util.Log
+import android.view.OrientationEventListener
+import android.view.Surface
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.Camera
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.camera.view.TransformExperimental
+import androidx.camera.view.transform.CoordinateTransform
+import androidx.camera.view.transform.ImageProxyTransformFactory
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import com.claustrum.core.ChangeGate
 import com.claustrum.core.NativeCore
+import com.claustrum.camera.CameraZoomPolicy
 import com.claustrum.events.NativeEventEngine
 import com.claustrum.events.PoseFrame
 import com.claustrum.events.PoseObservationExtractor
+import com.claustrum.events.estimatedSubjectHeightPx
 import com.claustrum.events.toPoseFrame
 import com.claustrum.model.CaptionLog
 import com.claustrum.model.DevMode
@@ -32,7 +40,10 @@ import com.claustrum.vlm.ModelEval
 import com.claustrum.ui.AppShell
 import com.claustrum.ui.IntroScreen
 import com.claustrum.ui.MonitorUi
+import com.claustrum.ui.PreviewPoint
 import com.claustrum.ui.SplashScreen
+import com.claustrum.ui.TrackedJoint
+import com.claustrum.ui.TrackedPersonUi
 import com.claustrum.ui.theme.ClaustrumTheme
 import com.claustrum.vlm.Captioner
 import com.claustrum.vlm.FallbackCaptioner
@@ -50,6 +61,7 @@ import java.util.concurrent.Executors
  * [LiteRtCaptioner] when a vision model is present, else the placeholder.
  */
 @ExperimentalGetImage
+@TransformExperimental
 class MonitorActivity : ComponentActivity() {
 
     private val analysisExecutor = Executors.newSingleThreadExecutor()
@@ -57,12 +69,17 @@ class MonitorActivity : ComponentActivity() {
     private val inFlight = java.util.concurrent.atomic.AtomicBoolean(false) // single-flight L1
     private val poseTaskInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val destroyed = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val foreground = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val overlayVersion = java.util.concurrent.atomic.AtomicLong(0L)
     private val poseFastPathEnabled = java.util.concurrent.atomic.AtomicBoolean(true)
     private val poseDetectorClosed = java.util.concurrent.atomic.AtomicBoolean(false)
     // Latest admitted frame that arrived while L1 was busy. Intermediate admitted frames
     // are intentionally coalesced: this bounds L1 work but is not an event-recall guarantee.
     private val pending = java.util.concurrent.atomic.AtomicReference<Bitmap?>(null)
     private val poseExtractor = PoseObservationExtractor()
+    private val imageProxyTransformFactory = ImageProxyTransformFactory().apply {
+        isUsingRotationDegrees = true
+    }
     private val poseDetectorDelegate = lazy(LazyThreadSafetyMode.NONE) {
         PoseDetection.getClient(
             PoseDetectorOptions.Builder()
@@ -73,7 +90,15 @@ class MonitorActivity : ComponentActivity() {
     private val poseDetector by poseDetectorDelegate
     @Volatile private var eventEngine: NativeEventEngine? = null
     @Volatile private var pipeline: PerceptionPipeline<Bitmap>? = null
+    @Volatile private var previewUseCase: Preview? = null
+    @Volatile private var analysisUseCase: ImageAnalysis? = null
+    @Volatile private var boundCamera: Camera? = null
     @Volatile private var lastRes = "—"
+    @Volatile private var trackedPeople: List<TrackedPersonUi> = emptyList()
+    @Volatile private var zoomRatio = 1f
+    @Volatile private var minZoomRatio = 1f
+    @Volatile private var maxZoomRatio = 1f
+    @Volatile private var desiredZoomRatio = 1f
     private val guardian = GuardianSession()
     private val uiState = mutableStateOf(MonitorUi())
     private lateinit var previewView: PreviewView
@@ -89,6 +114,23 @@ class MonitorActivity : ComponentActivity() {
     private val devVideoFrame = mutableStateOf<Bitmap?>(null)
     @Volatile private var l1Source = "相機" // CaptionLog source for the single-flight L1 path
 
+    /** Keep CameraX output upright through all four physical mounting directions. */
+    private val orientationEventListener by lazy {
+        object : OrientationEventListener(this) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+                val rotation = when (orientation) {
+                    in 45 until 135 -> Surface.ROTATION_270
+                    in 135 until 225 -> Surface.ROTATION_180
+                    in 225 until 315 -> Surface.ROTATION_90
+                    else -> Surface.ROTATION_0
+                }
+                previewUseCase?.targetRotation = rotation
+                analysisUseCase?.targetRotation = rotation
+            }
+        }
+    }
+
     private val requestCamera =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startCamera()
@@ -100,8 +142,14 @@ class MonitorActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        desiredZoomRatio = getSharedPreferences(PREFS, MODE_PRIVATE)
+            .getFloat(KEY_ZOOM_RATIO, 1f)
         DevMode.load(this)
-        previewView = PreviewView(this)
+        previewView = PreviewView(this).apply {
+            // Preserve the full analysis field of view. Cropping a portrait camera into
+            // the wide visor can hide a person's head/feet from the visible evidence.
+            scaleType = PreviewView.ScaleType.FIT_CENTER
+        }
         setContent {
             // Signature Tesla/Optimus look is dark graphite — force it (guardian instrument),
             // don't follow the system light theme (design: docs/design/ui).
@@ -123,6 +171,7 @@ class MonitorActivity : ComponentActivity() {
                         // Manual activation: the machine eye wakes (camera starts) only
                         // when the user taps 啟動守護 — never automatically on entry.
                         onActivate = { activateGuardian() },
+                        onZoomChange = { setZoomRatio(it) },
                         dev = com.claustrum.ui.DevUi(
                             enabled = DevMode.enabled.value,
                             onToggle = { DevMode.set(this, it) },
@@ -326,14 +375,34 @@ class MonitorActivity : ComponentActivity() {
         future.addListener({
             try {
                 val provider = future.get()
-                val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
+                val initialRotation = previewView.display?.rotation ?: Surface.ROTATION_0
+                val preview = Preview.Builder()
+                    .setTargetRotation(initialRotation)
+                    .build()
+                    .also { it.surfaceProvider = previewView.surfaceProvider }
                 val analysis = ImageAnalysis.Builder()
+                    .setTargetRotation(initialRotation)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                     .build()
                     .also { it.setAnalyzer(analysisExecutor, ::analyze) }
+                previewUseCase = preview
+                analysisUseCase = analysis
                 provider.unbindAll()
-                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                val camera = provider.bindToLifecycle(
+                    this,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    analysis,
+                )
+                boundCamera = camera
+                camera.cameraInfo.zoomState.observe(this) { state ->
+                    zoomRatio = state.zoomRatio
+                    minZoomRatio = state.minZoomRatio
+                    maxZoomRatio = state.maxZoomRatio
+                    pushState()
+                }
+                applyDesiredZoom(camera)
                 guardian.cameraBound()
                 pushState()
             } catch (t: Throwable) {
@@ -390,10 +459,12 @@ class MonitorActivity : ComponentActivity() {
                         Log.w(TAG, "ML Kit pose frame failed; interrupting L2 track", task.exception)
                         PoseFrame(atMs, emptyMap())
                     }
-                    processFastPath(frame)
+                    val slot = processFastPath(frame)
+                    publishPoseOverlay(image, frame, slot)
                     analyzePerception(image)
                 } catch (t: Throwable) {
                     Log.e(TAG, "pose/L0 analysis failed", t)
+                    clearPoseOverlay()
                     guardian.frameFailed("影格分析持續失敗:${t.message ?: t.javaClass.simpleName}")
                     pushState()
                 } finally {
@@ -444,16 +515,150 @@ class MonitorActivity : ComponentActivity() {
         if (eventEngine == null) eventEngine = NativeEventEngine(L2_SOURCE_ID)
     }
 
-    private fun processFastPath(frame: PoseFrame) {
+    private fun processFastPath(frame: PoseFrame): Int? {
         val observation = poseExtractor.extract(frame)
-        val engine = eventEngine ?: return
+        val visibleSlot = observation.actant.takeIf { observation.visiblePeople > 0 }
+        val engine = eventEngine ?: return visibleSlot
         try {
             // Policy/UI/notification intentionally remain disconnected until recorded
             // footage calibration. Structured event text is safe to log; pixels are not.
             engine.process(observation).forEach { eventJson -> Log.i(TAG, "L2_EVENT $eventJson") }
         } catch (t: Throwable) {
             disablePoseFastPath("Rust L2 event engine disabled after processing failure", t)
+            return null
         }
+        return visibleSlot
+    }
+
+    /**
+     * Maps upright ML Kit landmark coordinates into the actual visible PreviewView.
+     * CameraX owns rotation/crop/scale math; the UI receives only normalized, pixel-free
+     * points. The list contract is multi-person-ready, while today's detector emits one.
+     */
+    private fun publishPoseOverlay(image: ImageProxy, frame: PoseFrame, slot: Int?) {
+        val version = overlayVersion.incrementAndGet()
+        if (slot == null || frame.points.isEmpty()) {
+            applyPoseOverlay(emptyList(), version)
+            return
+        }
+        val sourceTransform = try {
+            imageProxyTransformFactory.getOutputTransform(image)
+        } catch (t: Throwable) {
+            Log.w(TAG, "pose overlay source transform unavailable", t)
+            applyPoseOverlay(emptyList(), version)
+            return
+        }
+        val rotation = image.imageInfo.rotationDegrees
+        val uprightWidth = if (rotation % 180 == 0) image.width else image.height
+        val uprightHeight = if (rotation % 180 == 0) image.height else image.width
+        val sourcePoints = frame.points.mapValues { (_, point) ->
+            floatArrayOf(point.x * uprightWidth, point.y * uprightHeight, point.likelihood)
+        }
+        val subjectHeightPx = frame.estimatedSubjectHeightPx(uprightHeight)
+        previewView.post {
+            if (overlayVersion.get() != version) return@post
+            val targetTransform = previewView.outputTransform
+            val viewWidth = previewView.width
+            val viewHeight = previewView.height
+            if (targetTransform == null || viewWidth <= 0 || viewHeight <= 0 ||
+                destroyed.get() || !foreground.get()
+            ) {
+                applyPoseOverlay(emptyList(), version)
+                return@post
+            }
+            try {
+                val transform = CoordinateTransform(sourceTransform, targetTransform)
+                val mapped = buildMap {
+                    sourcePoints.forEach { (joint, source) ->
+                        val xy = floatArrayOf(source[0], source[1])
+                        transform.mapPoints(xy)
+                        put(
+                            joint.toTrackedJoint(),
+                            PreviewPoint(
+                                x = xy[0] / viewWidth,
+                                y = xy[1] / viewHeight,
+                                likelihood = source[2],
+                            ),
+                        )
+                    }
+                }
+                applyPoseOverlay(
+                    listOf(
+                        TrackedPersonUi(
+                            slot = slot,
+                            points = mapped,
+                            subjectHeightPx = subjectHeightPx,
+                        ),
+                    ),
+                    version,
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "pose overlay coordinate transform failed", t)
+                applyPoseOverlay(emptyList(), version)
+            }
+        }
+    }
+
+    private fun com.claustrum.events.PoseJoint.toTrackedJoint(): TrackedJoint = when (this) {
+        com.claustrum.events.PoseJoint.LEFT_SHOULDER -> TrackedJoint.LEFT_SHOULDER
+        com.claustrum.events.PoseJoint.RIGHT_SHOULDER -> TrackedJoint.RIGHT_SHOULDER
+        com.claustrum.events.PoseJoint.LEFT_HIP -> TrackedJoint.LEFT_HIP
+        com.claustrum.events.PoseJoint.RIGHT_HIP -> TrackedJoint.RIGHT_HIP
+        com.claustrum.events.PoseJoint.LEFT_KNEE -> TrackedJoint.LEFT_KNEE
+        com.claustrum.events.PoseJoint.RIGHT_KNEE -> TrackedJoint.RIGHT_KNEE
+        com.claustrum.events.PoseJoint.LEFT_ANKLE -> TrackedJoint.LEFT_ANKLE
+        com.claustrum.events.PoseJoint.RIGHT_ANKLE -> TrackedJoint.RIGHT_ANKLE
+    }
+
+    private fun applyPoseOverlay(people: List<TrackedPersonUi>, version: Long) {
+        if (overlayVersion.get() != version) return
+        val changed = trackedPeople != people
+        trackedPeople = people
+        if (!changed || destroyed.get()) return
+        runOnUiThread {
+            if (!destroyed.get() && overlayVersion.get() == version) {
+                uiState.value = uiState.value.copy(trackedPeople = people)
+            }
+        }
+    }
+
+    private fun clearPoseOverlay() {
+        val version = overlayVersion.incrementAndGet()
+        applyPoseOverlay(emptyList(), version)
+    }
+
+    private fun setZoomRatio(requested: Float) {
+        desiredZoomRatio = CameraZoomPolicy.clamp(
+            requested = requested,
+            min = minZoomRatio,
+            max = maxZoomRatio,
+            fallback = desiredZoomRatio,
+        )
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putFloat(KEY_ZOOM_RATIO, desiredZoomRatio)
+            .apply()
+        boundCamera?.let(::applyDesiredZoom)
+    }
+
+    private fun applyDesiredZoom(camera: Camera) {
+        val state = camera.cameraInfo.zoomState.value ?: return
+        val clamped = CameraZoomPolicy.clamp(
+            requested = desiredZoomRatio,
+            min = state.minZoomRatio,
+            max = state.maxZoomRatio,
+            fallback = state.zoomRatio,
+        )
+        desiredZoomRatio = clamped
+        val future = camera.cameraControl.setZoomRatio(clamped)
+        future.addListener({
+            try {
+                future.get()
+            } catch (t: Throwable) {
+                // A newer zoom request or lifecycle close legitimately cancels the old
+                // future. Zoom is a commissioning aid; perception must continue.
+                Log.d(TAG, "zoom request not applied: ${t.message}")
+            }
+        }, ContextCompat.getMainExecutor(this))
     }
 
     private fun disablePoseFastPath(message: String, cause: Throwable? = null) {
@@ -463,6 +668,7 @@ class MonitorActivity : ComponentActivity() {
         eventEngine = null
         engine?.close()
         poseExtractor.reset()
+        clearPoseOverlay()
         closePoseDetector()
     }
 
@@ -538,8 +744,14 @@ class MonitorActivity : ComponentActivity() {
             active = guard.active,
             guarding = guard.guarding,
             statusError = guard.error,
+            trackedPeople = trackedPeople,
+            zoomRatio = zoomRatio,
+            minZoomRatio = minZoomRatio,
+            maxZoomRatio = maxZoomRatio,
         )
-        runOnUiThread { uiState.value = snap }
+        // Projection is posted independently on the main thread. Merge the latest
+        // overlay at apply time so an older telemetry snapshot cannot erase it.
+        runOnUiThread { uiState.value = snap.copy(trackedPeople = trackedPeople) }
     }
 
     private fun extractLuma(image: ImageProxy): ByteArray {
@@ -576,10 +788,25 @@ class MonitorActivity : ComponentActivity() {
         pending.getAndSet(null)?.recycle()
     }
 
+    override fun onStart() {
+        super.onStart()
+        foreground.set(true)
+        orientationEventListener.enable()
+        previewView.post { boundCamera?.let(::applyDesiredZoom) }
+    }
+
+    override fun onStop() {
+        foreground.set(false)
+        orientationEventListener.disable()
+        clearPoseOverlay()
+        super.onStop()
+    }
+
     companion object {
         private const val TAG = "claustrum"
         private const val PREFS = "claustrum.prefs"
         private const val KEY_ONBOARDED = "onboarded"
+        private const val KEY_ZOOM_RATIO = "camera.zoom_ratio"
         private const val L2_SOURCE_ID = "camera_back"
     }
 }

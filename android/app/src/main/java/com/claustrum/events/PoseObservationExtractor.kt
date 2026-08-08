@@ -3,6 +3,7 @@ package com.claustrum.events
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /** Landmarks used by the first single-person fall extractor. */
 internal enum class PoseJoint {
@@ -28,6 +29,26 @@ internal data class PoseFrame(
     val atMs: Long,
     val points: Map<PoseJoint, PosePoint>,
 )
+
+/** Estimated visible person height used only for camera commissioning feedback. */
+internal fun PoseFrame.estimatedSubjectHeightPx(
+    uprightFrameHeight: Int,
+    minLikelihood: Float = 0.65f,
+): Int? {
+    if (uprightFrameHeight <= 0) return null
+    val reliableY = points.values.filter { point ->
+        point.y.isFinite() && point.likelihood.isFinite() && point.likelihood >= minLikelihood
+    }.map(PosePoint::y)
+    if (reliableY.size < 4) return null
+    val landmarkSpan = reliableY.maxOrNull()!! - reliableY.minOrNull()!!
+    if (!landmarkSpan.isFinite() || landmarkSpan <= 0f) return null
+    // The first fast path omits head landmarks. Add conservative head/foot room.
+    return (landmarkSpan * SUBJECT_SPAN_EXPANSION * uprightFrameHeight)
+        .roundToInt()
+        .coerceIn(0, uprightFrameHeight)
+}
+
+private const val SUBJECT_SPAN_EXPANSION = 1.22f
 
 /**
  * Converts a single-person pose stream into the conservative Rust L2 wire contract.

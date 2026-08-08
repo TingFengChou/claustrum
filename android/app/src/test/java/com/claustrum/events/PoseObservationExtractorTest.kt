@@ -120,6 +120,18 @@ class PoseObservationExtractorTest {
         assertThat(observation.motionScore).isZero()
     }
 
+    @Test
+    fun `subject height estimate is bounded and ignores weak points`() {
+        val frame = standing(atMs = 1_000).copy(
+            points = standing(atMs = 1_000).points +
+                (PoseJoint.RIGHT_ANKLE to point(0.54f, 0.99f).copy(likelihood = 0.2f)),
+        )
+
+        assertThat(frame.estimatedSubjectHeightPx(uprightFrameHeight = 1_000)).isEqualTo(854)
+        assertThat(PoseFrame(1_000, emptyMap()).estimatedSubjectHeightPx(1_000)).isNull()
+        assertThat(frame.estimatedSubjectHeightPx(0)).isNull()
+    }
+
     private fun standing(atMs: Long, xOffset: Float = 0f): PoseFrame = PoseFrame(
         atMs = atMs,
         points = mapOf(
