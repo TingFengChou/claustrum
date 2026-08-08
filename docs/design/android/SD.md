@@ -20,13 +20,14 @@ L0→L1 管線；Compose 只渲染 immutable `MonitorUi`。L0 的 aHash 在 Rust
 | NDK / ABI | 27.1.12297006 / arm64-v8a |
 | CameraX / WorkManager | 1.4.1 / 2.9.1 |
 | ML Kit Pose Detection | 18.0.0-beta5(base bundled model) |
+| MediaPipe Tasks Vision | 0.10.35(Object Detector) |
 | LiteRT-LM / Lottie | 0.11.0 / 6.6.6 |
 
 ## 3. 元件
 
 | 元件 | 職責 |
 |---|---|
-| `MonitorActivity` | route、CameraX、pose→L2 與 L0→L1 排程、dev 工具、生命週期 |
+| `MonitorActivity` | route、CameraX、pose→L2／object candidate／L0→L1 排程、dev 工具、生命週期 |
 | `GuardianSession` | 可測的啟動/首幀/分析健康狀態；錯誤後重試與自動恢復 |
 | `PerceptionPipeline` | L0 統計、可替換 Captioner、最後有效描述 |
 | `LiteRtCaptioner` | 初始化 delegate、每幀新 Conversation、有界串流輸出、資源釋放 |
@@ -36,9 +37,14 @@ L0→L1 管線；Compose 只渲染 immutable `MonitorUi`。L0 的 aHash 在 Rust
 | `PoseObservationExtractor` | host-test 的跨幀 pose/descent/motion 特徵；追蹤跳位時輪替匿名 slot |
 | `PersonTrackingOverlay` | multi-person-ready 的 Compose Canvas；只畫匿名人物框與取景像素提示，骨架保留為內部 fall 特徵 |
 | `PersonOverlayGeometry` | host-test 的 confidence filter、head/side padding 與 preview bounds clipping |
+| `ObjectCandidateGate` | Rust aHash 的獨立排程器；變化 active window + 靜態 periodic probe，不作事件證據 |
+| `LatestOnlyQueue` | L1/object 共用：producer 只覆蓋 latest pending、單一 worker drain；避免 handoff 將舊幀蓋回新幀 |
+| `MediaPipeObjectDetector` | pinned EfficientDet-Lite2 `VIDEO` 邊界；allowlist/score/bbox，不含 tracker 或 litter 判斷 |
+| `ObjectRuntimeStats` | 最近 120 幀的 p50/p95/max 有界診斷 window；每 20 幀寫本機 log，不影響事件證據 |
+| `ObjectCandidateOverlay` | CameraX 映射後的本機橘色候選框與 category/latency/合併 telemetry |
 | `CameraZoomPolicy` | host-test 的裝置 zoom range clamp 與 0.5× UI step |
 | `NativeEventEngine` | 擁有一個 Rust L2 opaque handle；同步 process/close，返回單筆 Event JSON 清單 |
-| `ModelsController` | 模型目錄、HF token、WorkManager 下載狀態 |
+| `ModelsController` | 模型目錄、HF token、MediaPipe opt-in、WorkManager 下載狀態 |
 | `AppShell` | 守護/事件/模型/設定四個 Compose tab |
 
 ## 4. 執行緒與資料流
@@ -50,12 +56,20 @@ CameraX analysisExecutor
   → ImageProxyTransformFactory → main thread CoordinateTransform(Analysis→PreviewView)
     → List<TrackedPersonUi> → Compose anonymous bbox + subject-pixel commissioning hint
   → 同一個仍開啟的 proxy:緊密 luma → NativeCore.frameSignature → ChangeGate.admit
-  → 若放行:toBitmap + rotationDegrees 旋正 → enqueueL1
+  → 同一 signature → ObjectCandidateGate(change window / periodic probe)
+  → L1/object 任一放行時:toBitmap + rotationDegrees 旋正
+      → L1:enqueueL1
+      → object:建立獨立 copy/所有權 → enqueueObject
   → ML Kit task completion finally ImageProxy.close
 
 inferenceExecutor(single thread)
   初始化 LiteRT Engine → swapCaptioner
   admitted Bitmap → describe → recycle → drain 最新 pending Bitmap
+
+objectExecutor(single thread)
+  consent + verified model → MediaPipe ObjectDetector(VIDEO)
+  current Bitmap → category/score/bbox → recycle → drain 最新 pending Bitmap
+  → main thread CoordinateTransform(Analysis→PreviewView) → ObjectCandidateUi
 
 main thread
   GuardianSession / pipeline snapshot + ephemeral trackedPeople → MonitorUi → Compose
@@ -74,6 +88,8 @@ main thread
   刻意不採 FILL_CENTER：實機校準證明後者會把完整人物的頭/腳裁出可見區，妨礙人工確認。
   `TrackedPersonUi` 是 list 以容納未來 multi-pose，但當前永遠最多一筆。UI 只說偵測到一人，
   文案為「人體姿態候選」，不把模型 output 宣稱為已確認的人，也不展示關節或宣稱穩定 tracking ID。
+- Debug build 首次 object frame 會以輸入全框角點輸出 `OBJECT_MAP_PROBE`（只含尺寸／映射座標，
+  不含 detection、影像或類別），供實機區分 CameraX transform 錯位與 detector localization 誤差。
 - `PreviewView.ScaleType.FIT_CENTER` 是刻意決策：FILL_CENTER 在 Pixel 10 portrait→寬 visor 實測會
   裁掉人物頭腳。letterbox 比缺少可見證據安全。
 - Manifest 使用 `fullSensor` 並自行處理 `orientation|screenSize`；`OrientationEventListener` 將四向
@@ -95,6 +111,17 @@ main thread
 - Detector 建立、同步 `process()` 或 Rust session 失敗時原子停用並 close pose/L2；同一個仍開啟的
   proxy 立即 fallback 到 L0/L1，後續幀也跳過 pose。這是「告警 fail-closed、感知 fail-open」。
 - L1 single-flight；忙碌時 `AtomicReference` 只保留最新放行幀並 recycle 被取代的舊幀。
+- Object detector 也使用 current + latest pending，但與 L1 executor／gate 完全獨立；這避免慢 L1
+  阻塞 object candidates，也避免 MediaPipe 堆積無界 Bitmap。採同步 `VIDEO` 而非 async
+  `LIVE_STREAM`，原因是 Activity 能明確擁有／recycle 每一張副本；兩者在過載時都不保證每幀輸出。
+- Object allowlist 只保留 `person` 與 12 種可攜 COCO 類別，score threshold 0.35、max 10；這只
+  減少無關結果，不代表類別精確到足以判定垃圾。全域 aHash 變化也只啟動排程，不能當 object
+  motion evidence；ROI、bbox velocity 與匿名 association 仍屬 #39。
+- Pixel 10／2×／2F→1F 首測中，Lite0 約 121 ms 且對樹／告示牌輸出兩個 `person` 候選、漏掉
+  小型真人；改用 Lite2 後空景 20 幀 p50 191 ms／p95 237 ms／max 238 ms、合併 2/20，約三分鐘
+  未再誤框樹木；後續三人同框只框到兩人，小框定位仍有十幾至數十像素誤差。480×640 全框 probe
+  映到 912×608 view 的 `(228,0)–(684,608)`，精確符合 FIT_CENTER，排除整體 CameraX transform
+  位移；部署前仍須 #39 confusion matrix／場域微調，不能用固定 UI offset 補償模型誤差。
 - 真後端初始化失敗會依 GPU/GPU→CPU/GPU→CPU/CPU 嘗試；每個失敗的 Engine 先 close，
   避免 fallback 前累積模型/GPU 配置。
 - `PerceptionPipeline.swapCaptioner` 與 `describe` 都在 inference executor，避免並行關閉後端。
@@ -113,6 +140,8 @@ main thread
 
 `GuardianSession` 為 synchronized 純 Kotlin 狀態物件。相機成功 bind 只代表「啟動中」；必須有
 可分析首幀才可宣稱「守護中」。單次 analyzer 錯誤視為暫態，連續達門檻才降級狀態。
+現況沒有前景內 `守護中 → 待命` 的使用者停止轉移；CameraX 只在 Activity lifecycle 退背景時停止。
+明確 stop/unbind、queue 清理、安全重啟與跨 tab indicator 由 issue #42 補齊。
 
 ## 6. L1 合約
 
@@ -135,13 +164,19 @@ main thread
 - L2 JNI 不接收 luma/Bitmap/landmark，只接收短時匿名 observation；`NativeEventEngine.close()`
   可重入，Rust registry 的 handle 不是 memory address。
 - CaptionLog 只存文字、時間、來源與延遲，process death 即清空。
+- MediaPipe object 模型從官方固定 URL 下載，先驗 byte length + SHA-256 才 rename；非 HF URL
+  絕不附加 HF bearer token。MediaPipe Tasks 的非影像效能 metrics 需模型頁獨立同意才啟用，
+  可撤回並在最多 2 秒內停止新 detector submission；詳見 PRIVACY/#41。
 - Dev 素材只讀使用者明確放入 app external-files 的 `dev_eval/`、`dev_videos/`。
 
 ## 8. 測試
 
 - Host JVM:`ChangeGateTest`、`GuardianSessionTest`、`PerceptionPipelineTest`、
   `FallbackCaptionerTest`、`CaptionTextTest`、`ModelEvalTest`、`ModelSpecTest`、
-  `PoseObservationExtractorTest`、`NativeEventEngineTest`。pose 測試用純資料 fake，不 mock `ImageProxy`。
+  `PoseObservationExtractorTest`、`NativeEventEngineTest`、`ObjectCandidateGateTest`、
+  `LatestOnlyQueueTest`、`ObjectRuntimeStatsTest`、`ObjectCandidateGeometryTest`、
+  `ModelsControllerTest`。pose/object 測試用
+  純資料，不 mock `ImageProxy` 或真模型。
 - `PersonOverlayGeometryTest` 覆蓋 confidence/NaN 過濾、邊界裁切、取景提示與多人 list UI 合約；
   `CameraZoomPolicyTest` 覆蓋裝置 zoom 邊界、無效值與步進；CameraX
   transform 的 rotation/crop 正確性必須在實機以可見人物驗證，host test 不冒充裝置測試。
@@ -152,9 +187,9 @@ main thread
   Pixel WindowManager 強制 ROTATION_90 已驗 landscape 雙欄與控制可用；這不會改變實體 orientation
   sensor，故不能替代四向 camera buffer 驗收。四向 rotation 與 2F→1F zoom 依 issue #37/#38
   逐項實機驗收；host／強制 display rotation 都不能冒充感測器校準。
-- 亂丟垃圾的 MediaPipe Object Detector 尚未接線。依 ADR-0012/#39，它會是獨立可替換 adapter，
-  在 movement/ROI gate 後輸出 category/score/bbox 給匿名人—物 tracker；不能把 COCO detection
-  直接映射成 Event。
+- MediaPipe Object Detector 候選 adapter 已接線；Pixel 已量首輪 p50/p95 與合併率，仍須補真人／
+  小物 allowlist coverage、最小物件像素與 overlay alignment。ROI、匿名人—物 tracker、litter schema／
+  state machine 仍未接線，不能把 COCO detection 直接映射成 Event。
 - Rust/JNI 純邏輯另由 `core-rs cargo test` 與 Android 裝置煙霧測試覆蓋。
 
 ## 追溯

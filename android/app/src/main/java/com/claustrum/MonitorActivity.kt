@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.OrientationEventListener
 import android.view.Surface
@@ -21,6 +22,7 @@ import androidx.camera.view.PreviewView
 import androidx.camera.view.TransformExperimental
 import androidx.camera.view.transform.CoordinateTransform
 import androidx.camera.view.transform.ImageProxyTransformFactory
+import androidx.camera.view.transform.OutputTransform
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import com.claustrum.core.ChangeGate
@@ -33,17 +35,26 @@ import com.claustrum.events.estimatedSubjectHeightPx
 import com.claustrum.events.toPoseFrame
 import com.claustrum.model.CaptionLog
 import com.claustrum.model.DevMode
+import com.claustrum.model.MediaPipeMetricsConsent
 import com.claustrum.model.ModelSpec
 import com.claustrum.model.ModelsController
 import com.claustrum.monitor.GuardianSession
+import com.claustrum.objects.DetectedObject
+import com.claustrum.objects.MediaPipeObjectDetector
+import com.claustrum.objects.LatestOnlyQueue
+import com.claustrum.objects.ObjectCandidateGate
+import com.claustrum.objects.ObjectRuntimeStats
 import com.claustrum.vlm.ModelEval
 import com.claustrum.ui.AppShell
 import com.claustrum.ui.IntroScreen
 import com.claustrum.ui.MonitorUi
+import com.claustrum.ui.ObjectCandidateGeometry
+import com.claustrum.ui.ObjectCandidateUi
 import com.claustrum.ui.PreviewPoint
 import com.claustrum.ui.SplashScreen
 import com.claustrum.ui.TrackedJoint
 import com.claustrum.ui.TrackedPersonUi
+import com.claustrum.ui.objectCandidateSummary
 import com.claustrum.ui.theme.ClaustrumTheme
 import com.claustrum.vlm.Captioner
 import com.claustrum.vlm.FallbackCaptioner
@@ -66,17 +77,23 @@ class MonitorActivity : ComponentActivity() {
 
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private val inferenceExecutor = Executors.newSingleThreadExecutor() // L1 off the analyzer thread
-    private val inFlight = java.util.concurrent.atomic.AtomicBoolean(false) // single-flight L1
+    private val objectExecutor = Executors.newSingleThreadExecutor()
+    private val objectDetectorStarting = java.util.concurrent.atomic.AtomicBoolean(false)
     private val poseTaskInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val destroyed = java.util.concurrent.atomic.AtomicBoolean(false)
     private val foreground = java.util.concurrent.atomic.AtomicBoolean(false)
     private val overlayVersion = java.util.concurrent.atomic.AtomicLong(0L)
+    private val objectOverlayVersion = java.util.concurrent.atomic.AtomicLong(0L)
+    private val objectMapProbeLogged = java.util.concurrent.atomic.AtomicBoolean(false)
     private val poseFastPathEnabled = java.util.concurrent.atomic.AtomicBoolean(true)
     private val poseDetectorClosed = java.util.concurrent.atomic.AtomicBoolean(false)
     // Latest admitted frame that arrived while L1 was busy. Intermediate admitted frames
     // are intentionally coalesced: this bounds L1 work but is not an event-recall guarantee.
-    private val pending = java.util.concurrent.atomic.AtomicReference<Bitmap?>(null)
+    private val l1Queue = LatestOnlyQueue<Bitmap> { it.recycle() }
     private val poseExtractor = PoseObservationExtractor()
+    private val objectGate = ObjectCandidateGate()
+    private val objectStats = ObjectRuntimeStats()
+    private val objectQueue = LatestOnlyQueue<ObjectFrame> { it.bitmap.recycle() }
     private val imageProxyTransformFactory = ImageProxyTransformFactory().apply {
         isUsingRotationDegrees = true
     }
@@ -89,12 +106,18 @@ class MonitorActivity : ComponentActivity() {
     }
     private val poseDetector by poseDetectorDelegate
     @Volatile private var eventEngine: NativeEventEngine? = null
+    @Volatile private var objectDetector: MediaPipeObjectDetector? = null
     @Volatile private var pipeline: PerceptionPipeline<Bitmap>? = null
     @Volatile private var previewUseCase: Preview? = null
     @Volatile private var analysisUseCase: ImageAnalysis? = null
     @Volatile private var boundCamera: Camera? = null
     @Volatile private var lastRes = "—"
     @Volatile private var trackedPeople: List<TrackedPersonUi> = emptyList()
+    @Volatile private var objectCandidates: List<ObjectCandidateUi> = emptyList()
+    @Volatile private var objectDetectorStatus = "物件候選未啟用 · 到模型頁查看"
+    @Volatile private var objectModelCheckedAtMs = Long.MIN_VALUE
+    @Volatile private var objectSubmitted = 0L
+    @Volatile private var objectCoalesced = 0L
     @Volatile private var zoomRatio = 1f
     @Volatile private var minZoomRatio = 1f
     @Volatile private var maxZoomRatio = 1f
@@ -113,6 +136,12 @@ class MonitorActivity : ComponentActivity() {
     private val devVideoPlaying = mutableStateOf(false)
     private val devVideoFrame = mutableStateOf<Bitmap?>(null)
     @Volatile private var l1Source = "相機" // CaptionLog source for the single-flight L1 path
+
+    private data class ObjectFrame(
+        val bitmap: Bitmap,
+        val atMs: Long,
+        val sourceTransform: OutputTransform,
+    )
 
     /** Keep CameraX output upright through all four physical mounting directions. */
     private val orientationEventListener by lazy {
@@ -371,6 +400,7 @@ class MonitorActivity : ComponentActivity() {
             // fast path cannot initialize.
             disablePoseFastPath("L2 pose fast path initialization failed", t)
         }
+        ensureObjectDetector()
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             try {
@@ -497,7 +527,7 @@ class MonitorActivity : ComponentActivity() {
         if (destroyed.get()) analysisExecutor.shutdown()
     }
 
-    /** Existing L0→L1 route, invoked after ML Kit has released its read of the image. */
+    /** Existing L0→L1 plus bounded object-candidate route after ML Kit releases the image. */
     private fun analyzePerception(image: ImageProxy) {
         val p = pipeline ?: return
         val w = image.width
@@ -505,10 +535,259 @@ class MonitorActivity : ComponentActivity() {
         lastRes = "${w}×${h}"
         val luma = extractLuma(image)
         val sig = NativeCore.frameSignature(luma, w, h)
-        val admitted = p.admit(sig)
-        if (admitted) enqueueL1(rotatedCopy(image))
+        val atMs = SystemClock.uptimeMillis()
+        maybeEnsureObjectDetector(atMs)
+        val l1Admitted = p.admit(sig)
+        val objectAdmitted = objectDetector != null && objectGate.shouldAnalyze(sig, atMs)
+        if (l1Admitted || objectAdmitted) {
+            val sourceTransform = if (objectAdmitted) {
+                try {
+                    imageProxyTransformFactory.getOutputTransform(image)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "object overlay source transform unavailable", t)
+                    null
+                }
+            } else {
+                null
+            }
+            val upright = rotatedCopy(image)
+            when {
+                l1Admitted && sourceTransform != null -> {
+                    val l1Copy = try {
+                        upright.copy(Bitmap.Config.ARGB_8888, false)
+                    } catch (t: Throwable) {
+                        upright.recycle()
+                        throw t
+                    }
+                    enqueueL1(l1Copy)
+                    enqueueObject(ObjectFrame(upright, atMs, sourceTransform))
+                }
+                l1Admitted -> enqueueL1(upright)
+                sourceTransform != null -> enqueueObject(ObjectFrame(upright, atMs, sourceTransform))
+                else -> upright.recycle()
+            }
+        }
         guardian.frameProcessed()
         pushState()
+    }
+
+    /** Pick up a model downloaded from the Models tab without restarting the camera. */
+    private fun maybeEnsureObjectDetector(atMs: Long) {
+        if (objectModelCheckedAtMs != Long.MIN_VALUE &&
+            atMs - objectModelCheckedAtMs < OBJECT_MODEL_CHECK_MS
+        ) return
+        objectModelCheckedAtMs = atMs
+        if (!MediaPipeMetricsConsent.isGranted(this)) {
+            disableObjectDetectorForConsent()
+        } else if (objectDetector == null && !objectDetectorStarting.get()) {
+            ensureObjectDetector()
+        }
+    }
+
+    /** MediaPipe objects stay on their own executor; create/use/close are serialized. */
+    private fun ensureObjectDetector() {
+        if (destroyed.get() || objectDetector != null ||
+            !objectDetectorStarting.compareAndSet(false, true)
+        ) return
+        if (!MediaPipeMetricsConsent.isGranted(this)) {
+            objectDetectorStarting.set(false)
+            objectDetectorStatus = "物件候選未啟用 · 到模型頁查看"
+            pushState()
+            return
+        }
+        val spec = ModelSpec.EFFICIENTDET_LITE2_OBJECTS
+        if (!spec.isPresent(this)) {
+            objectDetectorStarting.set(false)
+            objectDetectorStatus = "物件模型未下載 · 到模型頁下載 7.5 MB"
+            pushState()
+            return
+        }
+        objectDetectorStatus = "物件模型載入中…"
+        pushState()
+        objectExecutor.execute {
+            var created: MediaPipeObjectDetector? = null
+            try {
+                created = MediaPipeObjectDetector(applicationContext, spec.localFile(this))
+                if (destroyed.get() || !MediaPipeMetricsConsent.isGranted(this)) {
+                    created.close()
+                    objectDetectorStatus = "物件候選未啟用 · 到模型頁查看"
+                } else {
+                    objectStats.reset()
+                    objectMapProbeLogged.set(false)
+                    objectSubmitted = 0L
+                    objectCoalesced = 0L
+                    objectDetector = created
+                    objectDetectorStatus = "物件候選就緒 · 動態閘門"
+                    created = null
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "MediaPipe object detector initialization failed", t)
+                objectDetectorStatus = "物件候選停用:${t.message ?: t.javaClass.simpleName}"
+            } finally {
+                try { created?.close() } catch (_: Throwable) {}
+                objectDetectorStarting.set(false)
+                pushState()
+            }
+        }
+    }
+
+    /** Consent withdrawal stops new submissions before serialized close. */
+    private fun disableObjectDetectorForConsent() {
+        val detector = objectDetector ?: run {
+            val status = "物件候選未啟用 · 到模型頁查看"
+            if (objectDetectorStatus != status || objectCandidates.isNotEmpty()) {
+                objectDetectorStatus = status
+                clearObjectOverlay()
+                pushState()
+            }
+            return
+        }
+        objectDetector = null
+        objectDetectorStatus = "物件候選已停止 · 未同意效能統計"
+        objectQueue.clear()
+        clearObjectOverlay()
+        pushState()
+        objectExecutor.execute { try { detector.close() } catch (_: Throwable) {} }
+    }
+
+    /** Current + latest pending queue: bounded memory and no stale detector backlog. */
+    private fun enqueueObject(frame: ObjectFrame) {
+        if (destroyed.get() || objectDetector == null) {
+            frame.bitmap.recycle()
+            return
+        }
+        objectSubmitted += 1
+        val offer = objectQueue.offer(frame)
+        if (offer.replacedPending) objectCoalesced += 1
+        if (offer.startWorker) runObjectDetector()
+    }
+
+    private fun runObjectDetector() {
+        try {
+            objectExecutor.execute {
+                while (true) {
+                    val frame = objectQueue.takeOrReleaseWorker() ?: return@execute
+                    val startedAt = SystemClock.uptimeMillis()
+                    try {
+                        val detected = objectDetector?.detect(frame.bitmap, frame.atMs).orEmpty()
+                        val latencyMs = SystemClock.uptimeMillis() - startedAt
+                        val stats = objectStats.record(latencyMs)
+                        if (stats.processed % OBJECT_STATS_LOG_INTERVAL == 0L) {
+                            Log.i(
+                                TAG,
+                                "OBJECT_STATS processed=${stats.processed} " +
+                                    "p50_ms=${stats.p50LatencyMs} p95_ms=${stats.p95LatencyMs} " +
+                                    "max_ms=${stats.maxLatencyMs} submitted=$objectSubmitted " +
+                                    "coalesced=$objectCoalesced",
+                            )
+                        }
+                        // Withdrawal may race an already-running native call. Never let its
+                        // late result restore an overlay after consent has been revoked.
+                        if (objectDetector != null && MediaPipeMetricsConsent.isGranted(this)) {
+                            publishObjectOverlay(
+                            sourceTransform = frame.sourceTransform,
+                            detections = detected,
+                            latencyMs = latencyMs,
+                            inputWidth = frame.bitmap.width,
+                            inputHeight = frame.bitmap.height,
+                            )
+                        }
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "MediaPipe object frame failed", t)
+                        objectDetectorStatus = "物件候選本幀失敗:${t.message ?: t.javaClass.simpleName}"
+                        clearObjectOverlay()
+                        pushState()
+                    } finally {
+                        frame.bitmap.recycle()
+                    }
+                }
+            }
+        } catch (rejected: java.util.concurrent.RejectedExecutionException) {
+            objectQueue.clear()
+            if (!destroyed.get()) throw rejected
+        }
+    }
+
+    /** Map all four rectangle corners so rotation, crop and zoom stay aligned. */
+    private fun publishObjectOverlay(
+        sourceTransform: OutputTransform,
+        detections: List<DetectedObject>,
+        latencyMs: Long,
+        inputWidth: Int,
+        inputHeight: Int,
+    ) {
+        val version = objectOverlayVersion.incrementAndGet()
+        previewView.post {
+            if (objectOverlayVersion.get() != version) return@post
+            val targetTransform = previewView.outputTransform
+            val viewWidth = previewView.width
+            val viewHeight = previewView.height
+            if (targetTransform == null || viewWidth <= 0 || viewHeight <= 0 ||
+                destroyed.get() || !foreground.get()
+            ) {
+                applyObjectOverlay(emptyList(), "物件候選暫停 · 預覽不可用", version)
+                return@post
+            }
+            try {
+                val transform = CoordinateTransform(sourceTransform, targetTransform)
+                if (BuildConfig.DEBUG && objectMapProbeLogged.compareAndSet(false, true)) {
+                    val fullFrame = floatArrayOf(0f, 0f, inputWidth.toFloat(), inputHeight.toFloat())
+                    transform.mapPoints(fullFrame)
+                    Log.i(
+                        TAG,
+                        "OBJECT_MAP_PROBE input=${inputWidth}x$inputHeight " +
+                            "view=${viewWidth}x$viewHeight full=${fullFrame.joinToString()}",
+                    )
+                }
+                val mapped = detections.mapNotNull { detection ->
+                    val corners = floatArrayOf(
+                        detection.leftPx, detection.topPx,
+                        detection.rightPx, detection.topPx,
+                        detection.rightPx, detection.bottomPx,
+                        detection.leftPx, detection.bottomPx,
+                    )
+                    transform.mapPoints(corners)
+                    val xs = floatArrayOf(corners[0], corners[2], corners[4], corners[6])
+                    val ys = floatArrayOf(corners[1], corners[3], corners[5], corners[7])
+                    val bounds = ObjectCandidateGeometry.normalizedBounds(
+                        leftPx = xs.min(),
+                        topPx = ys.min(),
+                        rightPx = xs.max(),
+                        bottomPx = ys.max(),
+                        viewWidth = viewWidth,
+                        viewHeight = viewHeight,
+                    ) ?: return@mapNotNull null
+                    ObjectCandidateUi(detection.category, detection.score, bounds)
+                }
+                val queue = if (objectCoalesced == 0L) "" else {
+                    " · 合併 $objectCoalesced/$objectSubmitted"
+                }
+                applyObjectOverlay(mapped, objectCandidateSummary(mapped, latencyMs) + queue, version)
+            } catch (t: Throwable) {
+                Log.w(TAG, "object overlay coordinate transform failed", t)
+                applyObjectOverlay(emptyList(), "物件候選映射失敗", version)
+            }
+        }
+    }
+
+    private fun applyObjectOverlay(candidates: List<ObjectCandidateUi>, status: String, version: Long) {
+        if (objectOverlayVersion.get() != version) return
+        objectCandidates = candidates
+        objectDetectorStatus = status
+        if (destroyed.get()) return
+        runOnUiThread {
+            if (!destroyed.get() && objectOverlayVersion.get() == version) {
+                uiState.value = uiState.value.copy(
+                    objectCandidates = candidates,
+                    objectDetectorStatus = status,
+                )
+            }
+        }
+    }
+
+    private fun clearObjectOverlay() {
+        val version = objectOverlayVersion.incrementAndGet()
+        applyObjectOverlay(emptyList(), objectDetectorStatus, version)
     }
 
     private fun ensureEventEngine() {
@@ -685,35 +964,39 @@ class MonitorActivity : ComponentActivity() {
      * L1 stays bounded and never runs on the analyzer thread.
      */
     private fun enqueueL1(bmp: Bitmap) {
-        if (inFlight.compareAndSet(false, true)) {
-            runL1(bmp)
-        } else {
-            pending.getAndSet(bmp)?.recycle() // replace stale pending, free it
+        if (destroyed.get()) {
+            bmp.recycle()
+            return
         }
+        if (l1Queue.offer(bmp).startWorker) runL1()
     }
 
-    private fun runL1(first: Bitmap) {
-        inferenceExecutor.execute {
-            var cur: Bitmap? = first
-            while (cur != null) {
-                val t0 = System.currentTimeMillis()
-                var r = ""
-                try { r = pipeline?.describe(cur) ?: "" } catch (t: Throwable) { Log.e(TAG, "describe failed", t) }
-                finally { cur.recycle() }
-                CaptionLog.add(System.currentTimeMillis(), r.ifBlank { "(此幀模型未產生有效描述)" }, l1Source, System.currentTimeMillis() - t0)
-                pushState()
-                cur = pending.getAndSet(null)
-                if (cur == null) {
-                    inFlight.set(false)
-                    // A producer may have queued a frame after we read null but before
-                    // clearing the flag; reclaim it (else it would sit forever).
-                    cur = pending.getAndSet(null)
-                    if (cur != null && !inFlight.compareAndSet(false, true)) {
-                        pending.getAndSet(cur)?.recycle() // another flight won; hand it back
-                        cur = null
+    private fun runL1() {
+        try {
+            inferenceExecutor.execute {
+                while (true) {
+                    val cur = l1Queue.takeOrReleaseWorker() ?: return@execute
+                    val t0 = System.currentTimeMillis()
+                    var r = ""
+                    try {
+                        r = pipeline?.describe(cur) ?: ""
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "describe failed", t)
+                    } finally {
+                        cur.recycle()
                     }
+                    CaptionLog.add(
+                        System.currentTimeMillis(),
+                        r.ifBlank { "(此幀模型未產生有效描述)" },
+                        l1Source,
+                        System.currentTimeMillis() - t0,
+                    )
+                    pushState()
                 }
             }
+        } catch (rejected: java.util.concurrent.RejectedExecutionException) {
+            l1Queue.clear()
+            if (!destroyed.get()) throw rejected
         }
     }
 
@@ -745,13 +1028,21 @@ class MonitorActivity : ComponentActivity() {
             guarding = guard.guarding,
             statusError = guard.error,
             trackedPeople = trackedPeople,
+            objectCandidates = objectCandidates,
+            objectDetectorStatus = objectDetectorStatus,
             zoomRatio = zoomRatio,
             minZoomRatio = minZoomRatio,
             maxZoomRatio = maxZoomRatio,
         )
         // Projection is posted independently on the main thread. Merge the latest
         // overlay at apply time so an older telemetry snapshot cannot erase it.
-        runOnUiThread { uiState.value = snap.copy(trackedPeople = trackedPeople) }
+        runOnUiThread {
+            uiState.value = snap.copy(
+                trackedPeople = trackedPeople,
+                objectCandidates = objectCandidates,
+                objectDetectorStatus = objectDetectorStatus,
+            )
+        }
     }
 
     private fun extractLuma(image: ImageProxy): ByteArray {
@@ -785,7 +1076,14 @@ class MonitorActivity : ComponentActivity() {
         // Do not reject the registered ML Kit completion callback: it owns the only
         // in-flight ImageProxy and will close it before shutting down this executor.
         if (!poseTaskInFlight.get()) analysisExecutor.shutdown()
-        pending.getAndSet(null)?.recycle()
+        l1Queue.clear()
+        objectQueue.clear()
+        val detector = objectDetector
+        objectDetector = null
+        objectExecutor.execute {
+            try { detector?.close() } catch (_: Throwable) {}
+        }
+        objectExecutor.shutdown()
     }
 
     override fun onStart() {
@@ -799,6 +1097,8 @@ class MonitorActivity : ComponentActivity() {
         foreground.set(false)
         orientationEventListener.disable()
         clearPoseOverlay()
+        clearObjectOverlay()
+        objectGate.reset()
         super.onStop()
     }
 
@@ -808,5 +1108,7 @@ class MonitorActivity : ComponentActivity() {
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_ZOOM_RATIO = "camera.zoom_ratio"
         private const val L2_SOURCE_ID = "camera_back"
+        private const val OBJECT_MODEL_CHECK_MS = 2_000L
+        private const val OBJECT_STATS_LOG_INTERVAL = 20L
     }
 }

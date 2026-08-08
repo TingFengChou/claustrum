@@ -35,14 +35,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claustrum.model.ModelSpec
 import com.claustrum.model.ModelsController
+import com.claustrum.model.Capability
 import com.claustrum.ui.theme.ClaustrumTheme
 import com.claustrum.ui.theme.Mono
+import java.util.Locale
 
 /** 模型 tab — browse the catalog, set the HF token, download in-app (dark design). */
 @Composable
 fun ModelsScreen(controller: ModelsController) {
     val c = ClaustrumTheme.colors
     var showTokenDialog by remember { mutableStateOf(false) }
+    var pendingMetricsSpec by remember { mutableStateOf<ModelSpec?>(null) }
 
     Column(
         Modifier.fillMaxSize().background(c.ground).statusBarsPadding()
@@ -72,15 +75,74 @@ fun ModelsScreen(controller: ModelsController) {
         }
 
         Spacer(Modifier.height(14.dp))
-        controller.catalog.forEach { spec -> ModelCard(spec, controller.status[spec.name] ?: "", onDownload = { controller.download(spec) }); Spacer(Modifier.height(12.dp)) }
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface2)
+                .border(1.dp, c.line, RoundedCornerShape(12.dp)).padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (controller.hasMediaPipeMetricsConsent.value) {
+                    "MediaPipe 效能統計:已同意（影像不上傳）"
+                } else {
+                    "MediaPipe 物件偵測:未啟用"
+                },
+                color = c.muted,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            if (controller.hasMediaPipeMetricsConsent.value) {
+                Pill("撤回") { controller.setMediaPipeMetricsConsent(false) }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+        controller.catalog.forEach { spec ->
+            val isObjectModel = Capability.DETECT_OBJECTS in spec.capabilities
+            ModelCard(
+                spec,
+                controller.status[spec.name] ?: "",
+                actionLabel = when {
+                    isObjectModel && !controller.hasMediaPipeMetricsConsent.value &&
+                        controller.status[spec.name]?.startsWith("✅") == true -> "啟用"
+                    isObjectModel && !controller.hasMediaPipeMetricsConsent.value -> "下載並啟用"
+                    controller.status[spec.name]?.startsWith("✅") == true -> "重新下載"
+                    else -> "下載"
+                },
+                onDownload = {
+                    if (isObjectModel &&
+                        !controller.hasMediaPipeMetricsConsent.value
+                    ) {
+                        pendingMetricsSpec = spec
+                    } else {
+                        controller.download(spec)
+                    }
+                },
+            )
+            Spacer(Modifier.height(12.dp))
+        }
         Spacer(Modifier.height(24.dp))
     }
 
     if (showTokenDialog) TokenDialog(controller, onDismiss = { showTokenDialog = false })
+    pendingMetricsSpec?.let { spec ->
+        MediaPipeConsentDialog(
+            onAccept = {
+                controller.enableMediaPipe(spec)
+                pendingMetricsSpec = null
+            },
+            alreadyDownloaded = controller.status[spec.name]?.startsWith("✅") == true,
+            onDismiss = { pendingMetricsSpec = null },
+        )
+    }
 }
 
 @Composable
-private fun ModelCard(spec: ModelSpec, status: String, onDownload: () -> Unit) {
+private fun ModelCard(
+    spec: ModelSpec,
+    status: String,
+    actionLabel: String,
+    onDownload: () -> Unit,
+) {
     val c = ClaustrumTheme.colors
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.surface)
@@ -90,8 +152,13 @@ private fun ModelCard(spec: ModelSpec, status: String, onDownload: () -> Unit) {
             Text(spec.name, color = c.ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             if (spec.gated) Text("  🔒 gated", color = c.warn, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
+        val sizeLabel = if (spec.sizeBytes < 100_000_000L) {
+            String.format(Locale.US, "%.1f MB", spec.sizeBytes / 1e6)
+        } else {
+            String.format(Locale.US, "%.2f GB", spec.sizeBytes / 1e9)
+        }
         Text(
-            "能力:${spec.capabilities.joinToString(" · ") { it.label }}  ·  約 %.2f GB".format(spec.sizeBytes / 1e9),
+            "能力:${spec.capabilities.joinToString(" · ") { it.label }}  ·  約 $sizeLabel",
             color = c.muted, fontFamily = Mono, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp),
         )
         if (spec.description.isNotBlank()) {
@@ -105,7 +172,7 @@ private fun ModelCard(spec: ModelSpec, status: String, onDownload: () -> Unit) {
                 .clickable { onDownload() }.padding(vertical = 10.dp),
             horizontalArrangement = Arrangement.Center,
         ) {
-            Text(if (status.startsWith("✅")) "重新下載" else "下載", color = c.onAccent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(actionLabel, color = c.onAccent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         if (status.isNotBlank()) {
             Text(status, color = if (status.startsWith("❌")) c.accent else c.steel,
@@ -157,6 +224,35 @@ private fun TokenDialog(controller: ModelsController, onDismiss: () -> Unit) {
                 Spacer(Modifier.width(4.dp))
                 TextButton(onClick = onDismiss) { Text("取消", color = c.muted) }
             }
+        },
+    )
+}
+
+@Composable
+private fun MediaPipeConsentDialog(
+    onAccept: () -> Unit,
+    alreadyDownloaded: Boolean,
+    onDismiss: () -> Unit,
+) {
+    val c = ClaustrumTheme.colors
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = c.surface,
+        title = { Text("啟用 MediaPipe 物件候選", color = c.ink) },
+        text = {
+            Text(
+                "物件辨識在裝置端執行，影像、框與類別不會傳給 Google。MediaPipe Tasks 會將 App 識別／版本、API 使用量、丟幀、延遲與錯誤等效能 metrics 傳給 Google；Google 表示用於維護與改善 API。你可以拒絕，或之後在模型頁撤回；未同意時物件候選不會啟動。",
+                color = c.muted,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onAccept) {
+                Text(if (alreadyDownloaded) "同意並啟用" else "同意並下載", color = c.accent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("不要啟用", color = c.muted) }
         },
     )
 }

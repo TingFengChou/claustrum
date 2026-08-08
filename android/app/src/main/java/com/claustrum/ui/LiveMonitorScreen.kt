@@ -68,6 +68,8 @@ data class MonitorUi(
     val guarding: Boolean = false,
     val statusError: String? = null,
     val trackedPeople: List<TrackedPersonUi> = emptyList(),
+    val objectCandidates: List<ObjectCandidateUi> = emptyList(),
+    val objectDetectorStatus: String = "物件模型未載入",
     val zoomRatio: Float = 1f,
     val minZoomRatio: Float = 1f,
     val maxZoomRatio: Float = 1f,
@@ -142,6 +144,8 @@ private fun EyeHeader(
         onActivate = onActivate,
         videoFrame = dev.videoFrame,
         trackedPeople = ui.trackedPeople,
+        objectCandidates = ui.objectCandidates,
+        objectDetectorStatus = ui.objectDetectorStatus,
         zoomRatio = ui.zoomRatio,
         minZoomRatio = ui.minZoomRatio,
         maxZoomRatio = ui.maxZoomRatio,
@@ -267,6 +271,8 @@ private fun RobotEye(
     onActivate: () -> Unit,
     videoFrame: android.graphics.Bitmap? = null,
     trackedPeople: List<TrackedPersonUi> = emptyList(),
+    objectCandidates: List<ObjectCandidateUi> = emptyList(),
+    objectDetectorStatus: String = "",
     zoomRatio: Float = 1f,
     minZoomRatio: Float = 1f,
     maxZoomRatio: Float = 1f,
@@ -311,6 +317,11 @@ private fun RobotEye(
             } else {
                 AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
                 PersonTrackingOverlay(trackedPeople, Modifier.fillMaxSize())
+                ObjectCandidateOverlay(
+                    candidates = objectCandidates,
+                    status = objectDetectorStatus,
+                    modifier = Modifier.fillMaxSize(),
+                )
                 // Scan line (animated) — the eye is "alive".
                 val t = rememberInfiniteTransition(label = "scan")
                 val frac by t.animateFloat(

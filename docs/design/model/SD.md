@@ -12,12 +12,13 @@ Android 端 `com.claustrum.model` 套件。移植/簡化自 Google AI Edge Galle
 
 | 元件 | 職責 | 狀態 |
 |---|---|---|
-| `Capability`(enum) | 模型能力:`ASK_IMAGE`(L1 用)、`CHAT`、`ASK_AUDIO`(未來) | ✅ |
-| `ModelSpec`(data) | 目錄項:name/modelId/file/size/capabilities/gated/config;`resolveUrl()`、`localFile()`、`tempFile()`、`isPresent()`;`CATALOG`、`DEFAULT_L1`、`l1Candidates()` | ✅ |
-| `ModelDownloadWorker` | WorkManager `CoroutineWorker`:HTTP 下載、`.tmp`+`Range` 續傳、`Bearer` 權杖、200ms 進度、前景通知、完成後 rename | ✅ |
+| `Capability`(enum) | 模型能力:`ASK_IMAGE`(L1 用)、`DETECT_OBJECTS`、`CHAT`、`ASK_AUDIO`(未來) | ✅ |
+| `ModelSpec`(data) | 目錄項:name/modelId/file/size/capabilities/gated/config/direct URL/SHA-256;路徑與 catalog helpers | ✅ |
+| `ModelDownloadWorker` | WorkManager:HTTP、`.tmp`+`Range`、HF-only `Bearer`、進度、size/SHA-256 驗證、完成後 rename | ✅ |
 | `ModelRepository` | present 判定、`enqueueUniqueWork` 下載、供 Activity 觀察進度 | ✅ |
 | `TokenStore` | HF 存取權杖:EncryptedSharedPreferences(AES-256)加密儲存;`hfToken()`/`setHfToken()`/`hasHfToken()` | ✅ |
-| HF 授權 UI | 模型目錄頂部權杖列 + 對話框輸入;gated 下載注入 `Bearer`(`KEY_TOKEN`) | ✅ |
+| HF 授權 UI | 模型目錄頂部權杖列 + 對話框輸入;worker 只對 `huggingface.co` 注入 runtime-read `Bearer` | ✅ |
+| `MediaPipeMetricsConsent` | 本機 opt-in；object model 下載前告知、可撤回，未同意 detector 不初始化 | ✅ |
 | `ModelsController` | Compose-observable 目錄、下載/存在狀態與 HF token UI bridge | ✅ |
 | `LiteRtCaptioner` 載入 | App 啟動時若 `DEFAULT_L1` 存在則背景初始化並 swap 進管線 | ✅ |
 | 模型選擇/熱切換 | 讓使用者指定 E2B/E4B 並安全重建後端 | 待續 |
@@ -25,7 +26,8 @@ Android 端 `com.claustrum.model` 套件。移植/簡化自 Google AI Edge Galle
 ## 3. 介面與合約
 
 - **HF URL:** `https://huggingface.co/<modelId>/resolve/main/<fileName>`。
-- **下載輸入(Data):** url / dest / tmp / total / token? / name。
+- **下載輸入(Data):** url / dest / tmp / total / name / optional sha256。HF token 不進 WorkManager Data，
+  worker 執行時才由 encrypted store 讀取，且只送 `huggingface.co`。
 - **進度(setProgress):** `KEY_P_RECEIVED`、`KEY_P_TOTAL`、`KEY_P_RATE`;失敗 `KEY_ERROR`。
 - **儲存位置:** `<externalFiles>/models/<version>/<file>`;下載中為 `<file>.tmp`(append + Range 續傳)。
 - **gated:** HTTP 401/403 → `Result.failure`,訊息提示需 HF 授權(不崩潰)。
@@ -36,18 +38,20 @@ Android 端 `com.claustrum.model` 套件。移植/簡化自 Google AI Edge Galle
 
 ```
 使用者在「模型目錄」點下載
-  → ModelRepository.enqueueDownload(spec, hfToken?)  (唯一工作,KEEP)
+  → 若為 MediaPipe object model 且尚未 opt-in:顯示獨立 metrics 告知；拒絕則停止
+  → ModelRepository.enqueueDownload(spec)  (唯一工作,KEEP)
   → ModelDownloadWorker:開 HttpURLConnection(Bearer? / Range?)
       401/403 → 提示需授權;200/206 → 串流寫 .tmp,每 200ms setProgress + 前景通知%
-  → 完成 rename .tmp → <file>;WorkInfo SUCCEEDED
+  → expected size + optional SHA-256 通過後 rename .tmp → <file>;WorkInfo SUCCEEDED
   → Activity 觀察 getWorkInfosForUniqueWorkLiveData → 更新該模型狀態
 ```
 
 ## 5. 測試策略(必備)
 
-- **JVM 單元測試(✅ 6):** `ModelSpecTest` — resolveUrl 為 HF resolve 格式、vision 模型
-  `supportsImage`、文字模型不支援、`l1Candidates()` 僅 vision、DEFAULT_L1 支援影像、目錄無重複檔。
-- **裝置整合(✅):** 目錄呈現 + 點下載 → 前景服務啟動 + gated 401 正確提示,無崩潰(Pixel 10)。
+- **JVM 單元測試:** `ModelSpecTest` — HF/direct URL、vision 能力、L1 candidates、catalog uniqueness、
+  object model 固定 size/SHA；`ModelsControllerTest` 驗證小模型顯示 MB、大模型顯示 GB。
+- **裝置整合(✅):** 目錄呈現、object opt-in／撤回／既有模型免重下載；Lite2 經 App 下載後
+  byte length + SHA-256 正確並可熱載入。gated 401 亦會正確提示、不崩潰(Pixel 10)。
 - **待:** HF 授權後的完整下載 + 續傳中斷復原,以 `androidTest` 覆蓋。
 
 ## 6. 待辦(產品化下一步)
