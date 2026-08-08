@@ -10,7 +10,8 @@
 > **P2.5** Compose UI ✅ · **P3** L2 事件引擎 🟡〔Rust Fall/ZoneExit/Violence 狀態機 +
 > Event serde/schema + Android/JNI bridge + ML Kit 單人 pose/CameraX fast path 已落地；實機校準、
 > 匿名單人 preview 框、zoom/旋轉、MediaPipe object candidate、session-local P/O tracker 與
-> fail-closed evidence stage 已落地；跌倒場域校準、ROI/多人 association、litter Event 與通知待續〕·
+> fail-closed evidence stage，以及 ML Kit→Kotlin→Rust 的跌倒錄影 confusion-matrix harness 已落地；
+> 跌倒場域語料／門檻、ROI/多人 association、litter Event 與通知待續〕·
 > **P4** 音訊融合(#6)。續作見 [`HANDOFF.md`](HANDOFF.md)。
 > 詳見 [ADR-0007](adr/0007-rust-first-redesign.md)。
 
@@ -94,6 +95,11 @@ flowchart TD
 - 固定鏡位 object eval harness 已能以 strict anonymous bbox manifest，在 Pixel 真 Lite2 回報
   TP/FP/FN、P/R、IoU、hard-negative、min-pixel 與 p50/p95；非固定鏡位 smoke 不等於場域驗收。
   下一步是實際 2F→1F 的 1×/2×/3×、日夜／雨天／多人／小物標註集，不再靠目測調 threshold。
+- 跌倒錄影 eval harness 已能以 strict anonymous event-window manifest，在停止守護時逐 clip 跑
+  獨立 ML Kit `STREAM_MODE`→production Kotlin extractor→JNI→Rust L2，回報 clip
+  TP/FP/FN/TN、event precision／positive recall、pose 取得率、人物跨度與 p50/p95。初輪既有新聞
+  剪輯 smoke 漏掉正例且多人 post-fall negative 未誤報，證明工具接線與既有單人 pose domain gap；
+  不能替代實際 2F→1F、正常坐下／躺下與 72h negative corpus。
 - 前景內明確停止守護與跨 tab 相機狀態已接線：停止先讓 session generation 失效，再 unbind
   CameraX、清 queue/overlay/tracker/L2，避免舊非同步結果污染重啟後 session；Pixel 10 已完成
   跨頁停止、100ms 快停與 40 次 CameraService CONNECT/DISCONNECT 對稱循環，見 #42。
@@ -122,7 +128,7 @@ MVP 里程碑(取代下方 M0–M7 的近期優先序;M2–M7 的概念仍適用
   litter precision、false-alerts/24h。
 - **D. 告警通道 + 抑制**:通知保全 / 聲光告警;去重、速率限制、冷卻、人工確認。
 
-目前 B 的第一條單人 fast path 已接線：ML Kit pose 只提供最顯著一人的 landmark，Kotlin 只推導
+目前 B 的第一條單人 fast path 與錄影回歸工具已接線：ML Kit pose 只提供最顯著一人的 landmark，Kotlin 只推導
 pose/descent/motion，不臆造 impact 或多人 strike。Event 暫只寫 log；需先以固定鏡位跌倒/正常
 坐下/躺下素材建立 confusion matrix、p95 與 72h negative corpus，達標後才接 D。
 Preview 的匿名人物框與主體像素提示是取景工具，不是事件結論或多人能力證明。

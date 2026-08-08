@@ -36,7 +36,7 @@ fun SettingsScreen(l1Backend: String, dev: DevUi = DevUi()) {
         Spacer(Modifier.height(14.dp))
         ToggleRow(
             "開發者模式",
-            "開啟後，守護頁提供 L1 驗證、測試影片與固定鏡位物件評估；用本機標註素材量正確率與延遲。",
+            "開啟後，守護頁提供 L1 驗證、測試影片、物件評估與 L2 跌倒影片回歸；用本機標註素材量測命中、錯報與延遲。",
             dev.enabled, dev.onToggle,
         )
         InfoRow("L0 變化閘控閾值", "8 bits(靜態幀節流比例依場景而變)")

@@ -247,6 +247,9 @@ flowchart TB
   DEVMAN["開發者主動放入 external-files<br/>dev_object_eval/manifest.json + 標註影格"]
   DEVEVAL["獨立 MediaPipe VIDEO detector<br/>同類別 confidence-greedy IoU≥0.5 配對"]
   DEVMETRIC["RAM 彙總 + 本機 log<br/>TP/FP/FN · P/R · IoU · min px · p50/p95"]
+  DEVPOSEMAN["開發者主動放入 external-files<br/>dev_pose_eval/manifest.json + 標註影片"]
+  DEVPOSE["獨立 ML Kit STREAM_MODE<br/>PoseObservationExtractor → 新 Rust L2 session/clip"]
+  DEVPOSEMETRIC["RAM 彙總 + 本機 log<br/>clip TP/FP/FN/TN · event P/positive R<br/>pose rate · subject span · p50/p95"]
   LUMA["extractLuma()<br/>Y plane → width×height ByteArray"]
   JNI["JNI convert_byte_array<br/>Java heap → Rust Vec copy"]
   HASH["Rust frame_signature()<br/>8×8 average hash → 64-bit jlong"]
@@ -271,6 +274,8 @@ flowchart TB
   OBJECT --> ASSOC -.->|"litter observation / Event 尚未接線"| L2
   DEVMAN -->|"只在停止守護時執行"| DEVEVAL --> DEVMETRIC
   DEVEVAL -.->|"量測同一模型，不接 tracker / Event"| OBJECT
+  DEVPOSEMAN -->|"只在停止守護時執行"| DEVPOSE --> DEVPOSEMETRIC
+  DEVPOSE -.->|"同一 production extractor / JNI / L2 規則"| L2
   FEATURE -->|"同一組客觀 landmarks"| OVERLAY --> PREVIEW
   POSE -->|"task 完成；同一個仍開啟的 proxy"| LUMA --> JNI --> HASH --> GATE
   GATE -->|"未放行"| CLOSE
@@ -304,6 +309,7 @@ Rust；L0 只有 luma copy，L2 只有匿名數值 observation。重模型 L1 �
 | 亂丟垃圾 evidence | `LitterEvidenceTracker`(純 Kotlin) | 連續人—物近接 → 可見分離 → 分離後靜置 → 人離開待檢視 | 人漏偵不能當分離；離開需同一槽位至少兩次可見拉遠、物件連續可見且靜置 ≥30 秒。最終仍不產生 Event/告警；ROI、多人 association 與場域門檻見 #39 |
 | 物件疊圖 | main thread / Compose Canvas | CameraX transform → 橘色 bbox + P/O 槽位、移動／靜止、客觀 evidence stage、延遲／合併數 | 只在本機 RAM；不顯示身分或「垃圾」結論；rotation/FIT_CENTER/zoom 使用 CameraX transform；明確停止、退背景、撤回同意或 destroy 清除 |
 | 固定鏡位物件評估(dev only) | `objectExecutor` 上的獨立 MediaPipe instance | 使用者標註影格 + normalized bbox → TP/FP/FN、precision/recall、matched IoU、最小 GT 像素、p50/p95 | 守護中禁止執行；不接 tracker/Event、不另存或上傳影格，只在 RAM/UI 與本機 log 留 aggregate；仍受 MediaPipe consent gate 約束 |
+| 跌倒錄影回歸(dev only) | `poseEvalExecutor` 上的獨立 ML Kit instance；每 clip 新 extractor/Rust engine | strict event-window manifest + 影片 → clip TP/FP/FN/TN、event precision、positive recall、pose acquisition、人物跨度、p50/p95 | Android 9+；守護中禁止執行；連續批次解碼後每約 100ms 取樣，Bitmap 隨批次 recycle；離開前景使 generation 失效且不發布 partial summary；影格不另存或上傳 |
 | L0 特徵 | Kotlin → JNI → Rust → Kotlin | Y plane `ByteArray` → 64-bit aHash | JNI 會複製 luma 到 Rust；Rust 不保存，回傳 hash 後釋放 |
 | L0 決策 | Kotlin `PerceptionPipeline` / `ChangeGate` | hash → admit/skip + telemetry | 只保存 64-bit「最後放行 hash」；節流比例依場景而變 |
 | L1 取圖 | analyzer，僅 admit | `ImageProxy` → 旋正 `Bitmap` | 必須在 proxy close 前複製；之後 proxy 立即關閉 |
@@ -362,12 +368,65 @@ FP；含 EXIF rotation 的 JPEG 也要先轉正，使標註座標與 Android 解
 最小 GT 短邊 54 px。這只證明 parser→真 Lite2→metrics→Compose 接線可執行，也再次顯示通用 COCO
 模型不可宣稱精確；issue #39 仍須用實際 2F→1F、1×/2×/3×、日夜／雨天／多人／小物正負標註集。
 
-開發者模式的測試影片是另一個**本機來源**：`MediaMetadataRetriever` 取 Bitmap，顯示用 frame
-留在 Compose，送 L1 的 copy 則轉 luma 後進入同一套 L0→single-flight→LiteRT 路徑；不會上傳
-影片。**這個 dev-video 工具目前只驗 L1，尚未餵入 ML Kit L2**；L2 錄影回歸/混淆矩陣是下一步，
-不能拿現有工具冒充 fast-path 驗收。模型下載的 Hugging Face／Google Storage HTTP 流量是獨立
-控制平面，只傳模型檔與必要授權 header，與相機影格資料平面沒有連線；MediaPipe metrics 是另
-一條需明確同意的非影像控制流，不能和「推論 on-device」混為一談。
+### 跌倒錄影回歸（ML Kit → Kotlin → Rust L2）
+
+「▶ 測試影片」仍只驗 L0→L1 caption，不代表事件 recall；「△ L2 跌倒影片評估」才會讓每段
+影片使用獨立 ML Kit `STREAM_MODE` detector，依序進 production `PoseObservationExtractor`、
+JNI 與 Rust `EventEngine`。先停止守護，把自包含素材放入
+`<externalFiles>/dev_pose_eval/`：
+
+```json
+{
+  "version": 1,
+  "cases": [{
+    "video": "fall_001.mp4",
+    "label": "roi2-fall-001",
+    "expected": "fall",
+    "eventStartMs": 1800,
+    "eventEndMs": 6200
+  }, {
+    "video": "walk_001.mp4",
+    "label": "roi2-walk-hard-negative",
+    "expected": "none",
+    "eventStartMs": null,
+    "eventEndMs": null
+  }]
+}
+```
+
+`eventStartMs..eventEndMs` 是正例「可接受 confirmed」的明示閉區間，不是工具事後加的寬鬆
+tolerance。區間內最多配對一個 confirmed；區間外或重複 confirmed 另計 false-confirmed event。
+正例無配對是 FN；負例有任一 confirmed 是 FP。UI 的 event precision 是 matched confirmed / 全部
+confirmed，positive recall 是命中正例 / 全部正例；沒有分母時顯示 `—`，不可當 100%。parser
+拒絕路徑、重複影片、未知欄位（包含 identity）、無效副檔名與不完整時窗。
+
+為避免 `getFrameAtTime` 每 100ms 反覆 seek／重建 decoder，Android 9+ 以
+`getFramesAtIndex` 連續批次解碼，批次受 48 MiB pixel budget 限制，再依 frame count／duration
+映到約 100ms 的影片時間軸。這要求可讀 frame count，且 frame-index 時間是 CFR 素材的近似值；
+VFR 或需要逐幀精確 PTS 的正式驗收須先正規化成固定 frame rate，並在報告保存轉檔設定。每 clip
+都重設 detector/extractor/Rust session，並以固定 synthetic Unix epoch + clip time 餵 L2、輸出
+再換回 clip-relative window，避免跨片狀態污染或破壞正式 timestamp 契約；離開畫面或 destroy
+只讓當前 ML/native call 收尾，之後不發布部分結果。來源影片是開發者明確放入的本機 corpus；App 不寫回、不上傳，
+解碼 Bitmap 用完即 recycle，只有 aggregate 與本機 log 留在 RAM／程序內。
+若 container 宣告的 frame count 與批次實際回傳數不一致，整批會明確失敗而非把缺失尾段靜默
+算成 FN/TN；UI 顯示失敗原因，且不發布任何 partial summary。
+
+此工具回答「現有固定鏡位素材能否走完整 L2 並在標註時窗命中」，**不等於場域可部署**。正式
+門檻仍需實際 2F→1F、1×/2×/3×、日夜／遮擋／多人，另加正常坐下、刻意躺下、清潔／協助等
+hard negatives 與 72 小時無事件 corpus；對外告警合計仍須 `<1/24h`。
+
+2026-08-08 Pixel 10 首輪 wiring/domain-gap smoke 使用既有 360×640 新聞剪輯，切成 8 秒跌倒
+full-frame、同片 1.4× FOV crop，以及後續 32.9 秒多人協助 hard negative。結果為 clip
+TP 0 / FP 0 / FN 2 / TN 1、candidate 0、confirmed 0、pose 取得 26.6%；兩次最終 APK 的 ML Kit
+p50/p95 為 24/38 與 24/39ms。可靠 pose 的最小來源人物跨度 overall 46px；full-frame 重跑為
+46–60px，1.4× crop 為 66px，顯示 detector／解碼抽樣結果本身也須多次量測。
+1.4× 雖在對照中增加最低跨度，仍未建立「站立→快速下降→持續倒臥」candidate，證明小幅 zoom 不等於
+event recall；多人負例未誤報則只是一段 smoke，不能推論 `<1/24h`。離開畫面 500ms 的實測會
+記錄 lifecycle expired、清除 running，且不發布 partial summary。#26/#38 保持 open。
+
+兩種 dev video 都是本機來源且不會上傳影片。模型下載的 Hugging Face／Google Storage HTTP
+流量是獨立控制平面，只傳模型檔與必要授權 header，與相機影格資料平面沒有連線；MediaPipe
+metrics 是另一條需明確同意的非影像控制流，不能和「推論 on-device」混為一談。
 
 ADR-0008 的舊 Rust L1 診斷 seam（`NativeCore.describe` 與 `core-rs/src/vlm.rs`）已完整移除。
 **Rust 現在仍正式承載**每幀 L0 `frameSignature` 與有狀態 L2 `EventEngine`；L1 則只有 Kotlin

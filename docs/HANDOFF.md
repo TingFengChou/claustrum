@@ -6,11 +6,12 @@
 
 - **裝置端 App 已成形**:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、**L1 真實場景描述已通**(`.litertlm`-native Gemma 3n)、開發者模式驗證工具。
-- **PR #24/#30/#33/#34/#35/#40/#43/#44/#45/#46/#47 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
+- **PR #24/#30/#33/#34/#35/#40/#43/#44/#45/#46/#47/#48 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
   merge commit 為 `65905cd2`，#40 的 FIT_CENTER／rotation／zoom／匿名框 merge commit 為
   `898662ba`，#43 的 object candidate merge commit 為 `bd258aed`，#44 的 litter tracker merge
   commit 為 `f41fa46f`，#45 的明確停止守護 merge commit 為 `1481831f`，#46 的 legacy Rust L1
-  移除 merge commit 為 `acd180d4`，#47 的 fixed-camera object eval merge commit 為 `4301af98`。
+  移除 merge commit 為 `acd180d4`，#47 的 fixed-camera object eval merge commit 為 `4301af98`，
+  #48 的 handoff sync merge commit 為 `24fc2e0f`。
   checks 與 review threads 均
   逐則處理後合併；Pixel 10 已驗證相機、pose/JNI、
   前後景恢復與 2F→1F 初測。
@@ -48,6 +49,12 @@
   真 Lite2 量 TP/FP/FN、P/R、IoU、hard-negative、min-pixel 與 p50/p95；strict parser 拒絕 identity／
   路徑／未知欄位，不接 tracker/Event。Pixel 非固定鏡位 2 張 smoke 為 TP0/FP4/FN3；兩次
   p50/p95 180/241 與 138/185ms，只驗接線且再次證明 domain gap，不能當 2F→1F 驗收。
+- **Fall video eval harness 已接線:** `dev_pose_eval/manifest.json` 以明示 confirmed event window
+  標註 fall/none；停止守護時，每 clip 使用獨立 ML Kit STREAM_MODE→production extractor→JNI→
+  Rust L2，回報 clip TP/FP/FN/TN、event P／positive R、pose rate、人物跨度與 p50/p95。Pixel 初輪
+  新聞剪輯 full-frame + 1.4× FOV crop 皆漏報，post-fall 多人 hard negative 無 confirmed：
+  TP0/FP0/FN2/TN1、pose rate 26.6%、重跑 p50/p95 24/38–39ms、最小可靠人物跨度 46px；這是
+  wiring/domain-gap smoke，不是 2F 場域驗收。500ms 離開前景 cancellation 已實測不發布 partial summary。
 - **旋轉驗證邊界:** Pixel 以 WindowManager 強制 ROTATION_90 已確認 landscape 雙欄、底部導覽與
   zoom 控制可操作；因手機實體感測器仍為 portrait，強制畫面下 camera buffer 會側轉，不能冒充
   `OrientationEventListener` 實體四向驗收。裝置原 rotation 設定已還原，#37 仍需手動轉機驗證。
@@ -79,14 +86,14 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 | Codex P1(初始化移出 analyzer、保留放行幀、旋正、有界輸出) | ✅ |
 | 相機權限/bind 失敗可重試、連續 analyzer 失敗顯示「需處理」並可恢復 | ✅ |
 | LiteRT delegate 初始化失敗先 close Engine，再嘗試下一個 backend(防 OOM) | ✅ |
-| 開發者模式:L1/影片 + 固定鏡位 object bbox 評估、描述串流+記錄 | ✅ |
+| 開發者模式:L1/影片 + 固定鏡位 object bbox + L2 跌倒錄影評估、描述串流+記錄 | ✅ |
 | 移除 legacy RN `app/` | ✅ |
 | 移除 legacy Rust L1 module/JNI placeholder（保留正式 L0/L2） | ✅ 本輪 cleanup |
 | Rust L2 + Android/JNI + ML Kit 單人 pose fast path | ✅ 接線；素材校準/policy 待續 |
 | Camera preview 匿名人物框（不顯示骨架）+ 主體像素提示 | ✅ CameraX transform；多人追蹤見 #36 |
 | fullSensor / landscape / zoom persistence | ✅ 實作；四向與 2F→1F 實機驗收見 #37/#38 |
 | MediaPipe object→litter 管線 | 🟡 candidate/gate/匿名短時 tracker/evidence overlay 已接；ROI/多人 association/Event/場域驗收見 #39 |
-| Android host 107 + Rust 25 + Python 28 | ✅；Android lint 0 issue、debug APK 可組裝 |
+| Android host 115 + Rust 25 + Python 28 | ✅；Android lint 0 issue、debug APK 可組裝 |
 
 ### Legacy React Native 退場稽核(2026-08-08)
 
@@ -103,10 +110,11 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 
 ## 下一步(建議順序)
 
-1. **L2 錄影回歸與校準(issue #26,P3):** CameraX→ML Kit base Pose Detection `STREAM_MODE`→
-   純 Kotlin `PoseObservationExtractor`→`FastPathObservation`→JNI→Rust 已接線。下一步讓
-   `dev_videos/` 走同一 L2 path，收集 fall/正常坐下/刻意躺下/遮擋素材的 confusion matrix、p95
-   與 72h negative corpus；未達 `<1/24h` 前不接 policy/通知。
+1. **L2 固定鏡位語料與校準(issue #26,P3):** CameraX live path 與獨立 `dev_pose_eval/` 錄影
+   regression path 都已接 ML Kit base Pose Detection `STREAM_MODE`→純 Kotlin
+   `PoseObservationExtractor`→`FastPathObservation`→JNI→Rust。下一步收集實際 2F→1F 的
+   fall/正常坐下/刻意躺下/遮擋素材，建立正式 confusion matrix、end-to-end p95 與 72h negative
+   corpus；未達 `<1/24h` 前不接 policy/通知。
    - 限制：只追最顯著一人、API beta、無 tracking ID，且官方要求臉部可見/完整身體取景最佳；
      背向、遮擋或倒地後臉被擋是 recall 硬風險。追蹤中斷會輪替匿名 role slot。
    - pose-only 的 impact 固定 0；快速 impact confirmation 要另接可替換 extractor。
@@ -134,15 +142,17 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 2. `adb push` 測試素材到裝置:
    ```bash
    BASE=/sdcard/Android/data/com.claustrum/files
-   adb shell mkdir -p $BASE/dev_eval $BASE/dev_videos $BASE/dev_object_eval
+   adb shell mkdir -p $BASE/dev_eval $BASE/dev_videos $BASE/dev_object_eval $BASE/dev_pose_eval
    # 標註影格(檔名帶預期關鍵詞,any-match 計 pass):
    adb push fall_close.jpg "$BASE/dev_eval/fall__倒臥,跌倒,倒地,躺,地上.jpg"
    # 測試影片:
    adb push clip.mp4 "$BASE/dev_videos/clip.mp4"
    # object bbox manifest 格式見 README「固定鏡位 Object Detector 評估」:
    adb push manifest.json frame_*.jpg "$BASE/dev_object_eval/"
+   # fall/none + confirmed event window 格式見 README「跌倒錄影回歸」:
+   adb push pose-manifest.json fall_*.mp4 normal_*.mp4 "$BASE/dev_pose_eval/"
    ```
-3. 守護頁:**▶ L1 驗證** · **▶ 測試影片** · 停止守護後 **◎ 固定鏡位物件評估**。
+3. 守護頁:**▶ L1 驗證** · **▶ 測試影片** · 停止守護後 **◎ 固定鏡位物件評估** / **△ L2 跌倒影片評估**。
 4. 描述逐列記錄於守護頁「描述串流」(最近 10)與事件頁(完整 100、時間序)。
 5. **換模型 SOP:** 換 `ModelSpec` 後,先跑模型驗證比對 pass-rate 與延遲,再決定是否採用。
 
@@ -150,8 +160,9 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 
 - **`GEMINI_API_KEY`**(repo secret):未設時雲端 `ai-code-review` 部分功能 skip。
 - **HF read 權杖**:owner 在 App 模型目錄「設定」貼上即可下載 gated Gemma(加密存裝置)。
-- **實體相機測試**:CameraX/ML Kit/preview transform 必須連接實機並實際對準人物；dev 影片目前
-  只驗 L1，不能替代 L2/overlay。2026-08-08 已以 Pixel 10 驗證 #35 相機、pose/JNI 載入與前後景恢復。
+- **實體相機測試**:CameraX/ML Kit/preview transform 必須連接實機並實際對準人物；L2 dev 影片
+  可驗 production extractor/JNI/Rust 規則，仍不能替代 CameraX overlay/rotation、2F 取景與 72h
+  negative。2026-08-08 已以 Pixel 10 驗證相機、pose/JNI、前後景與錄影 harness。
 
 ## 開發流程(硬性)
 
@@ -191,4 +202,4 @@ Gradle 9.3.1 · AGP 8.12.0 · **Kotlin 2.2.10**(為 litertlm metadata 升)· com
 
 ADR:[0006](adr/0006-safety-alert-mvp.md) 歷史 MVP、[0007](adr/0007-rust-first-redesign.md) Rust 重建、[0009](adr/0009-edge-ai-litert-ai-edge.md) LiteRT、[0010](adr/0010-firebase-architecture.md) Firebase、[0011](adr/0011-l2-fast-path-evidence.md) L2 fast path、[0012](adr/0012-two-scenario-mvp-and-object-gating.md) 兩情境收斂。
 設計:[`docs/design/`](design/README.md)(尤其 [`vlm/SD.md`](design/vlm/SD.md) §6.1 pad 根因、§8 相機選型)。
-開放 issues:#25/#26/#27/#28/#29/#36/#37/#38/#39/#41/#42。GitHub Milestones:P2 / P2.5 / P3 / P4 / MVP。
+開放 issues:#25/#26/#27/#28/#29/#36/#37/#38/#39/#41。GitHub Milestones:P2 / P2.5 / P3 / P4 / MVP。
