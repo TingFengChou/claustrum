@@ -65,16 +65,16 @@ flowchart TD
 
 > Phase 1 已完成、Phase 2 為目前 MVP、Phase 3+ 延後。以下為各里程碑細節。
 
-## 進度附註(2026-08-07)
+## 進度附註(2026-08-08)
 
 - **架構已由 React Native 打掉重練為 Rust 核心 + 原生 Android**(ADR-0007);舊 `app/`(RN)
   與其 `docs/design/app/` 設計文件已自 repo 移除,保留於 git 歷史。
 - **L1 執行期改用 Google AI Edge / LiteRT-LM**(ADR-0009,取代 llama.rn / llama.cpp)。
   裝置端(Pixel 10)以 `.litertlm`-native Gemma 3n 產生真實場景描述 ~6.5s;
   MediaPipe `.task` 格式在 litertlm 0.11.0 只吐 `<pad>`,已改用原生 `.litertlm`。
-- 裝置 App 已具(PR #24,未 merge):進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
-  App 內 gated 模型下載、L0 變化閘控(靜態場景省 ~98% 運算)、**L1 真實場景描述**、
-  開發者模式(測試影片/模型驗證/描述記錄)。
+- PR #24/#30 已 merge 至 `main`：裝置 App 已具進入流程、底部導覽、機器之眼手動啟動、
+  App 內 gated 模型下載、L0 變化閘控、**L1 真實場景描述**與開發者驗證工具；Rust L2
+  Fall/ZoneExit/Violence engine + Event schema 已有 foundation，Android observation/JNI 待接。
 - **關鍵發現:L1 場景描述非可靠跌倒偵測器**(遠景/小主體會漏或幻覺)→ 事件偵測須 L2;
   相機佈建須讓主體佔畫面 ≥ ⅓(見 [`docs/design/vlm/SD.md`](design/vlm/SD.md) §8、issue #26)。
 - 首個應用**藥單辨識**的軟體層(schema、prompt、安全解析、單元測試、SA/SD)完成

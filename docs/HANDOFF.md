@@ -6,19 +6,19 @@
 
 - **裝置端 App 已成形**:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、**L1 真實場景描述已通**(`.litertlm`-native Gemma 3n)、開發者模式驗證工具。
-- **Android/L1 主線在 PR #24**(分支 `feat/litert-captioner`,**尚未 merge**)。既有 AI review 的 7 個
-  P1 threads 已 outdated；2026-08-08 再審新增修正相機失敗不可重試、analyzer 健康狀態與
-  LiteRT fallback 前的 Engine 資源釋放；最新 SHA checks 全綠。L2 foundation 疊在 draft
-  PR #30(`codex/l2-event-engine`)；三項 checks 亦全綠。
+- **PR #24 與 #30 已於 2026-08-08 squash merge 至 `main`**(`37849491`、`c06c05b7`)；兩者最新
+  SHA 的 CI/Android/Gemini checks 全綠。PR #24 的 7 個舊 P1 threads 已逐則查證、回覆並 resolve；
+  feature branches 已刪除。
 - **最重要的發現**:**L1 場景描述不是可靠的跌倒偵測器**(遠景/小主體會漏、會幻覺)。真偵測要 **L2**(見 issue #26)+ 相機佈建讓主體佔比足夠(見 `docs/design/vlm/SD.md` §8)。
 
 ## 目前狀態
 
 Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G5 / Android 17** 驗證。
 
-**已 merge 至 main:** P0(Rust→JNI→Kotlin)· P1(CameraX×L0 閘控)· P2 seam(Captioner 佔位)· ADR-0009 轉向 · App 內模型下載 · UI/UX 設計定義。
+**已 merge 至 main:** P0(Rust→JNI→Kotlin)· P1(CameraX×L0 閘控)· P2/L1 LiteRT 真實描述 ·
+App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 foundation/event schema。
 
-**在 PR #24(未 merge)—— 本輪大量新增,皆實機驗證:**
+**目前 `main` 已具備:**
 
 | 項目 | 狀態 |
 |---|---|
@@ -33,7 +33,8 @@ Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G
 | LiteRT delegate 初始化失敗先 close Engine，再嘗試下一個 backend(防 OOM) | ✅ |
 | 開發者模式:測試影片播放(過 L0→L1)、模型驗證(pass-rate+延遲)、描述串流+記錄 | ✅ |
 | 移除 legacy RN `app/` | ✅ |
-| 43 個 Android host 單元測試(含 GuardianSession) + Rust 10 + Python 18 | ✅ |
+| Rust L2 Fall/ZoneExit/Violence 狀態機 + Event schema/serde | ✅ foundation；Android observation/JNI 待接 |
+| 43 個 Android host 單元測試 + Rust 25 + Python 28 | ✅ |
 
 ### Legacy React Native / Rush 退場稽核(2026-08-08)
 
@@ -53,21 +54,18 @@ Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G
 
 ## 下一步(建議順序)
 
-1. **複核並 Merge PR #24**(owner 決定；先確認最新 SHA checks 與 review threads)。`gh pr merge 24 --squash`。
-2. **L2 事件引擎(issue #26,P3)已開始**:`codex/l2-event-engine` 已建立 Rust
-   Fall/ZoneExit/Violence 狀態機、`schemas/event.schema.json`、serde transport 與 SA/SD；
-   下一個關鍵是 Android pose/action extractor → JNI observation 接線與真實素材校準。L1 描述
-   只能附加二階脈絡，不能單獨升級 risk/alert。
-   - **相鄰技術債:** `NativeCore.describe` + `core-rs/src/vlm.rs` 是 ADR-0008 的未使用 Rust L1
-     佔位 seam；現行 `MonitorActivity` 只走 Kotlin `LiteRtCaptioner`。另開小 PR 移除 JNI symbol、
-     Rust module/tests 並更新 ADR-0008/0009；**保留**仍在用的 Rust `frameSignature` 與 L2 engine。
-3. **相機佈建準則落地**:依 §8,關注區主體佔比 ≥ ⅓、多機分區;dev 模式的模型驗證(`dev_eval/` + `dev_videos/`)用來量測。
-4. **釐清模型能力 vs 取景(issue #29)**:用開發者模式跑 E2B vs E4B 同組近景影格,比 pass-rate/幻覺/延遲 → 決定 `DEFAULT_L1` 與是否需更強模型。
-5. **L1 效能**(issues #25/#27/#28):變化閘控外加「L1 最小間隔」節流(壓熱/耗電)· 評估 NPU delegate · prefill/輸出優化。
-6. **#3 HF OAuth 網頁登入**(取代貼權杖;現況:App 內貼 HF read 權杖即可,已加密存裝置)。
-7. **#4 Firebase 接線**(Remote Config 模型目錄 + FCM 告警;`google-services.json` 已放置,ADR-0010)。
-8. **#5 升級 library**(targetSdk 已 36;逐一升 lib 並驗證建置)。
-9. **P4 音訊融合**(目前音訊誠實標示「未啟用」,不誤報)。
+1. **L2 Android 接線(issue #26,P3):** 選定輕量 pose/action extractor → 產生匿名 Observation →
+   JNI 餵入 Rust `EventEngine` → Android event/policy；再用真實素材校準。L1 只能後補客觀脈絡。
+2. **清除 legacy Rust L1 seam:** `NativeCore.describe` + `core-rs/src/vlm.rs` 是 ADR-0008 的未使用
+   佔位；另開小 PR 移除 JNI symbol、Rust module/tests 並更新 ADR-0008/0009。**保留**仍在用的
+   Rust `frameSignature` 與 L2 engine。
+3. **相機佈建準則落地:** 依 §8,關注區主體佔比 ≥ ⅓、多機分區；以 `dev_eval/` + `dev_videos/` 量測。
+4. **釐清模型能力 vs 取景(issue #29):** 同組近景影格比較 E2B/E4B pass-rate、幻覺與延遲。
+5. **L1 效能**(issues #25/#27/#28):最小間隔節流、NPU delegate、prefill/輸出優化。
+6. **#3 HF OAuth 網頁登入**(取代貼權杖；現況為裝置端加密 HF read token)。
+7. **#4 Firebase 接線**(Remote Config 模型目錄 + FCM 告警；ADR-0010)。
+8. **#5 升級 library**(targetSdk 已 36；逐一升級並驗證)。
+9. **P4 音訊融合**(目前誠實標示未啟用)。
 
 ## 開發者模式(驗證工具)用法
 
@@ -87,7 +85,6 @@ Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G
 
 ## 阻擋 / 需要人介入
 
-- **Merge PR #24**:owner 決定(不自動 merge 進 main)。
 - **`GEMINI_API_KEY`**(repo secret):未設時雲端 `ai-code-review` 部分功能 skip。
 - **HF read 權杖**:owner 在 App 模型目錄「設定」貼上即可下載 gated Gemma(加密存裝置)。
 - **實體相機測試**:遠端無法對準實體鏡頭;用開發者模式的測試影片/影格驗證 L1。
@@ -121,6 +118,6 @@ Gradle 9.3.1 · AGP 8.12.0 · **Kotlin 2.2.10**(為 litertlm metadata 升)· com
 
 ## 參考
 
-ADR:[0006](adr/0006-safety-alert-mvp.md) MVP、[0007](adr/0007-rust-first-redesign.md) Rust 重建、[0009](adr/0009-edge-ai-litert-ai-edge.md) LiteRT、[0010](adr/0010-firebase-architecture.md) Firebase。
+ADR:[0006](adr/0006-safety-alert-mvp.md) MVP、[0007](adr/0007-rust-first-redesign.md) Rust 重建、[0009](adr/0009-edge-ai-litert-ai-edge.md) LiteRT、[0010](adr/0010-firebase-architecture.md) Firebase、[0011](adr/0011-l2-fast-path-evidence.md) L2 fast path。
 設計:[`docs/design/`](design/README.md)(尤其 [`vlm/SD.md`](design/vlm/SD.md) §6.1 pad 根因、§8 相機選型)。
 開放 issues:#25/#26/#27/#28/#29。GitHub Milestones:P2 / P2.5 / P3 / P4 / MVP。
