@@ -369,7 +369,8 @@ L2 只接收匿名 pose/motion/action observations 與可選的 L1 文字描述�
 
 ## 測試
 
-邊開發邊補測試(dev-standards);由 GitHub Actions 自動跑:
+邊開發邊補測試(dev-standards)。完整測試矩陣如下；host unit/lint 由 GitHub Actions
+自動跑，裝置專屬項目另行執行：
 
 | 類型 | 工具 | 範圍 |
 |---|---|---|
@@ -377,26 +378,90 @@ L2 只接收匿名 pose/motion/action observations 與可選的 L1 文字描述�
 | UI / 使用者旅程 | **[Maestro](https://maestro.mobile.dev)**(`.maestro/*.yaml`) | 模型下載/切換、進入即時偵測、告警處置(`maestro test .maestro/`) |
 | 裝置整合 | 裝置實測 / `androidTest` | JNI、CameraX、LiteRT 推論 |
 
-CI(`.github/workflows/ci.yml`)硬性關卡跑上述單元測試 + schema/identity 守衛;Maestro journey 於裝置/模擬器執行。Maestro flow 不驗證任何真實機密(如 HF 權杖)。
+CI(`.github/workflows/ci.yml`)硬性關卡跑上述單元測試、Rust clippy、Android lint 與
+schema/identity/privacy 守衛。Maestro journey、cargo-ndk Android-target 編譯與 Pixel 10 實機
+測試目前是本機/裝置關卡，尚未在 GitHub-hosted runner 自動化。Maestro flow 不驗證
+任何真實機密(如 HF 權杖)。
 
 ## 協作與 CI 流程
 
-我們用 **Claude Code 驅動開發 + GitHub PR 關卡**協作。每個功能/phase 都走同一條路,方便分享與交接:
+專案使用 **AI-assisted development + GitHub PR gate**。以下是目前 repo 實際存在的
+流程，不把尚未設定的整合寫成已啟用。強制規範見
+[`AGENTS.md`](AGENTS.md)與 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。
 
-<img src="assets/design/ci-flow.png" width="100%" alt="協作與 CI 流程:Claude Code 分支開發(邊補單元/Maestro 測試)→ commit/PR → GitHub Actions(CI 硬關卡 + Codex/Gemini AI 審查)→ Claude 查證回覆 → 合併並更新 Milestones;有真問題則回到開發"/>
+```mermaid
+flowchart LR
+  BRANCH["從 main 建立功能分支"]
+  LOCAL["本機 tests + lint + build"]
+  COMMIT["commit"]
+  AGY["Antigravity 唯讀 AI review<br/>scripts/ai-review.sh main"]
+  PR["push + Pull Request"]
+  HARD["GitHub Actions 硬關卡<br/>ci/checks + android-unit-tests"]
+  GEMINI["Gemini advisory review<br/>有 GEMINI_API_KEY 才執行"]
+  THREADS["逐則查證 / 回覆 / resolve review threads"]
+  MERGE["checks 全綠 + merge state CLEAN<br/>squash merge"]
+  SYNC["同步 main + 刪除已合併分支"]
 
-**規則(硬性,見 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)):**
+  BRANCH --> LOCAL --> COMMIT --> AGY --> PR
+  PR --> HARD --> THREADS
+  PR --> GEMINI --> THREADS
+  THREADS --> MERGE --> SYNC
+  HARD -.->|"失敗"| LOCAL
+  THREADS -.->|"真實問題"| LOCAL
+```
 
-- **不直接推 `main`**;一律分支 → PR。CI(`.github/workflows/ci.yml`)是**硬關卡**(測試 + schema/身分/影像守衛),紅燈不得合併。
-- **AI 助理審查**於 GitHub Actions 上跑:**Codex**(`AGENTS.md` 規則)與 **Gemini Code Assist**(`.gemini/`)為固定 reviewer;另有本機 `agy`。安裝方式見下。
-- **合併前先諮詢 AI 審查**:逐則檢視並**回覆**,經**查證事實**(讀程式、跑測試、Pixel 10 實機)確認不是真問題後才 merge —— 不看綠勾蓋章。
-- 完成里程碑同步更新 README/ROADMAP/SA-SD 與 **GitHub Milestones**;交接記於 [`docs/HANDOFF.md`](docs/HANDOFF.md)。
+### 本機提交前檢查
 
-**把 AI reviewer 變成固定 reviewer(owner 一次性設定):**
+| 區塊 | 指令 | 目的 |
+|---|---|---|
+| Python | repo root：`python3 -m unittest discover -s tests` | schema、領域型別與離線工具 |
+| Rust | `cd core-rs && cargo test && cargo clippy --all-targets -- -D warnings` | L0/L2 邏輯、serde/JNI registry 與 lint |
+| Android | `cd android && ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` | JVM 單元測試、Android lint 與 APK 組裝 |
+| JNI 變更 | `cd core-rs && cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release` | 確認 Android target 與 `.so` ABI；產物不進版控 |
+| AI review | repo root：`scripts/ai-review.sh main` | commit 後以 `agy` 審查 `main...HEAD`；唯讀、不需 secret |
 
-- **Gemini Code Assist** —— 安裝 [GitHub App](https://github.com/apps/gemini-code-assist) 並選本 repo;依 [`.gemini/config.yaml`](.gemini/config.yaml) + [`.gemini/styleguide.md`](.gemini/styleguide.md) 自動審查每個 PR。
-- **OpenAI Codex** —— 於 [Codex GitHub 整合](https://developers.openai.com/codex/integrations/github) 連結 repo 並開 **Automatic reviews**;依 [`AGENTS.md`](AGENTS.md) 的 Code Review Rules 審查(或留言 `@codex review`)。
-- 我們自建的 `ai-review.yml`(需 `GEMINI_API_KEY` secret)為備援;裝上官方 App 後可退役。
+### GitHub Actions 現況
+
+| Check | 觸發 | 內容 | 性質 |
+|---|---|---|---|
+| `ci/checks` | PR + push `main` | Python compile/tests、Rust tests/clippy、schema 一致、禁止影像進 repo、禁止人物身分欄位 | **硬關卡** |
+| `ci/android-unit-tests` | PR + push `main` | JDK 17 + Android SDK 36；`:app:testDebugUnitTest :app:lintDebug` | **硬關卡** |
+| `ai-code-review/gemini-review` | PR opened/synchronize/reopened | [`.github/workflows/ai-review.yml`](.github/workflows/ai-review.yml)使用 `gemini-2.5-flash`發布 review；無 `GEMINI_API_KEY` 時明確 skip | advisory，不取代 CI |
+| Python `ruff` | `ci/checks` | 目前 workflow 使用 `ruff check core bench || true` | advisory；尚未作為硬關卡 |
+
+Maestro、Pixel 10 實機 CameraX/LiteRT/JNI 驗證、長時間誤報/熱/功耗測試目前不在
+GitHub-hosted CI 內；需在 PR 說明實測範圍，不得用 host test 冒充實機驗收。
+
+Repo 也備有 [`.gemini/config.yaml`](.gemini/config.yaml) +
+[審查 style guide](.gemini/styleguide.md)供 Gemini Code Assist GitHub App 使用，以及
+[`AGENTS.md`](AGENTS.md)供 Codex review 使用。這兩組外部 GitHub reviewer 需由 repo owner
+在 GitHub 另行授權/啟用；是否正在運作以 PR 當下的 checks、reviews 與 comments 為準，
+不只因設定檔存在就假設已啟用。
+
+### Agent skills 與 AI review 工具
+
+| Skill / 工具 | 來源與位置 | 在本專案的用途 |
+|---|---|---|
+| `dev-standards` | repo 內 [`.claude/skills/dev-standards`](.claude/skills/dev-standards/SKILL.md) | PR 關卡、SA/SD、可測試性、文件同步、繁中交付的 canonical 規範 |
+| `android-cli` | Google [android/skills](https://github.com/android/skills)；agent 環境 | 官方 Android docs 搜尋、SDK/模擬器/裝置操作、專案描述 |
+| `camerax` | Google `android/skills`；agent 環境 | CameraX lifecycle、rotation/座標、ML Kit 整合；複雜 CameraX 介面優先用 fake 測試 |
+| `testing-setup` | Google `android/skills`；agent 環境 | 延續現有 JUnit4/Compose 棧，規劃 host、UI、screenshot 與裝置測試 |
+| `gh-address-comments` | Codex GitHub plugin；agent 環境 | 透過 GitHub GraphQL 取得 `reviewThreads/isResolved/isOutdated`，避免把平面 comment 清單當成完整審查狀態 |
+| `yeet` | Codex GitHub plugin；agent 環境 | 限定 stage 範圍、commit、push 並建立 PR；不會把無關的未追蹤檔案一併發布 |
+
+Skills 是開發 agent 的工作指引，**不是 App runtime dependency，也不會打包進 APK**。
+環境沒有 Google Android skills 時，由 Android CLI 依
+[android/skills 官方說明](https://github.com/android/skills#install-android-skills)安裝。
+
+### Merge 判斷
+
+- **不直接 push `main`**；一律分支 → commit → push → PR。
+- AI review 是索引，不是綠勾蓋章。每則意見必須讀程式/測試/實機後回覆；真問題修正，
+  經查證不成立則在 thread 說明。
+- 使用 thread-aware 資料確認沒有 unresolved actionable thread，並確認 checks 全綠、
+  merge state `CLEAN`後才 squash merge。
+- 合併後同步本機 `main`、刪除已合併分支；里程碑變更同步 README/ROADMAP/SA-SD、
+  [`docs/HANDOFF.md`](docs/HANDOFF.md)與 GitHub Milestones。
 
 ## Firebase(規劃)
 
