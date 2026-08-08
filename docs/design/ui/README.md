@@ -79,8 +79,11 @@ UI/UX**」,本目錄收錄 claustrum App 的介面與互動定義。實作(Jetpa
 - **◎ 固定鏡位物件評估**:守護停止時讀 `dev_object_eval/manifest.json` 與 normalized bbox，使用
   獨立 Lite2 instance 顯示 TP/FP/FN、P/R、IoU、hard-negative failure、min-pixel 與 p50/p95；
   不接 tracker/Event。守護中按鈕禁用，模型／consent／manifest 錯誤會明示。
+- **△ L2 跌倒影片評估**:守護停止時讀 `dev_pose_eval/manifest.json` 與本機影片，使用獨立
+  ML Kit→production extractor→Rust session 顯示 clip TP/FP/FN/TN、event P／positive R、pose
+  取得率、人物跨度與 p50/p95；Android 9+，離開畫面不發布 partial summary。
 - **描述記錄(事件頁)**:L1 逐筆描述時間序記錄(時間戳 + 來源 + 延遲,上限 100),dev+prod 皆記錄,便於驗證與 A/B 比較。
-- 純函式 `ModelEval` / `CaptionText` / `ObjectEval` 與 strict manifest parser 皆有 host 單元測試。
+- 純函式 `ModelEval` / `CaptionText` / `ObjectEval` / `FallVideoEval` 與 strict manifest parser 皆有 host 單元測試。
 
 ## 互動與狀態
 

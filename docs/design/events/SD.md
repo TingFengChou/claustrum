@@ -12,6 +12,7 @@
 | `android/.../events/NativeEventEngine` | 將 Kotlin `FastPathObservation` 映射至 JNI；`close()` 可重入，不暴露 Rust 指標 |
 | `MlKitPoseFrameAdapter` | 只取肩/髖/膝/踝，正規化為 upright-frame 座標；landmark 不跨 JNI |
 | `PoseObservationExtractor` | 純 Kotlin 時序特徵；保守 pose、rapid descent/motion、匿名 slot continuity |
+| `FallVideoEvalManifest` / `FallVideoEval` | strict anonymous clip/event-window 契約與 host-testable confusion/event/pose/latency aggregate |
 | `MediaPipeObjectDetector`(Android 已接) | EfficientDet-Lite2 `VIDEO` category/score/bbox 邊界；movement gate 後才執行，不產生 Event |
 | `AnonymousObjectTracker`(Android 已接) | 同類別 bbox IoU／中心距離的短時 P/O 槽位；3 秒 gap／session 邊界重設，不做外觀或跨 session re-identification |
 | `LitterEvidenceTracker`(Android 已接) | 連續近接→可見分離→stationary/dwell→person-left pending-review；不完整證據 fail closed，不產生 Event |
@@ -103,6 +104,19 @@ policy 仍由 issue #39 交付，避免在尚無資料時固定錯誤事件契�
 - JNI 輸入先驗證 timestamp/slot/count/pose wire value；無事件返回 empty array，無效 payload
   返回 null 並由 Kotlin 明確報錯。影格與 pose landmark 不跨越 JNI。
 
+### 6.1 錄影回歸邊界
+
+- 正例 manifest 明示 inclusive `eventStartMs..eventEndMs`；區間內最多配對一個 confirmed，區間外
+  或重複 confirmed 計 false-confirmed。負例任一 confirmed 計 FP；candidate 單獨不算命中或 FP。
+- 每 clip 新建 ML Kit `STREAM_MODE`、`PoseObservationExtractor` 與 `NativeEventEngine`，避免前片
+  tracking/state 污染後片；source_id 只用 dev clip index，不含人物或裝置身分。L2 observation
+  使用固定 synthetic Unix epoch + clip time，Event 輸出再減回 clip-relative 時間配對，維持正式
+  timestamp 契約而不讓實際執行日期影響評分。
+- Android 9+ 以最多 30 幀且不超過 48 MiB 的連續 batch 解碼，再依 frame count/duration 約每
+  100ms 取樣；VFR 需先正規化為 CFR。pose latency 只量 ML Kit task，不冒充完整解碼或告警 p95。
+- decoded Bitmap 只在裝置 RAM，整個 batch finally recycle；離開前景／destroy 使 generation
+  失效，當前 ML/native call 可收尾但不得發布 partial summary。
+
 ## 7. Schema/serde 對應
 
 Rust enums 使用 `snake_case` serde；`Event.event_type` rename 為 JSON `type`，`Actant.actant_type`
@@ -122,6 +136,8 @@ rename 為 `type`，risk 為 nested object。`to_json` 是正式 transport 邊�
   覆蓋欄位映射、init/payload 錯誤與可重入 close，不需相機或 `.so`。
 - `PoseObservationExtractorTest` 覆蓋 upright/seated/horizontal、rapid descent、低信心/缺點、
   timestamp 邊界及 detector 換人時的匿名 slot 隔離；只用純 landmark 資料。
+- `FallVideoEvalManifestTest` 拒絕 path traversal、重複影片、identity/未知欄位與壞時窗；
+  `FallVideoEvalTest` 覆蓋 TP/FN/FP/TN、時窗外／重複 confirmed、零分母、pose rate、人物跨度與 percentile。
 - `ObjectCandidateGateTest` 覆蓋首次放行、active window、最小間隔、periodic probe、out-of-order
   與 reset；`AnonymousObjectTrackerTest` 覆蓋槽位 continuity、motion、類別/gap/reset；
   `LitterEvidenceTrackerTest` 覆蓋 person miss、既有靜止物、完整可見序列、取回與 stale fail-closed；

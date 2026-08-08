@@ -48,6 +48,26 @@ internal fun PoseFrame.estimatedSubjectHeightPx(
         .coerceIn(0, uprightFrameHeight)
 }
 
+/** Longest reliable landmark span in source pixels, independent of upright/horizontal pose. */
+internal fun PoseFrame.estimatedSubjectSpanPx(
+    uprightFrameWidth: Int,
+    uprightFrameHeight: Int,
+    minLikelihood: Float = 0.65f,
+): Int? {
+    if (uprightFrameWidth <= 0 || uprightFrameHeight <= 0) return null
+    val reliable = points.values.filter { point ->
+        point.x.isFinite() && point.y.isFinite() && point.likelihood.isFinite() &&
+            point.likelihood >= minLikelihood
+    }
+    if (reliable.size < 4) return null
+    val xSpanPx = (reliable.maxOf(PosePoint::x) - reliable.minOf(PosePoint::x)) * uprightFrameWidth
+    val ySpanPx = (reliable.maxOf(PosePoint::y) - reliable.minOf(PosePoint::y)) * uprightFrameHeight
+    val span = max(xSpanPx, ySpanPx)
+    if (!span.isFinite() || span <= 0f) return null
+    return (span * SUBJECT_SPAN_EXPANSION).roundToInt()
+        .coerceIn(0, max(uprightFrameWidth, uprightFrameHeight))
+}
+
 private const val SUBJECT_SPAN_EXPANSION = 1.22f
 
 /**

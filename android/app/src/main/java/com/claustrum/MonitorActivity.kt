@@ -29,6 +29,9 @@ import com.claustrum.core.ChangeGate
 import com.claustrum.core.NativeCore
 import com.claustrum.camera.CameraZoomPolicy
 import com.claustrum.events.NativeEventEngine
+import com.claustrum.events.FallVideoEval
+import com.claustrum.events.FallVideoEvalManifest
+import com.claustrum.events.RecordedFallEvaluator
 import com.claustrum.events.PoseFrame
 import com.claustrum.events.PoseObservationExtractor
 import com.claustrum.events.estimatedSubjectHeightPx
@@ -91,9 +94,11 @@ class MonitorActivity : ComponentActivity() {
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private val inferenceExecutor = Executors.newSingleThreadExecutor() // L1 off the analyzer thread
     private val objectExecutor = Executors.newSingleThreadExecutor()
+    private val poseEvalExecutor = Executors.newSingleThreadExecutor()
     private val objectDetectorStarting = java.util.concurrent.atomic.AtomicBoolean(false)
     private val guardianSessionVersion = java.util.concurrent.atomic.AtomicLong(0L)
     private val objectEvalVersion = java.util.concurrent.atomic.AtomicLong(0L)
+    private val poseEvalVersion = java.util.concurrent.atomic.AtomicLong(0L)
     private val poseTaskInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val destroyed = java.util.concurrent.atomic.AtomicBoolean(false)
     private val foreground = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -156,6 +161,9 @@ class MonitorActivity : ComponentActivity() {
     private val objectEvalRunning = mutableStateOf(false)
     private val objectEvalSummary = mutableStateOf<ObjectEval.Summary?>(null)
     private val objectEvalStatus = mutableStateOf<String?>(null)
+    private val poseEvalRunning = mutableStateOf(false)
+    private val poseEvalSummary = mutableStateOf<FallVideoEval.Summary?>(null)
+    private val poseEvalStatus = mutableStateOf<String?>(null)
     private val devVideoPlaying = mutableStateOf(false)
     private val devVideoFrame = mutableStateOf<Bitmap?>(null)
     @Volatile private var l1Source = "相機" // CaptionLog source for the single-flight L1 path
@@ -238,6 +246,10 @@ class MonitorActivity : ComponentActivity() {
                             objectEvalSummary = objectEvalSummary.value,
                             objectEvalStatus = objectEvalStatus.value,
                             onRunObjectEval = { runObjectEval() },
+                            poseEvalRunning = poseEvalRunning.value,
+                            poseEvalSummary = poseEvalSummary.value,
+                            poseEvalStatus = poseEvalStatus.value,
+                            onRunPoseEval = { runPoseEval() },
                             videoPlaying = devVideoPlaying.value,
                             videoFrame = devVideoFrame.value,
                             onPlayVideo = { playDevVideo() },
@@ -260,8 +272,12 @@ class MonitorActivity : ComponentActivity() {
 
     /** User tapped 啟動守護 — arm the guardian and wake the camera (once). */
     private fun activateGuardian() {
-        if (objectEvalRunning.value) {
-            objectEvalStatus.value = "物件評估執行中；完成後才能啟動守護。"
+        if (objectEvalRunning.value || poseEvalRunning.value) {
+            if (objectEvalRunning.value) {
+                objectEvalStatus.value = "物件評估執行中；完成後才能啟動守護。"
+            } else {
+                poseEvalStatus.value = "跌倒影片評估執行中；完成後才能啟動守護。"
+            }
             return
         }
         if (!guardian.beginActivation()) return
@@ -354,6 +370,10 @@ class MonitorActivity : ComponentActivity() {
      */
     private fun runObjectEval() {
         if (objectEvalRunning.value) return
+        if (poseEvalRunning.value) {
+            objectEvalStatus.value = "跌倒影片評估執行中；完成後再執行物件評估。"
+            return
+        }
         if (guardian.snapshot().active) {
             objectEvalStatus.value = "請先停止守護，避免評估與即時 detector 共用資源。"
             return
@@ -472,6 +492,109 @@ class MonitorActivity : ComponentActivity() {
     private fun ensureObjectEvalCurrent(version: Long) {
         if (destroyed.get() || version != objectEvalVersion.get()) {
             throw java.util.concurrent.CancellationException("object evaluation lifecycle expired")
+        }
+    }
+
+    /**
+     * Run recorded clips through an isolated ML Kit STREAM_MODE detector, the production Kotlin
+     * extractor, and a fresh Rust L2 engine per clip. This offline route never writes or uploads
+     * decoded frames and publishes no partial summary after its Activity lifecycle expires.
+     */
+    private fun runPoseEval() {
+        if (poseEvalRunning.value) return
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) {
+            poseEvalStatus.value = "跌倒影片批次評估需要 Android 9(API 28)以上。"
+            return
+        }
+        if (objectEvalRunning.value || evalRunning.value || devVideoPlaying.value) {
+            poseEvalStatus.value = "其他開發者工具執行中；完成後再評估。"
+            return
+        }
+        if (guardian.snapshot().active) {
+            poseEvalStatus.value = "請先停止守護，避免評估與即時 pose fast path 共用資源。"
+            return
+        }
+        val directory = java.io.File(getExternalFilesDir(null), "dev_pose_eval")
+        val manifestFile = java.io.File(directory, "manifest.json")
+        if (!manifestFile.isFile) {
+            poseEvalStatus.value = "找不到 dev_pose_eval/manifest.json。"
+            return
+        }
+
+        poseEvalSummary.value = null
+        poseEvalStatus.value = "讀取本機跌倒影片標註集…"
+        poseEvalRunning.value = true
+        val evalVersion = poseEvalVersion.incrementAndGet()
+        try {
+            poseEvalExecutor.execute {
+                try {
+                    ensurePoseEvalCurrent(evalVersion)
+                    val cases = FallVideoEvalManifest.parse(manifestFile.readText())
+                    check(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P)
+                    val results = RecordedFallEvaluator(directory) {
+                        ensurePoseEvalCurrent(evalVersion)
+                    }.evaluate(cases) { result ->
+                        Log.i(
+                            TAG,
+                            "POSE_EVAL_CASE label=${result.label} expected=${result.expected} " +
+                                "matched=${result.positiveMatched} candidates=" +
+                                "${result.candidateFallCount} confirmed=" +
+                                "${result.confirmedFallAtMs.joinToString()} false_confirmed=" +
+                                "${result.falseConfirmedCount} pose_frames=" +
+                                "${result.poseVisibleFrames}/${result.sampledFrames} " +
+                                "min_subject_span_px=${result.subjectSpansPx.minOrNull()}",
+                        )
+                    }
+                    ensurePoseEvalCurrent(evalVersion)
+                    val summary = FallVideoEval.summarize(results)
+                    Log.i(
+                        TAG,
+                        "POSE_EVAL cases=${summary.cases} tp=${summary.truePositiveCases} " +
+                            "fp=${summary.falsePositiveCases} fn=${summary.falseNegativeCases} " +
+                            "tn=${summary.trueNegativeCases} event_precision=${summary.eventPrecision} " +
+                            "positive_recall=${summary.positiveRecall} false_confirmed=" +
+                            "${summary.falseConfirmedFalls} pose_rate=${summary.poseAcquisitionRate} " +
+                            "p50_ms=${summary.p50PoseLatencyMs} p95_ms=${summary.p95PoseLatencyMs} " +
+                            "min_subject_span_px=${summary.minSubjectSpanPx}",
+                    )
+                    runOnUiThread {
+                        if (!destroyed.get() && evalVersion == poseEvalVersion.get()) {
+                            poseEvalSummary.value = summary
+                            poseEvalStatus.value =
+                                "完成；只保留 RAM 彙總與本機 log，解碼影格已 recycle、未另存或上傳。"
+                        }
+                    }
+                } catch (cancelled: java.util.concurrent.CancellationException) {
+                    Log.i(TAG, cancelled.message ?: "pose video evaluation cancelled")
+                    runOnUiThread {
+                        if (!destroyed.get()) {
+                            poseEvalStatus.value = "跌倒影片評估已隨畫面停止；未發布部分結果。"
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG, "pose video evaluation failed", t)
+                    runOnUiThread {
+                        if (!destroyed.get()) {
+                            poseEvalStatus.value =
+                                "跌倒影片評估失敗:${t.message ?: t.javaClass.simpleName}"
+                        }
+                    }
+                } finally {
+                    runOnUiThread {
+                        if (!destroyed.get()) poseEvalRunning.value = false
+                    }
+                }
+            }
+        } catch (rejected: java.util.concurrent.RejectedExecutionException) {
+            poseEvalRunning.value = false
+            if (!destroyed.get()) throw rejected
+        }
+    }
+
+    /** ML/native work winds down in place; invalidate publication before the next boundary. */
+    private fun ensurePoseEvalCurrent(version: Long) {
+        if (destroyed.get() || version != poseEvalVersion.get()) {
+            throw java.util.concurrent.CancellationException("pose video evaluation lifecycle expired")
         }
     }
 
@@ -1391,6 +1514,7 @@ class MonitorActivity : ComponentActivity() {
     override fun onDestroy() {
         destroyed.set(true)
         objectEvalVersion.incrementAndGet()
+        poseEvalVersion.incrementAndGet()
         super.onDestroy()
         disablePoseFastPath("L2 pose fast path closed")
         val p = pipeline
@@ -1409,6 +1533,7 @@ class MonitorActivity : ComponentActivity() {
             try { detector?.close() } catch (_: Throwable) {}
         }
         objectExecutor.shutdown()
+        poseEvalExecutor.shutdown()
     }
 
     override fun onStart() {
@@ -1421,6 +1546,7 @@ class MonitorActivity : ComponentActivity() {
     override fun onStop() {
         foreground.set(false)
         objectEvalVersion.incrementAndGet()
+        poseEvalVersion.incrementAndGet()
         orientationEventListener.disable()
         clearPoseOverlay()
         clearObjectOverlay()

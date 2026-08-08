@@ -12,6 +12,9 @@ L2 把裝置端輕量 pose/motion/object extractor 產生的時間序列，轉�
 
 本階段已交付 Rust `EventEngine`、跨語言 `event.schema.json`、Android `FastPathObservation`、
 具生命週期的 JNI engine bridge，以及 CameraX→ML Kit 單人 pose→Rust 的第一條實際 fast path。
+Android dev pose eval 已能以 strict event-window manifest 讓錄影逐 clip 經同一 extractor/JNI/Rust
+規則，輸出 clip confusion matrix、event precision、positive recall、pose 取得率與 latency；這只是
+校準基礎設施，不代表現有素材已達部署門檻。
 Android 另已接 MediaPipe category/score/bbox candidate、session-local 匿名幾何 tracker 與
 fail-closed litter evidence stage，但尚未產生 L2 `ObjectObservation` 或 Event。它們都未經真實
 素材校準，也沒有 impact/多人 action、可靠多人 association、通知或 UI policy，因此不宣稱可部署告警。
@@ -29,6 +32,7 @@ fail-closed litter evidence stage，但尚未產生 L2 `ObjectObservation` 或 E
 | FR-7 | 輸出可序列化為 `schemas/event.schema.json`，不含影格、人物身分或年齡/臉部欄位 |
 | FR-8 | Android 以可關閉的 opaque handle 管理每個 camera source 狀態；JNI 只傳 observation，每個返回字串為單一 Event JSON |
 | FR-9 | Litter:只有匿名人—物 association 顯示連續近接→可見分離→stationary/dwell，且先看到人物拉遠、之後人離開而物仍在 ROI，才可建立 candidate；單一物件 detection／person miss 不成立。Android 已完成 pre-Event evidence stage，L2 candidate/schema 尚待 #39 |
+| FR-10 | Fall 錄影評估的正例須以明示 confirmed event window 配對；時窗外／重複 confirmed 另計 false confirmed，negative 任一 confirmed 計 FP，不得用隱含 tolerance 美化結果 |
 
 ## 3. 非功能需求
 
@@ -75,6 +79,13 @@ fail-closed litter evidence stage，但尚未產生 L2 `ObjectObservation` 或 E
   速度/姿態條件式門檻，不能只為 recall 直接放寬。
 - 預設 thresholds 是保守起點，不等於已達 `<1/24h`；須用 72 小時無事件語料與演練素材校準。
 - `latency_ms` 是事件時窗延遲，不含 CameraX/extractor/JNI/通知；端到端 p95 需實機量測。
+- Dev 錄影以 frame count／duration 將固定 frame-rate 素材映到約 100ms 時間軸；VFR 素材須先
+  正規化並保存轉檔設定，否則 event-window 邊界不是逐幀精確 PTS。每 clip 重設 STREAM detector、
+  extractor 與 Rust session，因此不量跨鏡追蹤，也不替代真 CameraX overlay／rotation 驗收。
+- Pixel 首輪 360×640 新聞剪輯 smoke：full-frame 與 1.4× FOV crop 兩個正例皆無 candidate，
+  post-fall 多人負例無 confirmed（TP0/FP0/FN2/TN1；pose rate 26.6%）。小幅 zoom 只把正例
+  full-frame 最小可靠人物跨度重跑為 46–60px、crop 為 66px，仍未改善事件 recall；不可據此
+  放寬 Rust 門檻，也不能用單次 detector 輸出作穩定性結論。
 - MediaPipe Object Detector 只提供 category/score/bbox 且沒有可依賴的 tracking ID；Android 以
   `VIDEO` + current/latest queue 主動合併中間候選，語意上同樣不是逐幀 recall 保證。COCO 的
   bottle/cup 也不等於垃圾。短時 greedy geometry tracker 與 pre-Event evidence state 已接，但

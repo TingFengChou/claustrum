@@ -81,6 +81,14 @@ objectExecutor(single thread)
   → ObjectEval confidence-greedy same-category IoU≥0.5
   → RAM Summary / Compose + aggregate-only local log → recycle Bitmap
 
+poseEvalExecutor(single thread; guardian stopped; Android 9+)
+  external-files/dev_pose_eval/manifest.json + videos
+  → bounded contiguous MediaMetadataRetriever frame batches (~100ms CFR sampling)
+  → isolated ML Kit STREAM_MODE → production PoseObservationExtractor
+  → fresh NativeEventEngine/JNI/Rust session per clip
+  → strict event-window FallVideoEval → RAM Summary / Compose + aggregate-only local log
+  → recycle every decoded Bitmap; lifecycle generation rejects partial publication
+
 main thread
   GuardianSession / pipeline snapshot + ephemeral trackedPeople → MonitorUi → Compose
 
@@ -207,7 +215,9 @@ error。這是 issue #42 的裝置驗收證據，不代表固定式背景服務�
   絕不附加 HF bearer token。MediaPipe Tasks 的非影像效能 metrics 需模型頁獨立同意才啟用，
   可撤回並直接停止新 detector submission，不依賴下一張 CameraX 影格；詳見 PRIVACY/#41。
 - Dev 素材只讀使用者明確放入 app external-files 的 `dev_eval/`、`dev_videos/`、
-  `dev_object_eval/`；object eval 只輸出 aggregate、不另存或上傳影格，完成後 recycle Bitmap。
+  `dev_object_eval/`、`dev_pose_eval/`；object/pose eval 只輸出 aggregate、不另存或上傳影格，
+  完成後 recycle Bitmap。pose eval 的 48 MiB batch pixel budget 防止 1080p/4K 批次 OOM；
+  `onStop`/`onDestroy` 先使 generation 失效，當前不可中斷的 ML/native call 只允許收尾。
 
 ## 8. 測試
 
@@ -215,7 +225,8 @@ error。這是 issue #42 的裝置驗收證據，不代表固定式背景服務�
   `FallbackCaptionerTest`、`CaptionTextTest`、`ModelEvalTest`、`ModelSpecTest`、
   `PoseObservationExtractorTest`、`NativeEventEngineTest`、`ObjectCandidateGateTest`、
   `LatestOnlyQueueTest`、`ObjectRuntimeStatsTest`、`AnonymousObjectTrackerTest`、
-  `LitterEvidenceTrackerTest`、`ObjectEvalTest`、`ObjectEvalManifestTest`、`ObjectCandidateGeometryTest`、
+  `LitterEvidenceTrackerTest`、`ObjectEvalTest`、`ObjectEvalManifestTest`、`FallVideoEvalTest`、
+  `FallVideoEvalManifestTest`、`ObjectCandidateGeometryTest`、
   `ModelsControllerTest`。pose/object 測試用
   純資料，不 mock `ImageProxy` 或真模型。
 - `PersonOverlayGeometryTest` 覆蓋 confidence/NaN 過濾、邊界裁切、取景提示與多人 list UI 合約；
@@ -223,8 +234,10 @@ error。這是 issue #42 的裝置驗收證據，不代表固定式背景服務�
   transform 的 rotation/crop 正確性必須在實機以可見人物驗證，host test 不冒充裝置測試。
 - Android build:`./gradlew :app:testDebugUnitTest :app:assembleDebug`。
 - Android lint:`./gradlew :app:lintDebug`；bridge 測試使用 fake，不 mock Android/CameraX 類別。
-- 裝置:權限/bind、tab、待命→啟動→守護、GPU delegate、真模型描述；L2 另需固定鏡位錄影
-  confusion matrix、p95、72h negative corpus；overlay 已驗 portrait、人物離場與前後景清除。
+- 裝置:權限/bind、tab、待命→啟動→守護、GPU delegate、真模型描述；L2 錄影 harness 已能在
+  Pixel 跑完整 production path，但仍需固定鏡位 confusion matrix、end-to-end p95、72h negative
+  corpus；首輪新聞剪輯 smoke 為 TP0/FP0/FN2/TN1、pose rate 26.6%、ML Kit 重跑 p50/p95
+  24/38–39ms，full-frame/1.4× crop 正例皆漏報。overlay 已驗 portrait、人物離場與前後景清除。
   Pixel WindowManager 強制 ROTATION_90 已驗 landscape 雙欄與控制可用；這不會改變實體 orientation
   sensor，故不能替代四向 camera buffer 驗收。四向 rotation 與 2F→1F zoom 依 issue #37/#38
   逐項實機驗收；host／強制 display rotation 都不能冒充感測器校準。

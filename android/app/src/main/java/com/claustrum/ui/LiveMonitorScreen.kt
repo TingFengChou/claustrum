@@ -434,15 +434,22 @@ private fun DevControls(dev: DevUi, guardianActive: Boolean) {
         Text("開發者模式 · 模型驗證", color = c.warn, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val busy = dev.evalRunning || dev.videoPlaying || dev.objectEvalRunning
+            val busy = dev.evalRunning || dev.videoPlaying || dev.objectEvalRunning || dev.poseEvalRunning
             DevButton(if (dev.evalRunning) "驗證中…" else "▶ L1 驗證", enabled = !busy, modifier = Modifier.weight(1f)) { dev.onRunEval() }
             DevButton(if (dev.videoPlaying) "播放中…" else "▶ 測試影片", enabled = !busy, modifier = Modifier.weight(1f)) { dev.onPlayVideo() }
         }
         Spacer(Modifier.height(8.dp))
         DevButton(
             if (dev.objectEvalRunning) "物件評估中…" else "◎ 固定鏡位物件評估",
-            enabled = !dev.evalRunning && !dev.videoPlaying && !dev.objectEvalRunning && !guardianActive,
+            enabled = !dev.evalRunning && !dev.videoPlaying && !dev.objectEvalRunning &&
+                !dev.poseEvalRunning && !guardianActive,
         ) { dev.onRunObjectEval() }
+        Spacer(Modifier.height(8.dp))
+        DevButton(
+            if (dev.poseEvalRunning) "跌倒評估中…" else "△ L2 跌倒影片評估",
+            enabled = !dev.evalRunning && !dev.videoPlaying && !dev.objectEvalRunning &&
+                !dev.poseEvalRunning && !guardianActive,
+        ) { dev.onRunPoseEval() }
         if (guardianActive) {
             Text("先停止守護，才能用獨立 detector 跑標註集。", color = c.faint, fontSize = 10.sp)
         }
@@ -479,8 +486,27 @@ private fun DevControls(dev: DevUi, guardianActive: Boolean) {
         dev.objectEvalStatus?.let { status ->
             Text(status, color = c.faint, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
         }
+        dev.poseEvalSummary?.let { s ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "跌倒 clip:TP ${s.truePositiveCases} · FP ${s.falsePositiveCases} · " +
+                    "FN ${s.falseNegativeCases} · TN ${s.trueNegativeCases} · " +
+                    "事件P ${formatEvalRatio(s.eventPrecision)} · 正例R ${formatEvalRatio(s.positiveRecall)}",
+                color = c.steel, fontFamily = Mono, fontSize = 11.sp,
+            )
+            Text(
+                "pose取得 ${formatEvalRatio(s.poseAcquisitionRate)} · p50/p95 " +
+                    "${s.p50PoseLatencyMs}/${s.p95PoseLatencyMs}ms · " +
+                    "candidate/confirmed ${s.candidateFalls}/${s.confirmedFalls} · " +
+                    "false confirmed ${s.falseConfirmedFalls} · 最小人物跨度 ${s.minSubjectSpanPx ?: "—"}px",
+                color = c.steel, fontFamily = Mono, fontSize = 11.sp,
+            )
+        }
+        dev.poseEvalStatus?.let { status ->
+            Text(status, color = c.faint, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
+        }
         Text(
-            "L1:dev_eval/ · 影片:dev_videos/ · 物件:dev_object_eval/manifest.json",
+            "L1:dev_eval/ · 影片:dev_videos/ · 物件:dev_object_eval/ · 跌倒:dev_pose_eval/",
             color = c.faint, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
         )
     }

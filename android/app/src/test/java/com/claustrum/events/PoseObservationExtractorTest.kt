@@ -132,6 +132,14 @@ class PoseObservationExtractorTest {
         assertThat(frame.estimatedSubjectHeightPx(0)).isNull()
     }
 
+    @Test
+    fun `subject span estimate remains useful for horizontal pose`() {
+        val frame = horizontal(atMs = 1_000, centerY = 0.5f)
+
+        assertThat(frame.estimatedSubjectSpanPx(1_000, 1_000)).isAtLeast(400)
+        assertThat(frame.estimatedSubjectSpanPx(0, 1_000)).isNull()
+    }
+
     private fun standing(atMs: Long, xOffset: Float = 0f): PoseFrame = PoseFrame(
         atMs = atMs,
         points = mapOf(
