@@ -1,33 +1,48 @@
 package com.claustrum.vlm
 
-import com.claustrum.core.NativeCore
+import android.graphics.Bitmap
 
 /**
- * L1 scene-description boundary (Kotlin side — L1 runs here now that the engine
- * is Google AI Edge / LiteRT, per ADR-0009). The analyzer depends only on this
- * interface, so the L0→L1 trigger logic is unit-testable with a fake and the real
- * `LiteRtCaptioner` (LiteRT-LM) can slot in without touching the pipeline.
+ * L1 scene-description boundary. Generic over the frame type [F] so the L0→L1
+ * trigger ([PerceptionPipeline]) is host-unit-testable with a fake (F=String),
+ * while production uses F=Bitmap (the admitted camera frame).
  *
  * Contract: called ONLY on an L0-admitted frame ("wake the VLM only on change").
- * Must return objective description only — risk/event judgement is L2's job and
+ * Must return an objective description only — risk/event judgement is L2's job and
  * needs visible evidence (ADR-0006); L1 never speculates.
  */
-interface Captioner {
-    /** Short objective description of an admitted frame's luma. */
-    fun describe(luma: ByteArray, width: Int, height: Int): String
+interface Captioner<in F> {
+    fun describe(frame: F): String
 
     /** Backend name shown in the UI so the live L1 engine is unambiguous. */
     val backend: String
 }
 
 /**
- * Interim backend: delegates to the Rust diagnostic placeholder
- * ([NativeCore.describe]) — honest frame stats, no faked understanding. Used
- * until [LiteRtCaptioner] (real multimodal Gemma) is wired and a model is present.
+ * Interim backend: an honest diagnostic computed from the bitmap (dimensions +
+ * mean brightness) — proves the frame arrived, fabricates no understanding. Used
+ * until a vision model is downloaded and [LiteRtCaptioner] takes over.
  */
-object PlaceholderCaptioner : Captioner {
-    override fun describe(luma: ByteArray, width: Int, height: Int): String =
-        NativeCore.describe(luma, width, height) ?: "L1 佔位:描述失敗"
+object PlaceholderCaptioner : Captioner<Bitmap> {
+    override fun describe(frame: Bitmap): String {
+        val w = frame.width
+        val h = frame.height
+        // Downscale to a tiny grid for a cheap mean brightness (only runs on admit).
+        val s = 16
+        val scaled = Bitmap.createScaledBitmap(frame, s, s, false)
+        val px = IntArray(s * s)
+        scaled.getPixels(px, 0, s, 0, 0, s, s)
+        var sum = 0L
+        for (p in px) {
+            val r = (p shr 16) and 0xFF
+            val g = (p shr 8) and 0xFF
+            val b = p and 0xFF
+            sum += (r + g + b) / 3
+        }
+        if (scaled !== frame) scaled.recycle()
+        val meanPct = (sum / (s * s)) * 100 / 255
+        return "L1 佔位(未載入 VLM)· ${w}×${h} · 亮度 ${meanPct}%"
+    }
 
-    override val backend: String = "placeholder(Rust 診斷)"
+    override val backend: String = "placeholder(診斷)"
 }

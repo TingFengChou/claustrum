@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tesla graphite "ground" — matches ClaustrumColors.ground (#16181D). Used as
+         the window background so there is no white flash before Compose renders. -->
+    <color name="claustrum_ground">#FF16181D</color>
+</resources>

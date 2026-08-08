@@ -13,12 +13,23 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/Theme.Claustrum">
 
+        <!-- LiteRT/TFLite GPU delegate needs OpenCL; declare so the loader can find it
+             (required=false → app still installs on devices without it). Enables the
+             GPU vision backend for Gemma 3n (much faster than CPU). -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+        <uses-native-library android:name="libGLES_mali.so" android:required="false" />
+        <uses-native-library android:name="libPVROCL.so" android:required="false" />
+
+        <!-- Home / launcher = Live Monitor (機器之眼). -->
         <activity
-            android:name=".MainActivity"
+            android:name=".MonitorActivity"
             android:exported="true"
             android:screenOrientation="portrait">
             <intent-filter>

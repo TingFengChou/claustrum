@@ -6,7 +6,7 @@
 > **Rust 感知核心 + 原生 Android(Kotlin/Compose)+ L1 用 Google AI Edge / LiteRT**(ADR-0009,不自建 llama.cpp)。MVP 的功能目標(下方
 > A–D、社區/幼兒園)不變;實作技術棧改變。重建階段:
 > **P0** 骨架(Rust `.so` + Android + JNI)〔✅ 完成:L0 變化閘控(host `cargo test` 綠)、JNI/`.so`、Android 外殼在 Pixel 10 實測 `nativeHello()` 回話 + L0 閘控 PASS〕· **P1** L0 變化閘控接 CameraX luma 流〔✅ 完成:Pixel 10 實測 640×480 即時串流,靜態場景 1/2250 放行 → 省下 ~100% 運算;`ChangeGate` 7 個 JVM 單元測試綠〕·
-> **P2** L1 場景描述(**Google AI Edge / LiteRT-LM SDK**,不自建 llama.cpp — ADR-0009)〔🔶 進行中:(a)L0→L1 觸發 + `Captioner` 邊界(佔位)已裝置驗證;(b)**App 內模型下載 + 目錄/能力/切換**已落地並裝置驗證(WorkManager 前景下載、gated 401 提示);(c)**UI/UX 已定稿**([`docs/design/ui`](design/ui/README.md),Tesla/機器之眼);待接:HF 授權登入 → `LiteRtCaptioner`(litertlm-android)真多模態推論 → UI 以 Compose 實作(見 GitHub Milestones #3/#4)〕· **P3** L2 事件引擎(#5)· **P4** 音訊融合(#6)。續作見 [`HANDOFF.md`](HANDOFF.md)。
+> **P2** L1 場景描述(**Google AI Edge / LiteRT-LM SDK**,不自建 llama.cpp — ADR-0009)〔✅ 大致完成:(a)L0→L1 觸發 + `Captioner` 邊界已裝置驗證;(b)**App 內模型下載 + 目錄/能力/切換**已落地(WorkManager 前景下載、gated 401 提示);(c)**UI/UX 已定稿**並以 **Compose 實作全貌**(進入流程 + 底部導覽 + 機器之眼);(d)**`LiteRtCaptioner`(litertlm-android 0.11.0)真多模態推論已通**——`.litertlm`-native Gemma 3n,Pixel 10 實測真實場景描述 ~6.5s(`.task` 格式只吐 `<pad>`,已改原生 `.litertlm`)〕· **P2.5** Compose UI ✅ · **P3** L2 事件引擎(#5)· **P4** 音訊融合(#6)。續作見 [`HANDOFF.md`](HANDOFF.md)。
 > 詳見 [ADR-0007](adr/0007-rust-first-redesign.md)。
 
 ## 全景圖
@@ -19,8 +19,8 @@ flowchart TD
     direction TB
     P1a["領域模型 Kineme / Actant / Ethogram + JSON Schema"]
     P1b["dev-standards:PR + AI 審查 · SA/SD · 測試 · 繁中 · 里程碑更新"]
-    P1c["RN app 產品本體(ADR-0005)· 實機運行於 Pixel 10"]
-    P1d["裝置端 VLM 引擎 llama.rn / llama.cpp(APK 內含 librnllama.so)"]
+    P1c["RN app 產品本體(ADR-0005)· 已被 ADR-0007 取代並自 repo 移除"]
+    P1d["裝置端 VLM 引擎 llama.rn / llama.cpp · 已被 ADR-0009 LiteRT 取代(棄用)"]
     P1e["AI 審查改用 Antigravity agy(本機、免 secret)"]
   end
 
@@ -62,11 +62,18 @@ flowchart TD
 
 > Phase 1 已完成、Phase 2 為目前 MVP、Phase 3+ 延後。以下為各里程碑細節。
 
-## 進度附註(2026-07-31)
+## 進度附註(2026-08-07)
 
-- React Native app 為產品本體已建立並實機運行於 Pixel 10(ADR-0005)。
-- 裝置端 VLM 執行期 **llama.rn / llama.cpp** 已接入並建置成功(APK 內含 `librnllama.so`)——
-  等於把 M0/M1 的「裝置端推論可行性」往前推進。
+- **架構已由 React Native 打掉重練為 Rust 核心 + 原生 Android**(ADR-0007);舊 `app/`(RN)
+  與其 `docs/design/app/` 設計文件已自 repo 移除,保留於 git 歷史。
+- **L1 執行期改用 Google AI Edge / LiteRT-LM**(ADR-0009,取代 llama.rn / llama.cpp)。
+  裝置端(Pixel 10)以 `.litertlm`-native Gemma 3n 產生真實場景描述 ~6.5s;
+  MediaPipe `.task` 格式在 litertlm 0.11.0 只吐 `<pad>`,已改用原生 `.litertlm`。
+- 裝置 App 已具(PR #24,未 merge):進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
+  App 內 gated 模型下載、L0 變化閘控(靜態場景省 ~98% 運算)、**L1 真實場景描述**、
+  開發者模式(測試影片/模型驗證/描述記錄)。
+- **關鍵發現:L1 場景描述非可靠跌倒偵測器**(遠景/小主體會漏或幻覺)→ 事件偵測須 L2;
+  相機佈建須讓主體佔畫面 ≥ ⅓(見 [`docs/design/vlm/SD.md`](design/vlm/SD.md) §8、issue #26)。
 - 首個應用**藥單辨識**的軟體層(schema、prompt、安全解析、單元測試、SA/SD)完成
   ——**現已延後**(見下方 MVP 重新聚焦)。
 

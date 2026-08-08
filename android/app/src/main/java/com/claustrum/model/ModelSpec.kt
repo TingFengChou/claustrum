@@ -67,24 +67,26 @@ data class ModelSpec(
         // L1 (scene description) requires ASK_IMAGE. Text-only models are kept
         // for quick download testing and future non-vision tasks.
 
+        // .litertlm-native bundles (litertlm SDK's own format). The MediaPipe .task
+        // files decode to only <pad> under litertlm 0.11.0 — see docs/design/vlm/SD.md.
         val GEMMA_3N_E2B_VISION = ModelSpec(
             name = "Gemma-3n-E2B-it-int4",
-            modelId = "google/gemma-3n-E2B-it-litert-preview",
-            fileName = "gemma-3n-E2B-it-int4.task",
-            sizeBytes = 3_136_226_711L,
+            modelId = "google/gemma-3n-E2B-it-litert-lm",
+            fileName = "gemma-3n-E2B-it-int4.litertlm",
+            sizeBytes = 3_655_827_456L,
             capabilities = setOf(Capability.ASK_IMAGE, Capability.CHAT),
             gated = true,
-            description = "Gemma 3n E2B(圖+文)· LiteRT-LM · 較輕、較快,適合即時串流首選",
+            description = "Gemma 3n E2B(圖+文)· LiteRT-LM 原生 · 目前 L1 預設；能力與取景邊界仍待基準評測",
         )
 
         val GEMMA_3N_E4B_VISION = ModelSpec(
             name = "Gemma-3n-E4B-it-int4",
-            modelId = "google/gemma-3n-E4B-it-litert-preview",
-            fileName = "gemma-3n-E4B-it-int4.task",
-            sizeBytes = 4_405_655_031L,
+            modelId = "google/gemma-3n-E4B-it-litert-lm",
+            fileName = "gemma-3n-E4B-it-int4.litertlm",
+            sizeBytes = 4_919_541_760L,
             capabilities = setOf(Capability.ASK_IMAGE, Capability.CHAT),
             gated = true,
-            description = "Gemma 3n E4B(圖+文)· LiteRT-LM · 較準、較重",
+            description = "Gemma 3n E4B(圖+文)· LiteRT-LM 原生 · 較大；是否優於 E2B 待同組影格基準評測",
         )
 
         val GEMMA3_1B_TEXT = ModelSpec(

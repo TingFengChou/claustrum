@@ -69,7 +69,7 @@ flowchart TD
     P0["P0 Rust 核心 → JNI → Kotlin ✅"]
     P1["P1 CameraX × L0 變化閘控(省算力)✅"]
     P2["P2 L1 場景描述:LiteRT + App 內模型管理 + UI 定稿 🔶"]
-    P25["P2.5 UI 以 Compose 實作(機器之眼)"]
+    P25["P2.5 Compose UI:進入流程 + 底部導覽 + 機器之眼 ✅"]
     P3T["P3 L2 事件引擎(Rust)· P4 音訊融合"]
     P0 --> P1 --> P2 --> P25 --> P3T
   end
@@ -94,9 +94,9 @@ flowchart TD
   classDef now fill:#241a52,stroke:#8be9ff,color:#eaf6ff;
   classDef next fill:#3a2a10,stroke:#ffb054,color:#ffe9cf;
   classDef future fill:#1c1636,stroke:#6b6690,color:#c7c3e0;
-  class P0,P1 done;
+  class P0,P1,P25 done;
   class P2 now;
-  class P25,B next;
+  class B next;
   class C,D,P3T,F future;
 ```
 
@@ -130,10 +130,10 @@ flowchart TD
 | 模組 | 語言 | 狀態 | 用途 |
 |---|---|---|---|
 | `core-rs/` | Rust | 🟢 P0/P1 · P2 seam | 感知核心:L0 閘控(host 測綠)· L1 `Captioner` 邊界(佔位)· L2/L3 事件引擎(→ `.so`) |
-| `android/` | Kotlin(P0/P1)→ Compose | 🟢 P1 · P2 seam | 原生 App:CameraX luma → Rust L0 閘控 → 放行幀喚醒 L1(Pixel 10 實測省 ~100% 運算);真 VLM 後端待接 |
+| `android/` | Kotlin + Compose | 🟢 P1 · P2.5 UI | 原生 App:進入流程(Splash→介紹→守護)+ 底部導覽(守護/事件/模型/設定)+ 機器之眼;CameraX luma → Rust L0 閘控 → 放行幀喚醒 L1(Pixel 10 實測省 ~100% 運算)· LiteRT 引擎背景初始化 · **L1 真實場景描述已通(`.litertlm`-native Gemma 3n,~6.5s)** |
 | `schemas/` | JSON Schema | ✅ 就緒 | 領域型別**單一真實來源**(跨 Rust / Kotlin / Python) |
 | `core/` `bench/` `eval/` | Python | ✅ 就緒 | 領域型別參考、離線基準測試 / 評測(工具) |
-| `app/`(舊) | React Native | 🗄️ 已淘汰 | 概念驗證(即時字幕 on-device 已驗證);保留於 git 歷史,ADR-0007 取代 |
+| ~~`app/`(RN)~~ | React Native | 🗑️ 已移除 | 概念驗證(即時字幕 on-device 已驗證)· 已隨 ADR-0007/0009 淘汰並自 repo 移除,保留於 git 歷史 |
 
 L1 推論採 **Google AI Edge / LiteRT**(多模態 Gemma,`.litertlm`),走 Tensor G5 NPU;不自建 llama.cpp(ADR-0009)。用法見下方「Edge AI 模型使用」。影格只在裝置端流動。
 
@@ -150,7 +150,7 @@ L1 推論採 **Google AI Edge / LiteRT**(多模態 Gemma,`.litertlm`),走 Tensor
 | `events/`(時序事件引擎) | 📐 P3 規劃 | 與實作 PR 一併補上 SA/SD |
 | `ui/`(UI/UX 設計定義) | 🎨 草案 v1 | [設計 + 互動原型](docs/design/ui/README.md) |
 | `schemas/` 領域型別 | ✅ | 型別即 SoT;參考 [`core/`](docs/design/core/SD.md) |
-| `app/`(舊 RN)· `medication/` | 🗄️ 參考 | [app SD](docs/design/app/SD.md) · [medication SD](docs/design/medication/SD.md)(ADR-0007 前) |
+| `medication/`(藥單辨識) | 🗄️ 參考 | [medication SD](docs/design/medication/SD.md)(ADR-0007 前;`app/` RN 設計文件已隨程式移除,見 git 歷史) |
 
 ## 快速上手
 
@@ -177,24 +177,76 @@ App 啟動 → 進入**模型目錄**下載一顆多模態 Gemma(見「Edge AI �
 
 > L1(場景描述/VLM)的**推論引擎採 Google AI Edge / LiteRT,不自建 llama.cpp**([ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md),取代 ADR-0008)。理由:Gemma 3n 多模態只在 LiteRT 跑得動、走 Tensor G5 的 GPU/NPU 比 CPU 版 llama.cpp 快、跨平台(Android/iOS/macOS)、且 [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery) 為 Apache-2.0 開源可直接沿用——**善用而非重造**。
 
-### 這在感知管線的哪一層
+### 感知管線:擷取頻率 · 各模組職責 · 與 AI Edge Gallery 的差異
 
-```
-CameraX(Kotlin)每幀 luma
-  → L0 變化閘控(Rust core-rs,每幀)           只有「場景有變」才放行
-  → [僅放行幀] L1 場景描述(LiteRT / Kotlin)    多模態 Gemma:圖+文 → 一句描述
-  → L2 事件(Rust,規劃)                        跌倒/離開/暴力 → 告警
+```mermaid
+flowchart TB
+  subgraph CAP["① 影像擷取 · CameraX 1.4.1(Kotlin)"]
+    direction TB
+    PV["Preview UseCase<br/>~30 fps → 機器之眼 visor 顯示<br/>(手動啟動守護後才開)"]
+    IA["ImageAnalysis UseCase<br/>KEEP_ONLY_LATEST · ~30 fps<br/>YUV_420_888 → 取 Y/luma 平面"]
+  end
+
+  subgraph L0["② L0 變化閘控 · claustrum-core(Rust,經 JNI)· 每幀 ~30 fps"]
+    direction TB
+    SIG["frameSignature()<br/>64-bit aHash(luma 縮圖)"]
+    GATE["ChangeGate.admit()<br/>Hamming 距離 ≥ 閾值(8)?<br/>靜態場景 → 略過(實測省 ~98%)"]
+  end
+
+  subgraph L1["③ L1 場景描述 · litertlm-android 0.11.0(LiteRT-LM SDK)· 僅放行幀"]
+    direction TB
+    PREP["旋正 + downscale≤768 + PNG<br/>單飛 single-flight · 背景 executor(非 analyzer)"]
+    ENG["Engine(.litertlm, GPU/GPU)<br/>載入一次 · 每放行幀開新 Conversation"]
+    GEN["Content.ImageBytes + Text → 串流 token<br/>client 端一句話上限 → caption(~6.5s)"]
+  end
+
+  FB["FallbackCaptioner<br/>逾時/錯誤即降級 PlaceholderCaptioner(不成死路)"]
+  L2["④ L2 事件引擎(Rust · 規劃 P3)<br/>跌倒/離開/暴力 → 告警"]
+
+  IA --> SIG
+  SIG --> GATE
+  GATE -->|"放行 · 僅場景變化 ~2%"| PREP
+  GATE -->|"略過 ~98% · 回到取幀"| IA
+  PREP --> ENG
+  ENG --> GEN
+  GEN --> L2
+  GEN -.->|"逾時 / 錯誤"| FB
 ```
 
-每幀的熱路徑(L0)在 Rust;重模型(L1)只在**變化時**被喚醒,交給裝置 NPU 上的 LiteRT——這就是「省算力 + 用對工具」。
+**每幀熱路徑(L0)在 Rust**;重模型(L1)只在**場景變化時**被喚醒、交給裝置 GPU 上的 LiteRT——「省算力 + 用對工具」。頻率一覽:CameraX 取幀 ~30 fps → L0 aHash+閘控每幀 → L1 僅在放行幀(靜態場景幾近 0 次)、單次 ~6.5s。
+
+**設計原則:不漏球,但也不卡住。** 這是即時守護者的關鍵取捨,由三件事共同保證:
+- **不卡住**:L1 在**獨立背景 executor**、**單飛(single-flight)**執行;取幀與 L0 永遠不被 6.5s 的推論阻塞,預覽也不卡。
+- **不漏球**:推論進行中若又有場景變化被放行,**保留為最新 pending 幀**,當前描述一結束立即接手——`ChangeGate` 基準雖已前進,也不會讓變化被永久略過。
+- **不重工**:同時最多一個推論在跑(避免 GPU 過載 / OOM);連續變化只追最新一張。
+
+一句話:**丟掉的是重複的靜態幀(省算力),不是事件(不漏報)**。
+
+**MediaPipe 在哪?** MediaPipe LLM Inference(`tasks-genai`)是 Gallery **早期**採用、吃 `.task` 的路徑;本專案改用**更新的 LiteRT-LM SDK(`litertlm-android`)吃 `.litertlm` 原生檔**——因為同一顆 Gemma 的 MediaPipe `.task` 在 litertlm 0.11.0 只會吐 `<pad>`(格式不相容,見 [vlm/SD §6.1](docs/design/vlm/SD.md))。兩者皆屬「Google AI Edge / LiteRT」家族。
+
+#### 與 Google AI Edge Gallery 的關鍵差異
+
+| 面向 | **claustrum(本專案)** | Google AI Edge Gallery |
+|---|---|---|
+| 定位 | **即時串流守護者**——相機持續「看」、主動偵測告警 | 能力展示 App / 手動問答 demo |
+| 觸發 | CameraX 連續串流 → **L0 自動放行** | 使用者每次**手動**選圖 / 打字 |
+| 省算力層 | **L0 Rust 變化閘控(實測省 ~98%)** | 無(每次查詢都全量推論) |
+| L1 SDK | LiteRT-LM `litertlm-android` 0.11.0 | 早期 MediaPipe `tasks-genai` → 近期亦轉 LiteRT-LM |
+| 模型格式 | **`.litertlm` 原生**(`.task` 在 litertlm 只吐 `<pad>`) | `.task`(MediaPipe Task Bundle) |
+| 提示詞 | **固定客觀場景描述**(一句、防臆測、抗誤報) | 使用者自由輸入 |
+| 輸出處理 | **client 端一句話上限 + 逾時降級後備** | 完整多輪對話串流 |
+| 影像來源 | 相機即時幀(旋正 + downscale) | 相簿選圖 / 拍照 |
+| 隱私 | **影格不離裝置**,只外傳文字描述 / 事件 | 本機推論(展示用途) |
+
+> 一句話:claustrum **沿用** Gallery 的下載/LiteRT 推論做法(善用而非重造),但在其前面加上 **Rust L0 變化閘控**把它變成**省算力的即時串流守護者**,而非手動問答。
 
 ### 引擎與模型
 
 | 項目 | 選用 |
 |---|---|
 | 執行期 | **LiteRT-LM SDK**(`com.google.ai.edge.litertlm:litertlm-android`;AI Edge Gallery 現行採用)。舊路徑 MediaPipe LLM Inference(`tasks-genai`)已進維護模式 |
-| 模型 | LiteRT 社群的**多模態 Gemma**——Gemma 3n E2B/E4B(或 AI Edge 目前主打的 Gemma 4 E2B/E4B) |
-| 格式 | **`.litertlm`** / `.task`(Task Bundle) |
+| 模型 | **多模態 Gemma 3n**——`google/gemma-3n-E2B-it-litert-lm`(預設 L1)/ E4B |
+| 格式 | **`.litertlm`(原生,實測可用)**;MediaPipe `.task` 在 litertlm 0.11.0 只吐 `<pad>`、不採用 |
 | 能力 | 圖+文 → 文("Ask Image");日後音+文 |
 | 加速 | Tensor G5 GPU / NPU(LiteRT delegate) |
 
