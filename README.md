@@ -408,6 +408,8 @@ VFR 或需要逐幀精確 PTS 的正式驗收須先正規化成固定 frame rate
 再換回 clip-relative window，避免跨片狀態污染或破壞正式 timestamp 契約；離開畫面或 destroy
 只讓當前 ML/native call 收尾，之後不發布部分結果。來源影片是開發者明確放入的本機 corpus；App 不寫回、不上傳，
 解碼 Bitmap 用完即 recycle，只有 aggregate 與本機 log 留在 RAM／程序內。
+若 container 宣告的 frame count 與批次實際回傳數不一致，整批會明確失敗而非把缺失尾段靜默
+算成 FN/TN；UI 顯示失敗原因，且不發布任何 partial summary。
 
 此工具回答「現有固定鏡位素材能否走完整 L2 並在標註時窗命中」，**不等於場域可部署**。正式
 門檻仍需實際 2F→1F、1×/2×/3×、日夜／遮擋／多人，另加正常坐下、刻意躺下、清潔／協助等

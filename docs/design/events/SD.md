@@ -114,6 +114,8 @@ policy 仍由 issue #39 交付，避免在尚無資料時固定錯誤事件契�
   timestamp 契約而不讓實際執行日期影響評分。
 - Android 9+ 以最多 30 幀且不超過 48 MiB 的連續 batch 解碼，再依 frame count/duration 約每
   100ms 取樣；VFR 需先正規化為 CFR。pose latency 只量 ML Kit task，不冒充完整解碼或告警 p95。
+- Container frame count 與批次實際數量不一致時 fail closed：整個 run 回報失敗且不發布 summary，
+  不可 `break` 後把缺失尾段靜默計成 fall FN 或 negative TN。
 - decoded Bitmap 只在裝置 RAM，整個 batch finally recycle；離開前景／destroy 使 generation
   失效，當前 ML/native call 可收尾但不得發布 partial summary。
 
