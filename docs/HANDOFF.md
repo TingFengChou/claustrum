@@ -36,14 +36,11 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 foundation/event sch
 | Rust L2 Fall/ZoneExit/Violence 狀態機 + Event schema/serde | ✅ foundation；Android observation/JNI 待接 |
 | 43 個 Android host 單元測試 + Rust 25 + Python 28 | ✅ |
 
-### Legacy React Native / Rush 退場稽核(2026-08-08)
+### Legacy React Native 退場稽核(2026-08-08)
 
 - tracked React Native source 已由 commit `4a4dffaa` 刪除，只有 ADR 與 git 歷史保留決策脈絡。
 - 工作目錄曾殘留約 12GB 的未追蹤 `app/node_modules`、舊 RN Android build 與 iOS local 檔；已
   整包移至 macOS Trash：`/Users/austin/.Trash/claustrum-legacy-react-native-app-20260808`，可復原。
-- repo 歷史與現況均未找到 Microsoft Rush 的 `rush.json`、`common/config/rush` 或相關套件設定；
-  搜尋到的 `Brush` 是 Jetpack Compose graphics API，與 Rush 無關。
-- 若「Rush」是指 Rust：Rust 是 ADR-0007 的現行感知核心，不在退場範圍。
 
 ## L1 模型現況(重要)
 
