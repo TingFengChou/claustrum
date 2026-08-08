@@ -18,9 +18,9 @@
 - **P3(🟡):** ML Kit base Pose Detection `STREAM_MODE` 已由 CameraX 餐取，純 Kotlin extractor
   產生匿名 `FastPathObservation` 並送入 Rust L2 JNI session；Preview 會以 CameraX 官方座標轉換
   畫出匿名人物框與取景像素提示。`fullSensor`、landscape 重排、CameraX target rotation 與持久化
-  zoom 已接線。MediaPipe EfficientDet-Lite2 的 movement gate、有界候選佇列、allowlist 與本機
-  bbox 疊圖也已接線；尚待真實素材校準、ROI／匿名人—物 tracker、litter state、事件呈現、policy
-  與告警。
+  zoom 已接線。MediaPipe EfficientDet-Lite2 的 movement gate、有界候選佇列、allowlist、本機
+  bbox 疊圖、session-local 匿名 P/O tracker 與 fail-closed litter evidence stage 也已接線；尚待
+  真實素材校準、ROI／可靠多人 association、L2 ObjectObservation/Event、policy 與告警。
 - **範圍外:** 人臉/身分/年齡辨識、影格上傳、由 L1 直接判定風險。
 
 ## 3. 需求
@@ -39,10 +39,11 @@
 | FR-10 | Preview 疊圖須用 CameraX analysis→PreviewView transform 與 FIT_CENTER 保留完整視野；只顯示匿名人物框與取景品質，不顯示骨架／身分／未確認風險，遺失/退背景立即清除 |
 | FR-11 | CameraX zoom 必須依 `ZoomState` 裝置 min/max clamp、持久化並於回前景重套；UI 必須讓使用者知道實際倍率 |
 | FR-12 | `fullSensor` 四方向須同步 Preview/Analysis `targetRotation`；landscape UI 不得讓預覽或主要狀態不可操作 |
-| FR-13 | 亂丟垃圾以 movement gate → MediaPipe Object Detector candidate → 匿名人／物時序接入；單一類別／移動不得直接成為事件，ROI/tracker 未完成須明示 |
+| FR-13 | 亂丟垃圾以 movement gate → MediaPipe Object Detector candidate → session-local 匿名人／物時序接入；單一類別／移動／person miss 不得直接成為事件，ROI/多人 association/Event 未完成須明示 |
 | FR-14 | Object detector 必須使用獨立有界 current + latest pending queue；Bitmap 被取代／完成／destroy 時 recycle，bbox 以 CameraX transform 對齊 Preview |
 | FR-15 | MediaPipe metrics 未取得獨立知情同意時不得初始化 detector；模型頁可撤回，撤回後停止新輸入並序列化 close |
 | FR-16(待 issue #42) | 啟動後須能明確停止守護；跨 tab 顯示相機狀態，停止時 unbind/清 queue/overlay 且可安全重啟 |
+| FR-17 | Object 槽位不得使用臉、外觀 embedding 或跨 session re-identification；同類別幾何 track gap、退背景、撤回與 destroy 均須重設，evidence 最終只可標待檢視 |
 | NFR-1 | Host 單元測試不依賴模型、相機或 Android 裝置 |
 | NFR-2 | `ImageProxy` 必定 close；複製 Bitmap 在 L1 使用後 recycle；影格不外傳 |
 | NFR-3 | 相機啟動、首幀、連續分析錯誤與恢復狀態必須如實反映於 UI |
@@ -64,13 +65,15 @@
 - Pose stream 每個可分析幀獨立於 L0 admit 產生 observation；單人 pose 不臆造 impact、第二人或 strike。
 - Object movement gate 的 schedule／periodic probe、bbox clamp 與模型 catalog/checksum 可由 host
   test 驗證；真 detector latency、類別 coverage、旋轉/zoom 對齊與最小物件像素必須在 Pixel 實測。
+- 匿名 tracker 與 litter evidence 以純 Kotlin host tests 驗證 continuity、motion、person miss 不算
+  separation、既有靜止物、取回與 stale reset；多人／多物交錯 ID-switch 仍須固定鏡位資料實測。
 - 後/前景切換與偵測遺失不留舊人物框；FIT_CENTER letterbox 下框對齊 Preview。四向 rotation、
   landscape 重排、zoom persistence 與 2F→1F 取景須以實機完成 issue #37/#38 驗收。
 - 現況只有手動啟動、Activity 退背景由 lifecycle 停相機；前景內停止與跨 tab 指示尚未落地，
   不得宣稱完整 privacy control，追蹤於 issue #42。
 - `:app:testDebugUnitTest` 覆蓋 ChangeGate、GuardianSession、PerceptionPipeline、Fallback、
-  CaptionText、ModelEval、ModelSpec、PoseObservationExtractor 與 NativeEventEngine；真 ML Kit/LiteRT
-  推論以實機/dev 素材驗證。
+  CaptionText、ModelEval、ModelSpec、PoseObservationExtractor、NativeEventEngine、
+  AnonymousObjectTracker 與 LitterEvidenceTracker；真 ML Kit/LiteRT 推論以實機/dev 素材驗證。
 
 ## 追溯
 

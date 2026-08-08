@@ -13,8 +13,8 @@
 | `MlKitPoseFrameAdapter` | 只取肩/髖/膝/踝，正規化為 upright-frame 座標；landmark 不跨 JNI |
 | `PoseObservationExtractor` | 純 Kotlin 時序特徵；保守 pose、rapid descent/motion、匿名 slot continuity |
 | `MediaPipeObjectDetector`(Android 已接) | EfficientDet-Lite2 `VIDEO` category/score/bbox 邊界；movement gate 後才執行，不產生 Event |
-| `AnonymousObjectTracker`(規劃) | 短時 person/object association 與遮擋恢復；不做跨 session re-identification |
-| `LitterState`(規劃) | carried→separated→stationary/dwell→person-left；不完整證據 fail closed |
+| `AnonymousObjectTracker`(Android 已接) | 同類別 bbox IoU／中心距離的短時 P/O 槽位；3 秒 gap／session 邊界重設，不做外觀或跨 session re-identification |
+| `LitterEvidenceTracker`(Android 已接) | 連續近接→可見分離→stationary/dwell→person-left pending-review；不完整證據 fail closed，不產生 Event |
 | `TrackState` | 每個匿名 actant 的 fall/zone 狀態；stale 後清除 |
 | `ViolenceState` | 每個排序後匿名 actant pair 的 hit window、candidate 與 cooldown |
 | `Event::add_vlm_corroboration` | 在事件後附加 bounded L1 描述；不改判斷欄位 |
@@ -69,19 +69,22 @@ extractor 尚未接上前，本 detector 只有 host-testable contract。
 ```mermaid
 stateDiagram-v2
   [*] --> Unassociated
-  Unassociated --> Carried: "物件與匿名人物持續近接"
-  Carried --> Separated: "物件離開人物區域並向地面／ROI 移動"
-  Separated --> Stationary: "物件速度低且位置穩定"
-  Stationary --> Candidate: "dwell 達門檻且關聯人物離開"
-  Candidate --> Cancelled: "物件被取回／association 不確定／偵測中斷"
-  Candidate --> Confirmed: "持續可見 + policy／人工確認"
+  Unassociated --> PersonAssociated: "同一人物／物件槽位連續近接"
+  PersonAssociated --> VisibleSeparation: "同一人物仍可見且物件離開人物區域"
+  VisibleSeparation --> Stationary: "物件速度低且位置穩定"
+  Stationary --> PendingReview: "兩次可見拉遠 + dwell ≥30s + 人物之後未見"
+  PendingReview --> PersonAssociated: "物件被取回／再次近接"
+  PendingReview --> Unassociated: "track gap／session reset"
 ```
 
 Object Detector 的類別只是候選；「動態物」、「瓶子」或「杯子」都不能直接進入 Candidate。
 預設模型 coverage、最小物件像素、association 門檻與 dwell 必須由 2F→1F 場域資料決定。完整
 Android candidate 階段已用 aHash movement window、13 類 allowlist 與 bounded latest-frame queue
-接線並畫本機框；但全域變化不是單一物件的 motion evidence。tracker／schema／state machine
-變更仍由 issue #39 交付，避免在尚無資料時先固定錯誤契約。
+接線；後續 `AnonymousObjectTracker` 從 normalized bbox 計短時速度／靜止，`LitterEvidenceTracker`
+只在近接與分離都具可見證據時前進。人漏偵不算 separation；既有靜止物不會離開 `Observed`；
+退背景、撤回、3 秒 track gap 都重設。Preview 顯示的 `P/O` 槽位與 stage 只供本機 commissioning。
+greedy 幾何 association 對遮擋、多人多物交錯仍不可靠；ROI／場域門檻、schema/L2 Event 與
+policy 仍由 issue #39 交付，避免在尚無資料時固定錯誤事件契約。
 
 ## 6. 時序、錯誤與資源
 
@@ -120,8 +123,10 @@ rename 為 `type`，risk 為 nested object。`to_json` 是正式 transport 邊�
 - `PoseObservationExtractorTest` 覆蓋 upright/seated/horizontal、rapid descent、低信心/缺點、
   timestamp 邊界及 detector 換人時的匿名 slot 隔離；只用純 landmark 資料。
 - `ObjectCandidateGateTest` 覆蓋首次放行、active window、最小間隔、periodic probe、out-of-order
-  與 reset；bbox normalization/clamp 另由 Android host test 覆蓋。這些只證明排程／幾何，不能
-  代替 detector accuracy 或 litter event 測試。
+  與 reset；`AnonymousObjectTrackerTest` 覆蓋槽位 continuity、motion、類別/gap/reset；
+  `LitterEvidenceTrackerTest` 覆蓋 person miss、既有靜止物、完整可見序列、取回與 stale fail-closed；
+  bbox normalization/clamp 另由 Android host test 覆蓋。這些只證明排程／幾何／狀態契約，不能
+  代替 detector accuracy、多人 ID-switch 或 litter event 測試。
 - Python schema:合法 fall、reason 必填、VLM-only 拒絕、zone neutral、角色 privacy、禁止額外 payload。
 - 接上 extractor 後必補錄影素材 confusion matrix、p95 end-to-end latency、72h negative corpus 與
   `<1/24h` 誤報門檻；目前 host 測試不能替代實機校準。

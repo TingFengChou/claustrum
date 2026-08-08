@@ -6,20 +6,23 @@
 
 - **裝置端 App 已成形**:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、**L1 真實場景描述已通**(`.litertlm`-native Gemma 3n)、開發者模式驗證工具。
-- **PR #24/#30/#33/#34/#35/#40 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
+- **PR #24/#30/#33/#34/#35/#40/#43 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
   merge commit 為 `65905cd2`，#40 的 FIT_CENTER／rotation／zoom／匿名框 merge commit 為
-  `898662ba`。checks 與 review threads 均逐則處理後合併；Pixel 10 已驗證相機、pose/JNI、
+  `898662ba`，#43 的 object candidate merge commit 為 `bd258aed`。checks 與 review threads 均
+  逐則處理後合併；Pixel 10 已驗證相機、pose/JNI、
   前後景恢復與 2F→1F 初測。
-- **本輪交付:** PR #43 導入 MediaPipe Lite2 object candidates、movement gate、latest-only queue、
-  metrics opt-in／撤回與完整影像路徑文件；合併前仍須逐則通過 CI／AI review。本 PR 不關閉
-  場域／tracker #39、no-telemetry #41 或明確停止守護 #42。
+- **本輪續作 PR #44:** #43 後新增 session-local `AnonymousObjectTracker` 與 `LitterEvidenceTracker`：
+  顯示 P/O 槽位、bbox motion、連續近接→可見分離→分離後靜置→人離開待檢視；仍不建立
+  litter Event。合併前仍須逐則通過 CI／AI review；本輪不關閉場域／多人 association #39、
+  no-telemetry #41 或明確停止守護 #42。
 - **最重要的發現**:**L1 場景描述不是可靠的跌倒偵測器**(遠景/小主體會漏、會幻覺)。L2
   已接 ML Kit 單人 pose fast path，但仍須固定鏡位素材校準後才可告警(issue #26)。
 - **多人能力仍未完成:** 現行 ML Kit 只回最顯著一人；交錯/遮擋/人物切換限制、MediaPipe
   multi-pose 等方案與驗收已立 issue #36。Preview 匿名框不等於多人或事件判斷。
 - **產品已收斂為兩個情境(ADR-0012):** 跌倒／倒地與亂丟垃圾。MediaPipe Object Detector
-  只作候選閘門；aHash movement window、EfficientDet-Lite2 allowlist、有界佇列與本機 bbox 已接線。
-  人—物分離／落地／遺留／人離開時序與場域驗收見 issue #39。
+  只作候選閘門；aHash movement window、EfficientDet-Lite2 allowlist、有界佇列、本機 bbox、
+  匿名短時幾何 tracker 與 fail-closed evidence stage 已接線。ROI、多人交錯可靠性、L2 Event 與
+  場域驗收仍見 issue #39。
 - **MediaPipe 隱私邊界:** `tasks-vision 0.10.35` 會傳非影像 API 使用／效能 metrics；模型頁已加
   獨立同意與撤回，未同意不初始化。完全 no-telemetry 路線見 issue #41。
 - **2F→1F 安裝:** FIT_CENTER 保留完整視野；`fullSensor`、landscape 重排、CameraX targetRotation
@@ -34,6 +37,10 @@
 - **Object model UX／完整性已實機驗:** 7,515,971 bytes 由 App 下載、SHA-256 符合 pinned 值；
   metrics 撤回會直接停 detector/清框、不等待下一張影格，重新同意既有模型不重下載。測試期間
   暫移的 Gemma 已還原，Lite0/Lite2 ADB 備份亦已清除。
+- **Tracker 實機 smoke:** 新 APK 真相機已畫出 `人 P5 76%` session-local label，前後景
+  CameraService stop/start 後無 crash；但稍後清楚可見成人推嬰兒車時 detector 回 0，沒有
+  detection 就無法 association。故只驗證接線／reset，不宣稱 recall、ID stability 或 litter stage
+  可用；#39 保持 open。
 - **旋轉驗證邊界:** Pixel 以 WindowManager 強制 ROTATION_90 已確認 landscape 雙欄、底部導覽與
   zoom 控制可操作；因手機實體感測器仍為 portrait，強制畫面下 camera buffer 會側轉，不能冒充
   `OrientationEventListener` 實體四向驗收。裝置原 rotation 設定已還原，#37 仍需手動轉機驗證。
@@ -65,8 +72,8 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 | Rust L2 + Android/JNI + ML Kit 單人 pose fast path | ✅ 接線；素材校準/policy 待續 |
 | Camera preview 匿名人物框（不顯示骨架）+ 主體像素提示 | ✅ CameraX transform；多人追蹤見 #36 |
 | fullSensor / landscape / zoom persistence | ✅ 實作；四向與 2F→1F 實機驗收見 #37/#38 |
-| MediaPipe object→litter 管線 | 🟡 candidate/gate/overlay 已接；ROI/tracker/state/場域驗收見 #39 |
-| Android host 83 + Rust 29 + Python 28 | ✅；Android lint 0 issue、debug APK 可組裝 |
+| MediaPipe object→litter 管線 | 🟡 candidate/gate/匿名短時 tracker/evidence overlay 已接；ROI/多人 association/Event/場域驗收見 #39 |
+| Android host 96 + Rust 29 + Python 28 | ✅；Android lint 0 issue、debug APK 可組裝 |
 
 ### Legacy React Native 退場稽核(2026-08-08)
 
@@ -95,9 +102,10 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
    - `MlKitAnalyzer` 已評估但不採用，因現有 L0/L1 仍需同一個 raw `ImageProxy` 分支；目前由單一
      analyzer 明確持有 proxy，ML Kit task 完成後才跑 L0，completion `finally` close。
 2. **亂丟垃圾時序(issue #39):** aHash movement gate → MediaPipe Object Detector `VIDEO` candidate
-   已接；下一步完成 ROI、匿名人—物 association → separated/stationary/dwell/person-left。先以
-   Pixel 量 allowlist coverage、最小物件像素、p50/p95、合併率與框對齊，不足再訓練客製 detector；
-   單一 detection 不得成事件。MediaPipe metrics no-op/替代則獨立追 #41。
+   → session-local tracker → fail-closed evidence stage 已接；下一步完成 ROI、固定鏡位標註集、
+   多人／多物 ID-switch 與 allowlist/min-pixel confusion matrix，再定 association／dwell threshold。
+   通過後才設計 `ObjectObservation` schema 與 L2 litter Event；單一 detection 或 pending-review
+   不得成事件。模型不足則訓練客製 detector；MediaPipe no-telemetry 替代獨立追 #41。
 3. **2F→1F 場域 commissioning(issue #38):** 實測 1×/2×/3× 的人物、小物 recall、完整 FOV、
    陡峭俯角遮擋、多人與日夜；單鏡不成立就分區／多鏡，不以數位 zoom 製造盲區。
 4. **明確停止守護(issue #42):** 補 start/stop 狀態、CameraX unbind、queue/overlay 清理、安全重啟與
@@ -161,8 +169,10 @@ Gradle 9.3.1 · AGP 8.12.0 · **Kotlin 2.2.10**(為 litertlm metadata 升)· com
 - **L1 非跌倒偵測器**(遠景會漏/幻覺)→ 需 L2 + 相機佈建(§8)。
 - ML Kit pose 只支援最顯著一人、無公開 tracking ID、API beta；多人能力追蹤於 #36。
 - `fullSensor`/landscape/zoom 已實作，但 90°/180°/270° 與 2F→1F 尚待 #37/#38 實機完成。
-- MediaPipe object candidate 已接線，但不是 persistent tracker；全域 movement gate 也不是 bbox
-  motion 證據。ROI／人—物 association／litter state 尚未接；COCO 類別不能直接代表垃圾，見 #39。
+- MediaPipe object candidate 後已有 session-local greedy geometry tracker，但不是 persistent
+  identity tracker；遮擋、多人／多物交錯、漏偵與 queue 合併會造成 ID-switch。全域 movement gate
+  也不是 bbox motion 證據。ROI／可靠多人 association／litter Event 尚未接；COCO 類別與
+  pending-review 都不能直接代表垃圾，見 #39。
 - MediaPipe Tasks 非影像 metrics 需同意；完全停用仍待 #41。
 - 音訊模態尚未啟用(誠實標示,不誤報)。
 

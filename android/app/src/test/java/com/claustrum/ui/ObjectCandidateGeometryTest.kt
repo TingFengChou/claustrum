@@ -42,4 +42,19 @@ class ObjectCandidateGeometryTest {
         assertThat(objectCategoryLabel("cell phone")).isEqualTo("手機")
         assertThat(objectCategoryLabel("traffic cone")).isEqualTo("traffic cone")
     }
+
+    @Test
+    fun trackedLabelUsesSessionSlotAndObjectiveEvidenceOnly() {
+        val candidate = ObjectCandidateUi(
+            category = "bottle",
+            score = 0.81f,
+            bounds = OverlayBounds(0f, 0f, 0.2f, 0.3f),
+            trackSlot = 2,
+            motion = ObjectCandidateMotionUi.STATIONARY,
+            evidenceStage = ObjectEvidenceStageUi.STATIONARY_AFTER_SEPARATION,
+        )
+
+        assertThat(objectCandidateLabel(candidate)).isEqualTo("瓶子 O2 81% · 靜止 · 分離後靜置")
+        assertThat(objectCandidateLabel(candidate)).doesNotContain("垃圾")
+    }
 }
