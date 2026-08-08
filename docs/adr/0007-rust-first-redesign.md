@@ -1,6 +1,7 @@
 # ADR-0007 — 打掉重練:Rust 優先、效能優先的原生架構
 
-**狀態:** 已接受 · **日期:** 2026-08-06
+**狀態:** 已接受；L1 的 llama.cpp/Rust FFI 子決策已被 [ADR-0009](0009-edge-ai-litert-ai-edge.md)
+取代為 Kotlin/LiteRT-LM，legacy ABI 已移除 · **日期:** 2026-08-06
 **取代:** [ADR-0005](0005-react-native-app.md)(React Native 為產品主體)
 **保留:** [ADR-0004](0004-phone-first-single-node.md)(手機優先、單節點)、[ADR-0006](0006-safety-alert-mvp.md)(MVP:多模態主動安全告警)
 
@@ -19,7 +20,7 @@ ADR-0005 選了 React Native 為產品主體、原生為輔。實作過程證明
 
 ## 決策
 
-**產品重建為:原生 Android(Kotlin + Jetpack Compose)UI + Rust 感知核心 + llama.cpp 推論。
+**產品重建為:原生 Android(Kotlin + Jetpack Compose)UI + Rust 感知核心 + 裝置端 L1 推論。
 移除 React Native。**
 
 分層與語言:
@@ -27,15 +28,15 @@ ADR-0005 選了 React Native 為產品主體、原生為輔。實作過程證明
 | 層 | 語言 / 技術 | 為什麼 |
 |---|---|---|
 | 感知核心:L0 閘控 · 影格管線 · L2/L3 事件引擎 | **Rust**(cargo-ndk → `.so`,JNI) | 安全 + 高效;每幀便宜比較與狀態機的家 |
-| L1 VLM 推論 | **llama.cpp(C/C++)** via Rust FFI(`llama-cpp-2`) | 多模態 on-device;已驗證(SmolVLM/Gemma) |
+| L1 VLM 推論 | **Google AI Edge / LiteRT-LM(Kotlin)** | 多模態 on-device；本列由 ADR-0009 修正，舊 llama.cpp/Rust ABI 已移除 |
 | 相機擷取 | **CameraX(Kotlin)** | 平台能力;**影格交給 Rust,永不進 UI 層** |
 | 平台 / UI | **Kotlin + Jetpack Compose** | 原生、無 JS 橋接;預覽/字幕/告警/控制 |
 | 領域契約 | **JSON Schema** | 跨 Rust/Kotlin 單一真實來源 |
 | 離線工具 | **Python**(bench/eval) | 不變 |
 | 建置 | Gradle + cargo-ndk(NDK 27) | Rust `.so` 隨 App 打包 |
 
-資料流:`CameraX → (JNI) Rust: L0 閘控 → 變化才叫 L1 VLM(llama.cpp)→ Kineme → L2 事件 →
-(JNI) → Compose UI 顯示字幕/告警`。**影格與像素只在原生層流動**(隱私 + 效能)。
+資料流:`CameraX → (JNI) Rust: L0 aHash → Kotlin gate → 變化才叫 LiteRT-LM L1；獨立 fast path →
+Rust L2 事件 → Compose UI`。**影格與像素只在裝置內原生層流動**(隱私 + 效能)。
 
 ## 理由
 
@@ -43,7 +44,7 @@ ADR-0005 選了 React Native 為產品主體、原生為輔。實作過程證明
 - **省算力(你要的變化閘控)**:L0 在 Rust 做降採樣灰階差 / thumbhash,靜態場景幾乎零成本,
   只有畫面改變才付 VLM 代價。
 - **消除框架摩擦**:不再與 vision-camera/RN/babel 打架;相機用平台原生 CameraX。
-- **Rust**:記憶體安全 + 接近 C 的效能;可攜(日後 Jetson/機器人共用核心);FFI 接 llama.cpp。
+- **Rust**:記憶體安全 + 接近 C 的效能;可攜(日後 Jetson/機器人共用 L0/L2 核心)。
 - **對齊北極星**:即時串流辨識唯有原生熱路徑撐得起。
 
 **可測試性(必備原則):** Rust 核心的**純邏輯**(L0 變化閘控、L2/L3 事件狀態機)必須能在
@@ -72,7 +73,7 @@ ADR-0005 選了 React Native 為產品主體、原生為輔。實作過程證明
   「Rust core 回話」。**並撰寫 `docs/design/core-rs`(JNI 介面 + 內部架構 + 純邏輯的
   cargo test 策略)與 `docs/design/android` 的 SA/SD**(dev-standards:每個模組有設計文件)。
 - **P1** L0 變化閘控(Rust):影格差異 → 只在改變時往下走(省算力)。
-- **P2** L1:llama.cpp via Rust FFI → 被閘控的影格產生 Kineme/字幕 → Compose 字幕層。
+- **P2** L1:由 ADR-0009 改為 Kotlin/LiteRT-LM → 被閘控的影格產生客觀字幕 → Compose 字幕層。
 - **P3** L2 事件引擎(Rust):Fall/Leave/Violence 狀態機 → 告警。
 - **P4** 音訊模態(尖叫/衝突聲)融合。
 

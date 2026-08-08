@@ -53,7 +53,7 @@ Compose)、L1 VLM 本體(改走 Kotlin 端 **Google AI Edge / LiteRT**,ADR-0009;
 ## 7. 驗收標準
 
 - 靜態/雜訊畫面被閘控略過;真實變化被放行;首幀放行;畸形輸入不 panic。
-- L0、L2 state machine、serde 與 JNI registry 由 `core-rs` 的 29 個 host tests 覆蓋；
+- L0、L2 state machine、serde 與 JNI registry 由 `core-rs` 的 25 個 host tests 覆蓋；
   extractor 另由 Android host tests 驗證，實機校準不以合成測試取代。
 
 ## 8. 未解問題

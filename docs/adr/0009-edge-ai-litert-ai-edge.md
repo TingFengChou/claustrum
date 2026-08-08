@@ -41,8 +41,8 @@ ADR-0008 選 llama.cpp(GGUF + mmproj,Rust FFI)跑 L1 場景描述。實際查證
 4. **沿用而非重造:** 參考 Google AI Edge Gallery(Apache-2.0)的模型下載器與 LLM Inference
    初始化;必要時把其模式移植為我們的 `LiteRtCaptioner`(Kotlin)。
 5. **`Captioner` 邊界保留,但落在 L1 執行所在的 Kotlin 層。** `LiteRtCaptioner` 與 Kotlin
-   `PlaceholderCaptioner` 已接上。Rust `vlm`/`NativeCore.describe` 未被現行 App 呼叫，不再是
-   fallback，待獨立 cleanup 移除。
+   `PlaceholderCaptioner` 已接上。未被現行 App 呼叫的 Rust `vlm`／`NativeCore.describe` 已移除，
+   因此 Kotlin `Captioner` 是唯一 L1 邊界。
 
 ## 後果
 

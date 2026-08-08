@@ -73,7 +73,8 @@ flowchart TD
   與其 `docs/design/app/` 設計文件已自 repo 移除,保留於 git 歷史。
 - **L1 執行期改用 Google AI Edge / LiteRT-LM**(ADR-0009,取代 llama.rn / llama.cpp)。
   裝置端(Pixel 10)以 `.litertlm`-native Gemma 3n 產生真實場景描述 ~6.5s;
-  MediaPipe `.task` 格式在 litertlm 0.11.0 只吐 `<pad>`,已改用原生 `.litertlm`。
+  MediaPipe `.task` 格式在 litertlm 0.11.0 只吐 `<pad>`,已改用原生 `.litertlm`；ADR-0008 的
+  Rust L1 module/JNI placeholder 已移除，Rust 保留正式使用的 L0/L2。
 - PR #24/#30 已 merge 至 `main`：裝置 App 已具進入流程、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、L0 變化閘控、**L1 真實場景描述**與開發者驗證工具；Rust L2
   Fall/ZoneExit/Violence engine + Event schema 已有 foundation；後續已接上 Android/JNI bridge 與

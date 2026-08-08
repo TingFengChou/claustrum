@@ -6,10 +6,10 @@
 
 - **裝置端 App 已成形**:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、**L1 真實場景描述已通**(`.litertlm`-native Gemma 3n)、開發者模式驗證工具。
-- **PR #24/#30/#33/#34/#35/#40/#43/#44 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
+- **PR #24/#30/#33/#34/#35/#40/#43/#44/#45 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
   merge commit 為 `65905cd2`，#40 的 FIT_CENTER／rotation／zoom／匿名框 merge commit 為
   `898662ba`，#43 的 object candidate merge commit 為 `bd258aed`，#44 的 litter tracker merge
-  commit 為 `f41fa46f`。checks 與 review threads 均
+  commit 為 `f41fa46f`，#45 的明確停止守護 merge commit 為 `1481831f`。checks 與 review threads 均
   逐則處理後合併；Pixel 10 已驗證相機、pose/JNI、
   前後景恢復與 2F→1F 初測。
 - **PR #44:** #43 後新增 session-local `AnonymousObjectTracker` 與 `LitterEvidenceTracker`：
@@ -45,7 +45,7 @@
 - **旋轉驗證邊界:** Pixel 以 WindowManager 強制 ROTATION_90 已確認 landscape 雙欄、底部導覽與
   zoom 控制可操作；因手機實體感測器仍為 portrait，強制畫面下 camera buffer 會側轉，不能冒充
   `OrientationEventListener` 實體四向驗收。裝置原 rotation 設定已還原，#37 仍需手動轉機驗證。
-- **本輪續作 issue #42:** 前景內「停止守護」與跨 tab 狀態列已接線；停止會讓 session
+- **issue #42 已由 PR #45 關閉:** 前景內「停止守護」與跨 tab 狀態列已接線；停止會讓 session
   generation 失效、unbind CameraX、清 queue/overlay/tracker 並關 L2，舊 callback 不可污染重啟。
   Pixel 10 已從模型 tab 停止，CameraService 實測 40 次 CONNECT／40 次 DISCONNECT；100ms
   啟動中快速停止亦回待命／camera closed，無 crash、ANR、bind、MediaPipe 或 L2 stop error。
@@ -75,11 +75,12 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 | LiteRT delegate 初始化失敗先 close Engine，再嘗試下一個 backend(防 OOM) | ✅ |
 | 開發者模式:測試影片播放(過 L0→L1)、模型驗證(pass-rate+延遲)、描述串流+記錄 | ✅ |
 | 移除 legacy RN `app/` | ✅ |
+| 移除 legacy Rust L1 module/JNI placeholder（保留正式 L0/L2） | ✅ 本輪 cleanup |
 | Rust L2 + Android/JNI + ML Kit 單人 pose fast path | ✅ 接線；素材校準/policy 待續 |
 | Camera preview 匿名人物框（不顯示骨架）+ 主體像素提示 | ✅ CameraX transform；多人追蹤見 #36 |
 | fullSensor / landscape / zoom persistence | ✅ 實作；四向與 2F→1F 實機驗收見 #37/#38 |
 | MediaPipe object→litter 管線 | 🟡 candidate/gate/匿名短時 tracker/evidence overlay 已接；ROI/多人 association/Event/場域驗收見 #39 |
-| Android host 96 + Rust 29 + Python 28 | ✅；Android lint 0 issue、debug APK 可組裝 |
+| Android host 98 + Rust 25 + Python 28 | ✅；Android lint 0 issue、debug APK 可組裝 |
 
 ### Legacy React Native 退場稽核(2026-08-08)
 
@@ -114,16 +115,11 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
    不得成事件。模型不足則訓練客製 detector；MediaPipe no-telemetry 替代獨立追 #41。
 3. **2F→1F 場域 commissioning(issue #38):** 實測 1×/2×/3× 的人物、小物 recall、完整 FOV、
    陡峭俯角遮擋、多人與日夜；單鏡不成立就分區／多鏡，不以數位 zoom 製造盲區。
-4. **明確停止守護(issue #42):** 程式、host tests、Pixel 10 非守護 tab 停止、100ms 快停與
-   40 次 CameraService 對稱循環已完成；待本 PR CI／review／merge 後關 issue。
-5. **清除 legacy Rust L1 seam:** `NativeCore.describe` + `core-rs/src/vlm.rs` 是 ADR-0008 的未使用
-   佔位；另開小 PR 移除 JNI symbol、Rust module/tests 並更新 ADR-0008/0009。**保留**仍在用的
-   Rust `frameSignature` 與 L2 engine。
-6. **釐清模型能力 vs 取景(issue #29):** 同組近景影格比較 E2B/E4B pass-rate、幻覺與延遲。
-7. **L1 效能**(issues #25/#27/#28):最小間隔節流、NPU delegate、prefill/輸出優化。
-8. **#3 HF OAuth 網頁登入**(取代貼權杖；現況為裝置端加密 HF read token)。
-9. **#4 Firebase 接線**(Remote Config 模型目錄 + FCM 告警；ADR-0010)。
-10. **#5 升級 library**(targetSdk 已 36；逐一升級並驗證)。
+4. **釐清模型能力 vs 取景(issue #29):** 同組近景影格比較 E2B/E4B pass-rate、幻覺與延遲。
+5. **L1 效能**(issues #25/#27/#28):最小間隔節流、NPU delegate、prefill/輸出優化。
+6. **#3 HF OAuth 網頁登入**(取代貼權杖；現況為裝置端加密 HF read token)。
+7. **#4 Firebase 接線**(Remote Config 模型目錄 + FCM 告警；ADR-0010)。
+8. **#5 升級 library**(targetSdk 已 36；逐一升級並驗證)。
 
 ## 開發者模式(驗證工具)用法
 

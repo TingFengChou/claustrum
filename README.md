@@ -322,9 +322,9 @@ patch 追蹤於 [issue #41](https://github.com/TingFengChou/claustrum/issues/41)
 控制平面，只傳模型檔與必要授權 header，與相機影格資料平面沒有連線；MediaPipe metrics 是另
 一條需明確同意的非影像控制流，不能和「推論 on-device」混為一談。
 
-程式內仍可看到 `NativeCore.describe` 與 `core-rs/src/vlm.rs`：它們是 ADR-0008 的舊 Rust L1
-診斷 seam，`MonitorActivity` 沒有 call site，**不在上圖的現行路徑**。HANDOFF 已安排獨立 cleanup；
-會保留真正仍在使用的 Rust `frameSignature` 與 L2 `EventEngine`。
+ADR-0008 的舊 Rust L1 診斷 seam（`NativeCore.describe` 與 `core-rs/src/vlm.rs`）已完整移除。
+**Rust 現在仍正式承載**每幀 L0 `frameSignature` 與有狀態 L2 `EventEngine`；L1 則只有 Kotlin
+`Captioner` + LiteRT-LM，JNI 不再暴露任何已淘汰的 L1 ABI。
 
 **L1 的保證是有界與不阻塞，不是事件不漏報：**
 

@@ -50,8 +50,4 @@ object NativeCore {
 
     /** Release an L2 session; repeated or invalid handles are ignored by Rust. */
     external fun destroyEventEngine(handle: Long)
-
-    /** Legacy ADR-0008 seam; MonitorActivity uses Kotlin LiteRtCaptioner instead. */
-    @Deprecated("Legacy Rust L1 placeholder; use com.claustrum.vlm.Captioner")
-    external fun describe(luma: ByteArray, width: Int, height: Int): String?
 }
