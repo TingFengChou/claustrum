@@ -9,7 +9,8 @@
 - **PR #24 與 #30 已於 2026-08-08 squash merge 至 `main`**(`37849491`、`c06c05b7`)；兩者最新
   SHA 的 CI/Android/Gemini checks 全綠。PR #24 的 7 個舊 P1 threads 已逐則查證、回覆並 resolve；
   feature branches 已刪除。
-- **最重要的發現**:**L1 場景描述不是可靠的跌倒偵測器**(遠景/小主體會漏、會幻覺)。真偵測要 **L2**(見 issue #26)+ 相機佈建讓主體佔比足夠(見 `docs/design/vlm/SD.md` §8)。
+- **最重要的發現**:**L1 場景描述不是可靠的跌倒偵測器**(遠景/小主體會漏、會幻覺)。L2
+  已接 ML Kit 單人 pose fast path，但仍須固定鏡位素材校準後才可告警(issue #26)。
 
 ## 目前狀態
 
@@ -33,8 +34,8 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 | LiteRT delegate 初始化失敗先 close Engine，再嘗試下一個 backend(防 OOM) | ✅ |
 | 開發者模式:測試影片播放(過 L0→L1)、模型驗證(pass-rate+延遲)、描述串流+記錄 | ✅ |
 | 移除 legacy RN `app/` | ✅ |
-| Rust L2 狀態機 + Event schema + Android/JNI observation bridge | ✅ bridge；pose/action extractor 待接 |
-| 48 個 Android host 單元測試 + Rust 29 + Python 28 | ✅ |
+| Rust L2 + Android/JNI + ML Kit 單人 pose fast path | ✅ 接線；素材校準/impact/多人 action/policy 待續 |
+| 56 個 Android host 單元測試 + Rust 29 + Python 28 | ✅ |
 
 ### Legacy React Native 退場稽核(2026-08-08)
 
@@ -51,9 +52,15 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 
 ## 下一步(建議順序)
 
-1. **L2 extractor 與 CameraX 接線(issue #26,P3):** Android `FastPathObservation` → JNI → Rust
-   `EventEngine` bridge 已就緒。下一步選定輕量 pose/action extractor（優先驗證 CameraX
-   `MlKitAnalyzer`適配性），用真實素材校準後才接 event/policy。L1 只能後補客觀脈絡。
+1. **L2 錄影回歸與校準(issue #26,P3):** CameraX→ML Kit base Pose Detection `STREAM_MODE`→
+   純 Kotlin `PoseObservationExtractor`→`FastPathObservation`→JNI→Rust 已接線。下一步讓
+   `dev_videos/` 走同一 L2 path，收集 fall/正常坐下/刻意躺下/遮擋素材的 confusion matrix、p95
+   與 72h negative corpus；未達 `<1/24h` 前不接 policy/通知。
+   - 限制：只追最顯著一人、API beta、無 tracking ID，且官方要求臉部可見/完整身體取景最佳；
+     背向、遮擋或倒地後臉被擋是 recall 硬風險。追蹤中斷會輪替匿名 role slot。
+   - pose-only 的 impact/contact/strike 固定 0；impact 快確認與多人 violence 要另接可替換 extractor/音訊。
+   - `MlKitAnalyzer` 已評估但不採用，因現有 L0/L1 仍需同一個 raw `ImageProxy` 分支；目前由單一
+     analyzer 明確持有 proxy，ML Kit task 完成後才跑 L0，completion `finally` close。
 2. **清除 legacy Rust L1 seam:** `NativeCore.describe` + `core-rs/src/vlm.rs` 是 ADR-0008 的未使用
    佔位；另開小 PR 移除 JNI symbol、Rust module/tests 並更新 ADR-0008/0009。**保留**仍在用的
    Rust `frameSignature` 與 L2 engine。
@@ -105,7 +112,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 版本矩陣(known-good)
 
-Gradle 9.3.1 · AGP 8.12.0 · **Kotlin 2.2.10**(為 litertlm metadata 升)· compileSdk/targetSdk 36 · minSdk 26 · NDK 27.1.12297006 · CameraX 1.4.1 · WorkManager 2.9.1 · security-crypto 1.1.0-alpha06 · Compose BOM 2026.02.00 · **litertlm-android 0.11.0** · **lottie-compose 6.6.6**。`.so`/`jniLibs/`/`local.properties`/模型檔不進版控。
+Gradle 9.3.1 · AGP 8.12.0 · **Kotlin 2.2.10**(為 litertlm metadata 升)· compileSdk/targetSdk 36 · minSdk 26 · NDK 27.1.12297006 · CameraX 1.4.1 · **ML Kit pose-detection 18.0.0-beta5** · WorkManager 2.9.1 · security-crypto 1.1.0-alpha06 · Compose BOM 2026.02.00 · **litertlm-android 0.11.0** · **lottie-compose 6.6.6**。`.so`/`jniLibs/`/`local.properties`/模型檔不進版控。
 
 ## 已知限制
 

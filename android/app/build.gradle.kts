@@ -62,6 +62,9 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$camerax")
     implementation("androidx.camera:camera-view:$camerax")
 
+    // Bundled base pose model: single-person, low-latency STREAM_MODE L2 fast path.
+    implementation("com.google.mlkit:pose-detection:18.0.0-beta5")
+
     // WorkManager: in-app model download (resumable, foreground, progress).
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
@@ -75,4 +78,5 @@ dependencies {
     implementation("com.airbnb.android:lottie-compose:6.6.6")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.google.truth:truth:1.4.4")
 }

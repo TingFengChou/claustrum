@@ -22,10 +22,10 @@ docs/design/
 | 模組 | 狀態 | 文件 |
 |---|---|---|
 | [`core-rs/`](core-rs/) | 🟢 P0/P1 + P3 engine/JNI bridge | [SA](core-rs/SA.md) · [SD](core-rs/SD.md) |
-| [`android/`](android/) | 🟢 P0–P2.5(外殼 + CameraX×L0/L1 + Compose) | [SA](android/SA.md) · [SD](android/SD.md) |
+| [`android/`](android/) | 🟢 P0–P2.5 + 🟡 P3(CameraX×ML Kit pose fast path) | [SA](android/SA.md) · [SD](android/SD.md) |
 | [`vlm/`](vlm/) | 🟢 P2(LiteRT-LM 真 L1) | [SA](vlm/SA.md) · [SD](vlm/SD.md) |
 | [`model/`](model/) | 🟢 P2(App 內下載 + 目錄；切換待續) | [SA](model/SA.md) · [SD](model/SD.md) |
-| [`events/`](events/) | 🟡 P3 engine + Android/JNI bridge | [SA](events/SA.md) · [SD](events/SD.md) |
+| [`events/`](events/) | 🟡 P3 engine + Android/JNI + 單人 pose fast path(待校準) | [SA](events/SA.md) · [SD](events/SD.md) |
 | [`ui/`](ui/) | 🎨 UI/UX 設計定義(進入完整開發前定稿) | [設計 + 互動原型](ui/README.md) |
 | [`core/`](core/) · [`medication/`](medication/) | 🗄️ ADR-0007 前的參考 | 各 SA/SD |
 

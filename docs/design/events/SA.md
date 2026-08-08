@@ -1,6 +1,6 @@
 # events(L2 時序事件引擎)— 系統分析(SA)
 
-**狀態:** P3 foundation active · **最後更新:** 2026-08-08 · **負責人:** claustrum
+**狀態:** P3 fast path active · calibration pending · **最後更新:** 2026-08-08 · **負責人:** claustrum
 **設計:** [`SD.md`](SD.md)
 
 ## 1. 目的與範圍
@@ -9,9 +9,9 @@ L2 把裝置端輕量 pose/motion/action extractor 產生的時間序列，轉�
 它是 <1 秒快路徑的狀態機，不等待單次約 6.5–11.5 秒的 L1 VLM。VLM 只在事件建立後附加
 客觀描述，不能單獨升級 candidate、risk 或 alert。
 
-本階段已交付 Rust `EventEngine`、跨語言 `event.schema.json`、Android `FastPathObservation`
-與具生命週期的 JNI engine bridge。Pose/action extractor、CameraX 餐取、通知與實機資料校準
-仍是接續工作，不宣稱已有實際事件偵測。
+本階段已交付 Rust `EventEngine`、跨語言 `event.schema.json`、Android `FastPathObservation`、
+具生命週期的 JNI engine bridge，以及 CameraX→ML Kit 單人 pose→Rust 的第一條實際 fast path。
+它尚未經真實素材校準，也沒有 impact/多人 action、通知或 UI policy，因此不宣稱可部署告警。
 
 ## 2. 功能需求
 
@@ -52,7 +52,17 @@ L2 把裝置端輕量 pose/motion/action extractor 產生的時間序列，轉�
 
 ## 6. 限制
 
-- 目前 score 是 extractor 的輸入契約；bridge 已就緒，但尚未決定/接上 pose/action 模型。
+- 首版 extractor 使用 bundled ML Kit base Pose Detection `STREAM_MODE`，只追最顯著的一人且 API
+  為 beta；官方限制臉部需可見、完整身體取景最佳，遮擋/背向/倒地臉部不可見可能漏報。適合
+  單人跌倒候選，不覆蓋多人 violence、zone crossing 或 impact。
+- pose-only `impact_score/close_contact_score/strike_score` 固定 0；沒有第二 actant，不能觸發
+  impact fast-confirm 或 violence。無 impact fall 需持續可見倒臥後才 confirmed。
+- 首版任何可判 pose 都要求**雙側肩與髖**達信心門檻；Upright/Seated 再要求雙側膝踝，
+  Horizontal 則允許下半身遮擋。左/右只剩單側時回 `Unknown`，不以半套軀幹推導風險。
+  是否加入單側 fallback 必須以 confusion matrix 同時證明 recall 增益與 `<1/24h` 誤報門檻。
+- 相鄰可靠 pose 的中心跳位 >1.25 body spans 會輪替 slot。低 detector fps 的真實快速跌倒可能
+  觸發此防跨人規則；校準須同時記錄 slot-rotation rate 與 fall false negatives，再決定是否改為
+  速度/姿態條件式門檻，不能只為 recall 直接放寬。
 - 預設 thresholds 是保守起點，不等於已達 `<1/24h`；須用 72 小時無事件語料與演練素材校準。
 - `latency_ms` 是事件時窗延遲，不含 CameraX/extractor/JNI/通知；端到端 p95 需實機量測。
 
