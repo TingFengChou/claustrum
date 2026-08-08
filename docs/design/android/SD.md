@@ -28,7 +28,7 @@ L0→L1 管線；Compose 只渲染 immutable `MonitorUi`。L0 的 aHash 在 Rust
 | 元件 | 職責 |
 |---|---|
 | `MonitorActivity` | route、CameraX、pose→L2／object candidate／L0→L1 排程、dev 工具、生命週期 |
-| `GuardianSession` | 可測的啟動/首幀/分析健康狀態；錯誤後重試與自動恢復 |
+| `GuardianSession` | 可測的啟動/首幀/分析健康／明確停止狀態；錯誤後重試與自動恢復 |
 | `PerceptionPipeline` | L0 統計、可替換 Captioner、最後有效描述 |
 | `LiteRtCaptioner` | 初始化 delegate、每幀新 Conversation、有界串流輸出、資源釋放 |
 | `FallbackCaptioner` | 真後端首次 timeout/error 後降級為誠實 placeholder |
@@ -47,7 +47,7 @@ L0→L1 管線；Compose 只渲染 immutable `MonitorUi`。L0 的 aHash 在 Rust
 | `CameraZoomPolicy` | host-test 的裝置 zoom range clamp 與 0.5× UI step |
 | `NativeEventEngine` | 擁有一個 Rust L2 opaque handle；同步 process/close，返回單筆 Event JSON 清單 |
 | `ModelsController` | 模型目錄、HF token、MediaPipe opt-in、WorkManager 下載狀態 |
-| `AppShell` | 守護/事件/模型/設定四個 Compose tab |
+| `AppShell` | 守護/事件/模型/設定四個 Compose tab；啟動期間固定顯示全域相機狀態與停止控制 |
 
 ## 4. 執行緒與資料流
 
@@ -138,18 +138,31 @@ main thread
 
 ```text
 待命 --點擊--> 啟動中 --bind+首個成功幀--> 守護中
-  ^                 |                         |
-  |                 +--權限/bind失敗----------+
-  |                        (顯示原因，可重試)
-  +--使用者重新點擊---------------------------+
+  ^  ^              |                         |
+  |  |              +--權限/bind失敗----------+
+  |  |                     (顯示原因，可重試)
+  |  +------停止守護---------------------------+
+  +---------使用者重新點擊---------------------+
 
 守護中 --連續 3 次 analyzer 失敗--> 需處理 --成功幀--> 守護中
+  ^                                     |
+  +---------------停止後可重啟----------+
 ```
 
 `GuardianSession` 為 synchronized 純 Kotlin 狀態物件。相機成功 bind 只代表「啟動中」；必須有
 可分析首幀才可宣稱「守護中」。單次 analyzer 錯誤視為暫態，連續達門檻才降級狀態。
-現況沒有前景內 `守護中 → 待命` 的使用者停止轉移；CameraX 只在 Activity lifecycle 退背景時停止。
-明確 stop/unbind、queue 清理、安全重啟與跨 tab indicator 由 issue #42 補齊。
+`GuardianSession.stop()` 在啟動中與已 bind 都回到待命，且重複停止為 no-op。Activity 先遞增
+`guardianSessionVersion`，讓舊 CameraProvider、ML Kit、MediaPipe 與 overlay callback 全部失效，
+再 clear analyzer／unbind、清 L1/object pending queue 與 overlays、序列化重設 tracker 並關閉 L2
+engine；正在執行的本機推論只完成資源收尾。Pose／L1 重型 backend 可重用，下一次啟動建立新
+L2/object session。全域 control strip 在四個 tab 都可見，不依賴回到守護頁。`pushState()` 可由
+背景 executor 排隊，但真正套用 Compose state 時會再讀最新 `GuardianSession`，避免停止前建立的
+snapshot 稍後把 UI 恢復為「幽靈守護中」。
+
+Pixel 10 實機先重現上述幽靈狀態後驗證修正：從模型 tab 可直接停止；40 次循環的 CameraService
+history 為 40 CONNECT／40 DISCONNECT，最終 device closed；另在啟動後 100ms 按停止，即使 camera
+已開始 connect 仍回到待命並關閉。logcat 未出現 crash、ANR、bind、MediaPipe frame 或 L2 stop
+error。這是 issue #42 的裝置驗收證據，不代表固定式背景服務／硬體 LED 已完成。
 
 ## 6. L1 合約
 

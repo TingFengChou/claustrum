@@ -42,7 +42,7 @@
 | FR-13 | 亂丟垃圾以 movement gate → MediaPipe Object Detector candidate → session-local 匿名人／物時序接入；單一類別／移動／person miss 不得直接成為事件，ROI/多人 association/Event 未完成須明示 |
 | FR-14 | Object detector 必須使用獨立有界 current + latest pending queue；Bitmap 被取代／完成／destroy 時 recycle，bbox 以 CameraX transform 對齊 Preview |
 | FR-15 | MediaPipe metrics 未取得獨立知情同意時不得初始化 detector；模型頁可撤回，撤回後停止新輸入並序列化 close |
-| FR-16(待 issue #42) | 啟動後須能明確停止守護；跨 tab 顯示相機狀態，停止時 unbind/清 queue/overlay 且可安全重啟 |
+| FR-16 | 啟動後須能明確停止守護；跨 tab 顯示相機狀態，停止時 unbind/清 queue/overlay 且可安全重啟；舊 callback 不得污染新 session |
 | FR-17 | Object 槽位不得使用臉、外觀 embedding 或跨 session re-identification；同類別幾何 track gap、退背景、撤回與 destroy 均須重設，evidence 最終只可標待檢視 |
 | NFR-1 | Host 單元測試不依賴模型、相機或 Android 裝置 |
 | NFR-2 | `ImageProxy` 必定 close；複製 Bitmap 在 L1 使用後 recycle；影格不外傳 |
@@ -69,8 +69,10 @@
   separation、既有靜止物、取回與 stale reset；多人／多物交錯 ID-switch 仍須固定鏡位資料實測。
 - 後/前景切換與偵測遺失不留舊人物框；FIT_CENTER letterbox 下框對齊 Preview。四向 rotation、
   landscape 重排、zoom persistence 與 2F→1F 取景須以實機完成 issue #37/#38 驗收。
-- 現況只有手動啟動、Activity 退背景由 lifecycle 停相機；前景內停止與跨 tab 指示尚未落地，
-  不得宣稱完整 privacy control，追蹤於 issue #42。
+- 前景內停止控制須在啟動中／守護中／需處理都可用；停止後 CameraX 不再 streaming、跨 tab
+  指示消失，舊 callback 不恢復疊圖／event，且同一 Activity 可再次安全啟動。Pixel 10 已完成
+  模型 tab 停止、100ms 快速停止與 40 次 CameraService CONNECT/DISCONNECT 對稱循環，無相關
+  crash/error；issue #42 待 PR merge 後關閉。
 - `:app:testDebugUnitTest` 覆蓋 ChangeGate、GuardianSession、PerceptionPipeline、Fallback、
   CaptionText、ModelEval、ModelSpec、PoseObservationExtractor、NativeEventEngine、
   AnonymousObjectTracker 與 LitterEvidenceTracker；真 ML Kit/LiteRT 推論以實機/dev 素材驗證。

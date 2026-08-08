@@ -229,6 +229,7 @@ L0→L1 與候選框。L2 的 pose/object extractors 尚未完成素材校準與
 ```mermaid
 flowchart TB
   START["使用者點『啟動守護』<br/>權限 + bindToLifecycle"]
+  STOP["跨頁『停止守護』<br/>session generation 失效 → unbind + 清 queue/overlay"]
   CAMERA["CameraX 後鏡頭"]
   ZOOM["CameraControl zoomRatio<br/>ZoomState 裝置 min/max · 持久化設定"]
   PREVIEW["Preview UseCase → PreviewView<br/>本機 visor；不進推論佇列"]
@@ -242,7 +243,7 @@ flowchart TB
   OBJECTCOPY["需要 object/L1 時才旋正 Bitmap<br/>object current + latest pending；被取代立即 recycle"]
   OBJECT["MediaPipe EfficientDet-Lite2 int8 · 448×448<br/>✅ VIDEO 受控串流；13 類 allowlist；score≥0.35"]
   OBJECTUI["CameraX CoordinateTransform<br/>✅ category/score/bbox → 本機橘色候選框"]
-  ASSOC["匿名人—物 association<br/>carried→separated→stationary/dwell→person-left ⏳"]
+  ASSOC["匿名人—物 association ✅<br/>近接→可見分離→靜置/dwell→person-left 待檢視"]
   LUMA["extractLuma()<br/>Y plane → width×height ByteArray"]
   JNI["JNI convert_byte_array<br/>Java heap → Rust Vec copy"]
   HASH["Rust frame_signature()<br/>8×8 average hash → 64-bit jlong"]
@@ -259,11 +260,12 @@ flowchart TB
   ALLOWED["未來可外傳：文字描述 / 結構化事件<br/>禁止外傳：影格 / Bitmap / PNG / pose 身分特徵"]
 
   START --> CAMERA
+  CAMERA --> STOP
   ZOOM --> CAMERA
   CAMERA --> PREVIEW
   CAMERA --> ANALYSIS --> POSE --> FEATURE --> OBS --> L2
   HASH --> MOTION -->|"放行候選幀"| OBJECTCOPY --> OBJECT --> OBJECTUI --> PREVIEW
-  OBJECT -.-> ASSOC -.->|"litter candidate"| L2
+  OBJECT --> ASSOC -.->|"litter observation / Event 尚未接線"| L2
   FEATURE -->|"同一組客觀 landmarks"| OVERLAY --> PREVIEW
   POSE -->|"task 完成；同一個仍開啟的 proxy"| LUMA --> JNI --> HASH --> GATE
   GATE -->|"未放行"| CLOSE
@@ -274,7 +276,8 @@ flowchart TB
   TEXT -.->|"後到的客觀脈絡；不得升級 status / risk"| L2
 ```
 
-虛線是尚未接線的人—物時序、policy/告警與 L1 後補脈絡；其餘是目前 `MonitorActivity` 的實際影像生命週期。
+虛線是尚未接線的 litter observation/Event、policy/告警與 L1 後補脈絡；其餘是目前
+`MonitorActivity` 的實際影像生命週期。
 單一 analyzer 先讓 ML Kit 讀 media image；task 完成後同一個仍開啟的 proxy 才進 L0→L1，最後
 一定 close。L2 每個成功分析幀都產生 observation，**不經 L0 admit gate**。完整影格不會送入
 Rust；L0 只有 luma copy，L2 只有匿名數值 observation。重模型 L1 僅處理放行後的旋正 Bitmap，
@@ -283,6 +286,7 @@ Rust；L0 只有 luma copy，L2 只有匿名數值 observation。重模型 L1 �
 | 階段 | 執行位置 / 執行緒 | 輸入 → 輸出 | 擁有權、保存與傳輸 |
 |---|---|---|---|
 | 啟動 | Android main executor | 使用者動作 → CameraX bind | 未授權或 bind 失敗會回到可重試狀態，不會顯示正在守護 |
+| 明確停止／重啟 | 跨四個 tab 的 Compose control → Android main executor | session generation 先失效 → analyzer clear、CameraX unbind、pending queue/overlay/tracker/L2 session 清除 | 舊 ML Kit／MediaPipe callback 即使稍後完成也會因 generation 不符被丟棄；正在執行的本機推論只允許收尾與 recycle，不會恢復畫框／事件；可再次手動啟動新 session |
 | 預覽 | CameraX `Preview` → `PreviewView` | camera surface → 本機 visor | CameraX 管理 surface；App 不把 Preview 幀寫檔或送網路 |
 | 安裝方向／zoom | CameraX `CameraControl` / `ZoomState` | UI ±0.5× → 裝置支援範圍內 zoomRatio | `fullSensor` + `OrientationEventListener` 同步 Preview/Analysis `targetRotation`；zoomRatio 持久化並在回前景重套；zoom 會縮窄 FOV，不能當作多人覆蓋方案 |
 | 人物疊圖 | Android main thread / Compose Canvas | 8 個內部 landmarks → CameraX analysis-to-preview transform → 匿名「人體姿態候選」框 + 約略像素高度 | 不把 pose output 宣稱為已確認的人，不顯示骨架/身分/風險；`ImageProxyTransformFactory` + `CoordinateTransform` 處理 rotation/FIT_CENTER letterbox；只在 RAM，遺失/退背景/L2 停用立即清除 |
@@ -291,9 +295,9 @@ Rust；L0 只有 luma copy，L2 只有匿名數值 observation。重模型 L1 �
 | L2 特徵 | 純 Kotlin `PoseObservationExtractor` | landmarks → pose/descent/motion + 短時匿名 slot | tracking miss/gap/大跳位會換 slot，防止把不同人時序拼接；impact/contact/strike 固定 0 |
 | 物件排程 | analyzer 的 Rust aHash → `ObjectCandidateGate` | scene signature → 是否建立 Bitmap 候選 | 變化達 4 bits 後每 ≥250ms、持續 1.5s；靜態每 2s probe。這只省算力，不能證明框內物件在動；ROI 尚待 #39 |
 | 物件候選 | `objectExecutor` → MediaPipe Object Detector `VIDEO` | 旋正 Bitmap → allowlisted category/score/bbox | 獨立 current + latest pending 有界佇列；刻意不用 async `LIVE_STREAM`，由 App 明確擁有／recycle 每張 Bitmap；模型忙碌時合併中間候選。單幀 COCO 類別不能證明「垃圾」或意圖 |
-| 匿名物件短時追蹤 | `objectExecutor` → `AnonymousObjectTracker` | normalized bbox → 同類別幾何 association、session-local P/O 槽位、速度／靜止 | 不用臉、外觀 embedding 或跨 session ID；3 秒 gap／退背景／撤回即重設。候選過載會合併影格，所以槽位不是逐幀或身分保證 |
+| 匿名物件短時追蹤 | `objectExecutor` → `AnonymousObjectTracker` | normalized bbox → 同類別幾何 association、session-local P/O 槽位、速度／靜止 | 不用臉、外觀 embedding 或跨 session ID；3 秒 gap／明確停止／退背景／撤回即重設。候選過載會合併影格，所以槽位不是逐幀或身分保證 |
 | 亂丟垃圾 evidence | `LitterEvidenceTracker`(純 Kotlin) | 連續人—物近接 → 可見分離 → 分離後靜置 → 人離開待檢視 | 人漏偵不能當分離；離開需同一槽位至少兩次可見拉遠、物件連續可見且靜置 ≥30 秒。最終仍不產生 Event/告警；ROI、多人 association 與場域門檻見 #39 |
-| 物件疊圖 | main thread / Compose Canvas | CameraX transform → 橘色 bbox + P/O 槽位、移動／靜止、客觀 evidence stage、延遲／合併數 | 只在本機 RAM；不顯示身分或「垃圾」結論；rotation/FIT_CENTER/zoom 使用 CameraX transform；退背景、撤回同意或 destroy 清除 |
+| 物件疊圖 | main thread / Compose Canvas | CameraX transform → 橘色 bbox + P/O 槽位、移動／靜止、客觀 evidence stage、延遲／合併數 | 只在本機 RAM；不顯示身分或「垃圾」結論；rotation/FIT_CENTER/zoom 使用 CameraX transform；明確停止、退背景、撤回同意或 destroy 清除 |
 | L0 特徵 | Kotlin → JNI → Rust → Kotlin | Y plane `ByteArray` → 64-bit aHash | JNI 會複製 luma 到 Rust；Rust 不保存，回傳 hash 後釋放 |
 | L0 決策 | Kotlin `PerceptionPipeline` / `ChangeGate` | hash → admit/skip + telemetry | 只保存 64-bit「最後放行 hash」；節流比例依場景而變 |
 | L1 取圖 | analyzer，僅 admit | `ImageProxy` → 旋正 `Bitmap` | 必須在 proxy close 前複製；之後 proxy 立即關閉 |
@@ -630,9 +634,10 @@ fail-closed evidence stage 已接線，但不是部署完成宣告。
 - **不是醫療器材,也不能取代真人監看與保全。** 跌倒與亂丟垃圾偵測都可能漏報／誤報；對外告警尤其需要抑制與人工確認。
 - **需知情同意。** 任何部署都需取得現場相關人員同意；若場域涉及兒童或其他敏感族群，需更高標準的告知與治理。
 - **隱私。** 影像/聲音只在裝置端處理、不外傳、用完即刪。在把鏡頭對準任何人之前,請先讀 [`docs/PRIVACY.md`](docs/PRIVACY.md)。
-- **啟停控制仍有缺口。** 相機需手動啟動、退背景由 CameraX lifecycle 停止，但前景內尚缺明確
-  「停止守護」與跨 tab 狀態指示；完成 [issue #42](https://github.com/TingFengChou/claustrum/issues/42)
-  前不能把現況描述成完整的隱私控制。
+- **啟停控制不等於硬體斷電。** App 預設待命、需手動啟動；啟動後四個 tab 都顯示相機狀態與
+  「停止守護」。停止會先讓 session generation 失效，再 unbind CameraX、清除 pending 影格／
+  疊圖／匿名 tracker 與 L2 session；舊 callback 不得恢復輸出。Android 系統 privacy indicator
+  仍是獨立的 OS 層證據；App 無法取代硬體遮蓋或實體 LED。
 - **物件槽位不是身分。** 現行只做短時 bbox 幾何 association；遮擋、多人／多物交錯、漏偵與
   latest-only 合併都可能換槽或失去時序。任何「待檢視」stage 都不可直接對外告警；完整限制與
   confusion matrix／ID-switch 驗收持續追蹤於 [issue #39](https://github.com/TingFengChou/claustrum/issues/39)。

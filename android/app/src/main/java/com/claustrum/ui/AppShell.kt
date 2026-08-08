@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import com.claustrum.model.ModelsController
 import com.claustrum.ui.theme.ClaustrumTheme
 
@@ -55,6 +58,7 @@ fun AppShell(
     previewView: View,
     models: ModelsController,
     onActivate: () -> Unit,
+    onDeactivate: () -> Unit,
     onZoomChange: (Float) -> Unit,
     dev: DevUi = DevUi(),
 ) {
@@ -76,9 +80,45 @@ fun AppShell(
                 ClaustrumTab.SETTINGS -> SettingsScreen(monitorUi.backend, dev = dev)
             }
         }
+        if (monitorUi.active) GuardianControlStrip(monitorUi, onDeactivate)
         BottomNav(tab) { selected ->
             if (selected == ClaustrumTab.MODELS) models.refreshPresence()
             tab = selected
+        }
+    }
+}
+
+/** Camera state and stop control stay visible on every tab while the guardian is armed. */
+@Composable
+private fun GuardianControlStrip(ui: MonitorUi, onDeactivate: () -> Unit) {
+    val c = ClaustrumTheme.colors
+    Row(
+        Modifier.fillMaxWidth().background(c.surface2)
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(7.dp).background(if (ui.guarding) c.accent else c.warn))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            when {
+                ui.statusError != null -> "相機已啟動 · 需處理"
+                ui.guarding -> "相機守護中 · 影格不離裝置"
+                else -> "相機啟動中…"
+            },
+            color = c.ink,
+            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(
+            onClick = onDeactivate,
+            contentPadding = PaddingValues(horizontal = 8.dp),
+            modifier = Modifier.heightIn(min = 48.dp),
+        ) {
+            Text(
+                "■ 停止守護",
+                color = c.accent,
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+            )
         }
     }
 }
