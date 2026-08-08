@@ -50,8 +50,8 @@
   啟動 → HTTP 到 HF → gated 模型正確顯示「需要授權(401)」;**無崩潰**。ModelSpec 6 個 JVM 測試綠。
 - **已驗(Pixel 10):** HF 權杖下載 3.66GB E2B `.litertlm`；GPU/GPU L1 產生真實繁中描述。
 - **待驗:** 下載中斷續傳、自動/手動模型切換與 E2B vs E4B 同組素材評測。
-- **已實機驗:** Lite2 object model consent、App 下載/checksum、detector 熱載入與 2 秒內撤回停止；
-  重新同意已下載模型不會重走網路。
+- **已實機驗:** Lite2 object model consent、App 下載/checksum、detector 熱載入與撤回停止；撤回由
+  UI 直接通知 runtime owner，不依賴下一張 CameraX 影格；重新同意已下載模型不會重走網路。
 
 ## 追溯
 

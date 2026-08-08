@@ -125,7 +125,9 @@ class MonitorActivity : ComponentActivity() {
     private val guardian = GuardianSession()
     private val uiState = mutableStateOf(MonitorUi())
     private lateinit var previewView: PreviewView
-    private val models by lazy { ModelsController(this) }
+    private val models by lazy {
+        ModelsController(this, onMediaPipeConsentRevoked = ::disableObjectDetectorForConsent)
+    }
 
     // App entry route: boot animation → (first-run) onboarding → guardian shell.
     private enum class Route { SPLASH, INTRO, SHELL }

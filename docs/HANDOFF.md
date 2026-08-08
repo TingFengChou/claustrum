@@ -32,8 +32,8 @@
   2/20；全框 CameraX probe 精確符合 FIT_CENTER，問題在模型 localization/domain gap。catalog 的
   Lite2 是精度優先 baseline，不是部署完成宣告。
 - **Object model UX／完整性已實機驗:** 7,515,971 bytes 由 App 下載、SHA-256 符合 pinned 值；
-  metrics 撤回後 2 秒內停 detector/清框，重新同意既有模型不重下載。測試期間暫移的 Gemma 已
-  還原，Lite0/Lite2 ADB 備份亦已清除。
+  metrics 撤回會直接停 detector/清框、不等待下一張影格，重新同意既有模型不重下載。測試期間
+  暫移的 Gemma 已還原，Lite0/Lite2 ADB 備份亦已清除。
 - **旋轉驗證邊界:** Pixel 以 WindowManager 強制 ROTATION_90 已確認 landscape 雙欄、底部導覽與
   zoom 控制可操作；因手機實體感測器仍為 portrait，強制畫面下 camera buffer 會側轉，不能冒充
   `OrientationEventListener` 實體四向驗收。裝置原 rotation 設定已還原，#37 仍需手動轉機驗證。

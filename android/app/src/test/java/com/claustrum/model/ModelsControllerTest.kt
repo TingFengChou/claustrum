@@ -6,6 +6,17 @@ import java.util.Locale
 
 class ModelsControllerTest {
     @Test
+    fun consentWithdrawalNotifiesRuntimeOwnerWithoutWaitingForAFrame() {
+        var revokeCount = 0
+
+        notifyMediaPipeConsentRevoked(granted = true) { revokeCount += 1 }
+        assertEquals(0, revokeCount)
+
+        notifyMediaPipeConsentRevoked(granted = false) { revokeCount += 1 }
+        assertEquals(1, revokeCount)
+    }
+
+    @Test
     fun smallModelsUseMegabytes() {
         assertEquals("2.3 / 4.6 MB", downloadSize(2_300_000L, 4_600_000L))
     }

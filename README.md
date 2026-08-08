@@ -385,8 +385,8 @@ L1 場景描述則不走 MediaPipe LLM Inference，而用較新的 LiteRT-LM SDK
 
 模型頁的 7,515,971-byte Lite2 已用 App 的 WorkManager 實際下載，裝置 SHA-256 為
 `b3f50554cb0ea559e90328845f7d9ba4d13c8bff372914d24e06bc8bb72fa896`；不同 size/hash 不會 rename
-成正式模型。撤回 metrics 同意後，守護畫面在下一次 2 秒檢查內停止 detector 並清框；重新同意
-已下載模型只熱載入，不重走網路。
+成正式模型。撤回 metrics 同意會直接通知 detector owner、停止新輸入並清框，不依賴下一張相機
+影格；已下載模型重新同意後只熱載入，不重走網路。
 
 #### 與 Google AI Edge Gallery 的關鍵差異
 

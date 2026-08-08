@@ -12,7 +12,10 @@ import java.util.Locale
  * Observes WorkManager with the hosting activity as LifecycleOwner and exposes
  * Compose-observable state (status per model, whether a token is set).
  */
-class ModelsController(private val activity: ComponentActivity) {
+class ModelsController(
+    private val activity: ComponentActivity,
+    private val onMediaPipeConsentRevoked: () -> Unit = {},
+) {
 
     private val tokenStore = TokenStore(activity)
 
@@ -37,6 +40,7 @@ class ModelsController(private val activity: ComponentActivity) {
     fun setMediaPipeMetricsConsent(granted: Boolean) {
         MediaPipeMetricsConsent.setGranted(activity, granted)
         hasMediaPipeMetricsConsent.value = granted
+        notifyMediaPipeConsentRevoked(granted, onMediaPipeConsentRevoked)
     }
 
     /** Re-enabling an already verified model must not require another network download. */
@@ -72,6 +76,11 @@ class ModelsController(private val activity: ComponentActivity) {
                 }
             }
     }
+}
+
+/** Withdrawal must reach the runtime owner directly, even when camera frames have stalled. */
+internal fun notifyMediaPipeConsentRevoked(granted: Boolean, onRevoked: () -> Unit) {
+    if (!granted) onRevoked()
 }
 
 internal fun downloadSize(received: Long, total: Long): String =

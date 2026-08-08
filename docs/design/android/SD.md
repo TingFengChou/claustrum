@@ -166,7 +166,7 @@ main thread
 - CaptionLog 只存文字、時間、來源與延遲，process death 即清空。
 - MediaPipe object 模型從官方固定 URL 下載，先驗 byte length + SHA-256 才 rename；非 HF URL
   絕不附加 HF bearer token。MediaPipe Tasks 的非影像效能 metrics 需模型頁獨立同意才啟用，
-  可撤回並在最多 2 秒內停止新 detector submission；詳見 PRIVACY/#41。
+  可撤回並直接停止新 detector submission，不依賴下一張 CameraX 影格；詳見 PRIVACY/#41。
 - Dev 素材只讀使用者明確放入 app external-files 的 `dev_eval/`、`dev_videos/`。
 
 ## 8. 測試
