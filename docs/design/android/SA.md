@@ -35,6 +35,7 @@
 | NFR-1 | Host 單元測試不依賴模型、相機或 Android 裝置 |
 | NFR-2 | `ImageProxy` 必定 close；複製 Bitmap 在 L1 使用後 recycle；影格不外傳 |
 | NFR-3 | 相機啟動、首幀、連續分析錯誤與恢復狀態必須如實反映於 UI |
+| NFR-4 | Pose detector/JNI 同步失敗只停用 L2；同一幀與後續幀仍須走 L0/L1，不得連帶停擺 |
 
 ## 4. 相依與假設
 

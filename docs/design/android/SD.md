@@ -69,6 +69,8 @@ main thread
   dwell。這是實機 recall 校準硬關卡，也是保留可替換 adapter 的理由。
 - 第一版只由可靠的肩/髖/膝/踝 landmark 判定 Upright/Seated/Horizontal，並計算下降與動作分數；
   `impact/contact/strike` 固定 0、`visiblePeople` 最多 1，所以不會誤啟動多人 violence 規則。
+- Detector 建立、同步 `process()` 或 Rust session 失敗時原子停用並 close pose/L2；同一個仍開啟的
+  proxy 立即 fallback 到 L0/L1，後續幀也跳過 pose。這是「告警 fail-closed、感知 fail-open」。
 - L1 single-flight；忙碌時 `AtomicReference` 只保留最新放行幀並 recycle 被取代的舊幀。
 - 真後端初始化失敗會依 GPU/GPU→CPU/GPU→CPU/CPU 嘗試；每個失敗的 Engine 先 close，
   避免 fallback 前累積模型/GPU 配置。

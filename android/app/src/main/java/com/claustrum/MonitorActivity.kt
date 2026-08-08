@@ -57,6 +57,8 @@ class MonitorActivity : ComponentActivity() {
     private val inFlight = java.util.concurrent.atomic.AtomicBoolean(false) // single-flight L1
     private val poseTaskInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val destroyed = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val poseFastPathEnabled = java.util.concurrent.atomic.AtomicBoolean(true)
+    private val poseDetectorClosed = java.util.concurrent.atomic.AtomicBoolean(false)
     // Latest admitted frame that arrived while L1 was busy. Intermediate admitted frames
     // are intentionally coalesced: this bounds L1 work but is not an event-recall guarantee.
     private val pending = java.util.concurrent.atomic.AtomicReference<Bitmap?>(null)
@@ -318,7 +320,7 @@ class MonitorActivity : ComponentActivity() {
         } catch (t: Throwable) {
             // Fail closed: camera/L0/L1 remain useful, but no event is claimed when the
             // fast path cannot initialize.
-            Log.e(TAG, "L2 pose fast path initialization failed", t)
+            disablePoseFastPath("L2 pose fast path initialization failed", t)
         }
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
@@ -355,6 +357,10 @@ class MonitorActivity : ComponentActivity() {
             finishAnalysis(image)
             return
         }
+        if (!poseFastPathEnabled.get()) {
+            analyzeWithoutPose(image)
+            return
+        }
         val mediaImage = image.image
         if (mediaImage == null) {
             try {
@@ -377,6 +383,7 @@ class MonitorActivity : ComponentActivity() {
             val input = InputImage.fromMediaImage(mediaImage, rotation)
             poseDetector.process(input).addOnCompleteListener(analysisExecutor) { task ->
                 try {
+                    if (destroyed.get()) return@addOnCompleteListener
                     val frame = if (task.isSuccessful) {
                         task.result.toPoseFrame(atMs, uprightWidth, uprightHeight)
                     } else {
@@ -394,10 +401,22 @@ class MonitorActivity : ComponentActivity() {
                 }
             }
         } catch (t: Throwable) {
-            finishAnalysis(image)
-            Log.e(TAG, "pose analysis submission failed", t)
+            // A broken detector must not take the existing L0/L1 monitor down with it.
+            // Disable only L2, then process this same still-open proxy without pose.
+            disablePoseFastPath("pose analysis submission failed; L2 disabled", t)
+            analyzeWithoutPose(image)
+        }
+    }
+
+    private fun analyzeWithoutPose(image: ImageProxy) {
+        try {
+            analyzePerception(image)
+        } catch (t: Throwable) {
+            Log.e(TAG, "L0/L1 fallback analysis failed", t)
             guardian.frameFailed("影格分析持續失敗:${t.message ?: t.javaClass.simpleName}")
             pushState()
+        } finally {
+            finishAnalysis(image)
         }
     }
 
@@ -433,9 +452,23 @@ class MonitorActivity : ComponentActivity() {
             // footage calibration. Structured event text is safe to log; pixels are not.
             engine.process(observation).forEach { eventJson -> Log.i(TAG, "L2_EVENT $eventJson") }
         } catch (t: Throwable) {
-            Log.e(TAG, "Rust L2 event engine disabled after processing failure", t)
-            eventEngine = null
-            engine.close()
+            disablePoseFastPath("Rust L2 event engine disabled after processing failure", t)
+        }
+    }
+
+    private fun disablePoseFastPath(message: String, cause: Throwable? = null) {
+        if (!poseFastPathEnabled.compareAndSet(true, false)) return
+        if (cause == null) Log.i(TAG, message) else Log.e(TAG, message, cause)
+        val engine = eventEngine
+        eventEngine = null
+        engine?.close()
+        poseExtractor.reset()
+        closePoseDetector()
+    }
+
+    private fun closePoseDetector() {
+        if (poseDetectorDelegate.isInitialized() && poseDetectorClosed.compareAndSet(false, true)) {
+            poseDetector.close()
         }
     }
 
@@ -533,10 +566,7 @@ class MonitorActivity : ComponentActivity() {
     override fun onDestroy() {
         destroyed.set(true)
         super.onDestroy()
-        eventEngine?.close()
-        eventEngine = null
-        poseExtractor.reset()
-        if (poseDetectorDelegate.isInitialized()) poseDetector.close()
+        disablePoseFastPath("L2 pose fast path closed")
         val p = pipeline
         inferenceExecutor.execute { try { p?.close() } catch (_: Throwable) {} }
         inferenceExecutor.shutdown()
