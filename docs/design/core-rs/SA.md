@@ -15,7 +15,8 @@ Compose)、L1 VLM 本體(改走 Kotlin 端 **Google AI Edge / LiteRT**,ADR-0009;
 ## 2. 參與者與情境
 
 - **Android 層(Kotlin)** —— 由 CameraX 取得影格 luma，經 JNI 取得 Rust aHash；Kotlin
-  `ChangeGate` 保存最後放行 signature。未來另以 JNI 傳匿名 Observation、接收 Event。
+  `ChangeGate` 保存最後放行 signature。L2 另以 JNI 傳匿名 Observation、接收 Event JSON；
+  observation 契約/bridge 已完成，extractor 待接。
 - **Google AI Edge / LiteRT**(Kotlin 層)—— L1 VLM 推論(L0 放行後由 Kotlin analyzer 觸發;core-rs 不直接呼叫)。
 - **告警消費者** —— 接收 core-rs 輸出的 Event。
 
@@ -25,8 +26,8 @@ Compose)、L1 VLM 本體(改走 Kotlin 端 **Google AI Edge / LiteRT**,ADR-0009;
   **省算力**(靜態場景不叫 VLM)。
 - **FR-2(P2)** Rust 回傳 signature 給 Kotlin analyzer，由 Kotlin gate 決定放行並觸發
   L1(Kotlin/LiteRT)；core-rs 不參與現行 VLM 呼叫。
-- **FR-3(P3 foundation ✅)** L2 事件引擎:對輕量 pose/motion/action Observation 時間序列的
-  狀態機(Fall/ZoneExit/Violence)→ Event；VLM 僅二階佐證。Android extractor/JNI 接線待續。
+- **FR-3(P3 🟡)** L2 事件引擎:對輕量 pose/motion/action Observation 時間序列的
+  狀態機(Fall/ZoneExit/Violence)→ Event；Android/JNI bridge 已完成，extractor 待續。
 - **FR-4(P0/後續)** JNI 介面:向 Android 暴露必要的入口。
 
 ## 4. 非功能需求
@@ -45,7 +46,7 @@ Compose)、L1 VLM 本體(改走 Kotlin 端 **Google AI Edge / LiteRT**,ADR-0009;
 ## 6. 限制與假設
 
 - 輸入影格為單通道 luma(由 Android CameraX 提供 / 轉換)。
-- L1 由 Kotlin 端 Google AI Edge / LiteRT 提供(ADR-0009)；L2 型別對齊
+- L1 由 Kotlin 端 Google AI Edge / LiteRT 提供(ADR-0009)；L2 型別與 JNI 輸出對齊
   `schemas/event.schema.json`，但 pose/action extractor 尚未接線。
 
 ## 7. 驗收標準

@@ -25,6 +25,32 @@ object NativeCore {
      */
     external fun frameSignature(luma: ByteArray, width: Int, height: Int): Long
 
+    /** Create one stateful Rust L2 session; returns 0 when the source is invalid. */
+    external fun createEventEngine(sourceId: String): Long
+
+    /**
+     * Feed one anonymous, pixel-free fast-path observation into Rust L2.
+     * Each returned string is one `schemas/event.schema.json` event. An empty array
+     * means no transition; null means JNI rejected the handle or payload.
+     */
+    external fun processEventObservation(
+        handle: Long,
+        atMs: Long,
+        actant: Int,
+        secondaryActant: Int,
+        pose: Int,
+        rapidDescentScore: Float,
+        impactScore: Float,
+        motionScore: Float,
+        closeContactScore: Float,
+        strikeScore: Float,
+        visiblePeople: Int,
+        zoneExit: Boolean,
+    ): Array<String>?
+
+    /** Release an L2 session; repeated or invalid handles are ignored by Rust. */
+    external fun destroyEventEngine(handle: Long)
+
     /** Legacy ADR-0008 seam; MonitorActivity uses Kotlin LiteRtCaptioner instead. */
     @Deprecated("Legacy Rust L1 placeholder; use com.claustrum.vlm.Captioner")
     external fun describe(luma: ByteArray, width: Int, height: Int): String?

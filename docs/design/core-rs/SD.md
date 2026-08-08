@@ -16,7 +16,8 @@
 | `gate` | L0 變化閘控:`Signature`(8×8 aHash)、`frame_signature`、`distance`、`ChangeGate` | ✅ P0 |
 | `vlm` | ADR-0008 的 legacy Rust 佔位；現行 Android 不呼叫，待小 PR 與 `NativeCore.describe` 一併移除 | ⚠️ legacy |
 | `events` | L2 Fall/ZoneExit/Violence 狀態機 + Event serde(見 events 設計) | ✅ P3 foundation |
-| `ffi` | JNI 入口(`jni` crate)；active:`nativeHello`/`frameSignature`；legacy:`describe` | ✅ P0/P1 · ⚠️ legacy seam |
+| `event_bridge` | host-testable engine registry；opaque positive handle → 隔離的 `EventEngine` session | ✅ P3 bridge |
+| `ffi` | JNI 入口；active:`frameSignature` + L2 create/process/destroy；legacy:`describe` | ✅ P0/P1/P3 · ⚠️ legacy seam |
 
 ## 3. 介面與合約
 
@@ -27,6 +28,9 @@
   `nativeHello(): String`、`frameSignature(luma: ByteArray, w, h): Long`(回 aHash;Kotlin 端
   以 `Long.bitCount(prev xor cur)` 做閘控)。luma 會由 JNI 複製到 Rust，回傳 hash 後釋放；
   不保存影格，也不把完整彩色 Bitmap 交給 Rust L0。
+- **L2 JNI:**`createEventEngine(sourceId)` 取得非指標 handle；`processEventObservation(...)`
+  傳送匿名結構化特徵並回傳 `Array<String>`；`destroyEventEngine(handle)` 釋放 session。
+  每個字串都是一個 `event.schema.json` Event；empty array 代表未跨越狀態。
 
 `.so` 建置(cargo-ndk):
 ```bash
@@ -69,6 +73,8 @@ Kotlin `ChangeGate` 保存，兩者都對照「上次已放行」幀，讓慢速
 - events 已以合成序列覆蓋正常坐下、fall 快/慢確認、恢復、zone 去重、violence pair 隔離、
   VLM 不升級與 serde shape。L1 觸發邏輯在 Kotlin 端以 `Captioner` 介面 + `FakeCaptioner`
   做 host 單元測試(不綁硬體);只有 `LiteRtCaptioner` 真呼叫需裝置整合測試(見 [android SD](../android/SD.md))。
+- `event_bridge` 在 host 覆蓋 handle lifecycle/wrap 與 session 隔離；Android target 另以 cargo-ndk
+  編譯並檢查三個 L2 JNI symbols。
 
 ## 追溯
 

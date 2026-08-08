@@ -47,6 +47,8 @@ System Design 文件。從 [`docs/design/_template/`](design/_template/) 開始�
 
 - **單元測試(純邏輯,由 CI 跑):** Python `python -m unittest`、Rust `cargo test`、
   Android JVM `./gradlew :app:testDebugUnitTest`。CI 三者皆自動執行(`.github/workflows/ci.yml`)。
+- **Linter(提交前必跑):** Rust `cargo clippy --all-targets -- -D warnings`；Android
+  `./gradlew :app:lintDebug`。既有 dependency/version warnings 要在 PR 說明，新警告不可靜默增加。
 - **UI / 使用者旅程(journey)自動化一律用 [Maestro](https://maestro.mobile.dev):** flow 放
   `.maestro/*.yaml`,涵蓋關鍵旅程(模型下載/切換、進入即時偵測、告警處置)。
   執行:`maestro test .maestro/`(需連接裝置/模擬器)。**flow 不得驗證任何真實機密(如 HF 權杖值)。**
@@ -67,6 +69,7 @@ skill;相關時搭配 Figma / `dataviz`),而不是使用預設或佔位元件。
 ## 完成的定義
 
 - [ ] 測試已撰寫;`python -m unittest discover -s tests` 為綠燈
+- [ ] Rust clippy 與 Android lint 已執行；本 PR 無新 warning
 - [ ] 已為變動到的模組更新 SA/SD
 - [ ] 若涉及里程碑或設計變動,已更新 README / ROADMAP / ARCHITECTURE
 - [ ] 位於已開 PR 的分支上;CI 為綠燈;審查已處理
