@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -18,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.claustrum.ui.theme.ClaustrumTheme
 import kotlin.math.roundToInt
@@ -27,7 +29,20 @@ data class ObjectCandidateUi(
     val category: String,
     val score: Float,
     val bounds: OverlayBounds,
+    val trackSlot: Int? = null,
+    val motion: ObjectCandidateMotionUi = ObjectCandidateMotionUi.UNKNOWN,
+    val evidenceStage: ObjectEvidenceStageUi = ObjectEvidenceStageUi.OBSERVED,
 )
+
+enum class ObjectCandidateMotionUi { UNKNOWN, MOVING, STATIONARY }
+
+enum class ObjectEvidenceStageUi {
+    OBSERVED,
+    PERSON_ASSOCIATED,
+    VISIBLE_SEPARATION,
+    STATIONARY_AFTER_SEPARATION,
+    PERSON_LEFT_PENDING_REVIEW,
+}
 
 object ObjectCandidateGeometry {
     fun normalizedBounds(
@@ -73,7 +88,7 @@ fun ObjectCandidateOverlay(
                         style = Stroke(width = stroke),
                     )
                     drawIntoCanvas { canvas ->
-                        val label = "${objectCategoryLabel(candidate.category)} ${(candidate.score * 100).roundToInt()}%"
+                        val label = objectCandidateLabel(candidate)
                         val textPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                             color = android.graphics.Color.WHITE
                             textSize = (size.minDimension * 0.027f).coerceAtLeast(18f)
@@ -107,7 +122,10 @@ fun ObjectCandidateOverlay(
                 text = status,
                 color = c.ink,
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.TopStart).padding(10.dp)
+                    .fillMaxWidth(0.62f)
                     .background(Color.Black.copy(alpha = 0.68f), RoundedCornerShape(5.dp))
                     .padding(horizontal = 7.dp, vertical = 4.dp),
             )
@@ -124,6 +142,25 @@ internal fun objectCandidateSummary(candidates: List<ObjectCandidateUi>, latency
             if (count == 1) label else "$label×$count"
         }
     return "物件候選 ${candidates.size} · $counts · ${latencyMs}ms"
+}
+
+internal fun objectCandidateLabel(candidate: ObjectCandidateUi): String {
+    val kind = if (candidate.category == "person") "P" else "O"
+    val slot = candidate.trackSlot?.let { " $kind$it" }.orEmpty()
+    val motion = when (candidate.motion) {
+        ObjectCandidateMotionUi.UNKNOWN -> ""
+        ObjectCandidateMotionUi.MOVING -> " · 移動"
+        ObjectCandidateMotionUi.STATIONARY -> " · 靜止"
+    }
+    val evidence = when (candidate.evidenceStage) {
+        ObjectEvidenceStageUi.OBSERVED -> ""
+        ObjectEvidenceStageUi.PERSON_ASSOCIATED -> " · 與人近接"
+        ObjectEvidenceStageUi.VISIBLE_SEPARATION -> " · 可見分離"
+        ObjectEvidenceStageUi.STATIONARY_AFTER_SEPARATION -> " · 分離後靜置"
+        ObjectEvidenceStageUi.PERSON_LEFT_PENDING_REVIEW -> " · 人離開待檢視"
+    }
+    return "${objectCategoryLabel(candidate.category)}$slot " +
+        "${(candidate.score * 100).roundToInt()}%$motion$evidence"
 }
 
 internal fun objectCategoryLabel(category: String): String = when (category) {

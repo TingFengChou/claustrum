@@ -12,9 +12,9 @@ L2 把裝置端輕量 pose/motion/object extractor 產生的時間序列，轉�
 
 本階段已交付 Rust `EventEngine`、跨語言 `event.schema.json`、Android `FastPathObservation`、
 具生命週期的 JNI engine bridge，以及 CameraX→ML Kit 單人 pose→Rust 的第一條實際 fast path。
-Android 另已接 MediaPipe category/score/bbox candidate，但尚未產生 L2 `ObjectObservation`。它們
-都未經真實素材校準，也沒有 impact/多人 action、litter tracker、通知或 UI policy，因此不宣稱
-可部署告警。
+Android 另已接 MediaPipe category/score/bbox candidate、session-local 匿名幾何 tracker 與
+fail-closed litter evidence stage，但尚未產生 L2 `ObjectObservation` 或 Event。它們都未經真實
+素材校準，也沒有 impact/多人 action、可靠多人 association、通知或 UI policy，因此不宣稱可部署告警。
 
 ## 2. 功能需求
 
@@ -28,7 +28,7 @@ Android 另已接 MediaPipe category/score/bbox candidate，但尚未產生 L2 `
 | FR-6 | L1 caption 可作 VLM 二階佐證，但不得改變 status/risk/confidence/latency |
 | FR-7 | 輸出可序列化為 `schemas/event.schema.json`，不含影格、人物身分或年齡/臉部欄位 |
 | FR-8 | Android 以可關閉的 opaque handle 管理每個 camera source 狀態；JNI 只傳 observation，每個返回字串為單一 Event JSON |
-| FR-9(規劃) | Litter:只有匿名人—物 association 顯示 carried→separated→stationary/dwell，且人離開後物仍在 ROI，才建立 candidate；單一物件 detection 不成立 |
+| FR-9 | Litter:只有匿名人—物 association 顯示連續近接→可見分離→stationary/dwell，且先看到人物拉遠、之後人離開而物仍在 ROI，才可建立 candidate；單一物件 detection／person miss 不成立。Android 已完成 pre-Event evidence stage，L2 candidate/schema 尚待 #39 |
 
 ## 3. 非功能需求
 
@@ -46,6 +46,8 @@ Android 另已接 MediaPipe category/score/bbox candidate，但尚未產生 L2 `
 - `ZoneExit`:客觀事件但 `risk.none`；若日後要變成 child hazard，須由另一條具可見證據的規則處理。
 - `ObjectObservation`(規劃):匿名 person/object slots、category、bbox/zone、association confidence、
   motion state 與 dwell；不含 crop、影格、臉或跨 session ID。
+- Android `P/O` 槽位只在同一守護 session、同類別 bbox 幾何連續時存在；不是身分、不可跨 session
+  re-identify，也尚未成為 schema transport。
 
 ## 5. 驗收
 
@@ -75,8 +77,9 @@ Android 另已接 MediaPipe category/score/bbox candidate，但尚未產生 L2 `
 - `latency_ms` 是事件時窗延遲，不含 CameraX/extractor/JNI/通知；端到端 p95 需實機量測。
 - MediaPipe Object Detector 只提供 category/score/bbox 且沒有可依賴的 tracking ID；Android 以
   `VIDEO` + current/latest queue 主動合併中間候選，語意上同樣不是逐幀 recall 保證。COCO 的
-  bottle/cup 也不等於垃圾。candidate adapter 已接，但 litter observation/schema/tracker/state
-  machine 尚未實作，追蹤於 issue #39。
+  bottle/cup 也不等於垃圾。短時 greedy geometry tracker 與 pre-Event evidence state 已接，但
+  遮擋／多人多物交錯會 ID-switch；ROI、場域門檻、`ObjectObservation` schema、L2 Event 與
+  hard-negative 驗收仍追蹤於 issue #39。
 
 ## 追溯
 

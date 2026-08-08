@@ -38,6 +38,9 @@ MVP 只交付兩條垂直管線：
   樹木／告示牌出現 `person` 候選且漏掉小型真人；Lite2 空景首測較乾淨但約慢一倍。這只決定
   精度優先 baseline，不代表已解決 domain gap；仍以場域 confusion matrix 決定是否微調。
 - 人／物軌跡只用短時匿名 role slot；不做人臉、身分或跨 session re-identification。
+- 第一版 Android tracker 只以同類別 bbox IoU／中心距離延續最多 3 秒的 session-local 槽位；
+  person miss 不可當 separation，必須先看到同一人物槽位與物件可見拉遠。分離後靜置與
+  person-left 最終只標 pending-review，不直接建立 Event；遮擋／多人 ID-switch 仍須場域驗收。
 - 影格／crop 只在裝置 RAM，用完即刪；可外傳的仍只有文字與結構化事件。
 - MediaPipe Tasks 會把非影像 API 使用／效能 metrics 傳給 Google。預設不初始化；模型頁需先
   獨立知情同意並可撤回。無遙測替代追蹤於 issue #41，不能只說「推論 on-device」而省略此流量。

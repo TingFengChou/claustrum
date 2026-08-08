@@ -32,6 +32,9 @@ version、task/mode、呼叫／丟幀數、延遲與 init error；沒有 image�
 - 同意狀態只存在本機 SharedPreferences；撤回會直接通知 detector owner、停止新 candidate
   submission 並序列化關閉 detector，不依賴 CameraX 再送下一張影格。
 - 影像、物件框與類別只在 RAM；不接 Google DataTransport，也不寫入 App 自己的網路 payload。
+- `AnonymousObjectTracker` 只保存同類別 bbox 幾何、短時速度與 session-local `P/O` 整數槽位；
+  不使用臉、外觀 embedding、硬體識別碼或跨 session re-identification。退背景、撤回、track gap
+  或 Activity destroy 會重設；這些槽位與 evidence stage 不落地、不跨 JNI、不外傳。
 - 這仍不是「零網路 metadata」。完全停用／隔離 SDK metrics 的可重現方案追蹤於
   [issue #41](https://github.com/TingFengChou/claustrum/issues/41)；完成前文件與 UI 必須持續揭露。
 

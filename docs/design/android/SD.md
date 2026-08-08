@@ -39,9 +39,11 @@ L0→L1 管線；Compose 只渲染 immutable `MonitorUi`。L0 的 aHash 在 Rust
 | `PersonOverlayGeometry` | host-test 的 confidence filter、head/side padding 與 preview bounds clipping |
 | `ObjectCandidateGate` | Rust aHash 的獨立排程器；變化 active window + 靜態 periodic probe，不作事件證據 |
 | `LatestOnlyQueue` | L1/object 共用：producer 只覆蓋 latest pending、單一 worker drain；避免 handoff 將舊幀蓋回新幀 |
-| `MediaPipeObjectDetector` | pinned EfficientDet-Lite2 `VIDEO` 邊界；allowlist/score/bbox，不含 tracker 或 litter 判斷 |
+| `MediaPipeObjectDetector` | pinned EfficientDet-Lite2 `VIDEO` 邊界；allowlist/score/bbox，不含事件判斷 |
+| `AnonymousObjectTracker` | 同類別 normalized bbox 幾何 association、session-local P/O 槽位與 motion；不用身分／外觀特徵 |
+| `LitterEvidenceTracker` | 連續近接→可見分離→分離後靜置→人離開 pending-review；不建 Event |
 | `ObjectRuntimeStats` | 最近 120 幀的 p50/p95/max 有界診斷 window；每 20 幀寫本機 log，不影響事件證據 |
-| `ObjectCandidateOverlay` | CameraX 映射後的本機橘色候選框與 category/latency/合併 telemetry |
+| `ObjectCandidateOverlay` | CameraX 映射後的本機橘色候選框與 category/P-O 槽位/motion/evidence/latency/合併 telemetry |
 | `CameraZoomPolicy` | host-test 的裝置 zoom range clamp 與 0.5× UI step |
 | `NativeEventEngine` | 擁有一個 Rust L2 opaque handle；同步 process/close，返回單筆 Event JSON 清單 |
 | `ModelsController` | 模型目錄、HF token、MediaPipe opt-in、WorkManager 下載狀態 |
@@ -68,7 +70,8 @@ inferenceExecutor(single thread)
 
 objectExecutor(single thread)
   consent + verified model → MediaPipe ObjectDetector(VIDEO)
-  current Bitmap → category/score/bbox → recycle → drain 最新 pending Bitmap
+  current Bitmap → category/score/bbox → AnonymousObjectTracker → LitterEvidenceTracker
+  → recycle → drain 最新 pending Bitmap
   → main thread CoordinateTransform(Analysis→PreviewView) → ObjectCandidateUi
 
 main thread
@@ -115,8 +118,13 @@ main thread
   阻塞 object candidates，也避免 MediaPipe 堆積無界 Bitmap。採同步 `VIDEO` 而非 async
   `LIVE_STREAM`，原因是 Activity 能明確擁有／recycle 每一張副本；兩者在過載時都不保證每幀輸出。
 - Object allowlist 只保留 `person` 與 12 種可攜 COCO 類別，score threshold 0.35、max 10；這只
-  減少無關結果，不代表類別精確到足以判定垃圾。全域 aHash 變化也只啟動排程，不能當 object
-  motion evidence；ROI、bbox velocity 與匿名 association 仍屬 #39。
+  減少無關結果，不代表類別精確到足以判定垃圾。全域 aHash 變化只啟動排程；單物件 motion 由
+  normalized bbox 的 session-local tracker 計算，同類別 association 最長 gap 3 秒，槽位在退背景／
+  撤回／destroy 重設，不是身分。
+- `LitterEvidenceTracker` 要求連續人—物近接；person miss 不算分離，必須看到同一人物槽位仍在畫面
+  且與物件分開。兩次可見拉遠、物件分離後至少 30 秒靜置、人物之後未見，才顯示 pending-review；
+  既有靜止物、取回與 stale track 均 fail closed。此層不建 Event；ROI、多人 association、門檻
+  confusion matrix 與 L2 schema 仍屬 #39。
 - Pixel 10／2×／2F→1F 首測中，Lite0 約 121 ms 且對樹／告示牌輸出兩個 `person` 候選、漏掉
   小型真人；改用 Lite2 後空景 20 幀 p50 191 ms／p95 237 ms／max 238 ms、合併 2/20，約三分鐘
   未再誤框樹木；後續三人同框只框到兩人，小框定位仍有十幾至數十像素誤差。480×640 全框 probe
@@ -174,7 +182,8 @@ main thread
 - Host JVM:`ChangeGateTest`、`GuardianSessionTest`、`PerceptionPipelineTest`、
   `FallbackCaptionerTest`、`CaptionTextTest`、`ModelEvalTest`、`ModelSpecTest`、
   `PoseObservationExtractorTest`、`NativeEventEngineTest`、`ObjectCandidateGateTest`、
-  `LatestOnlyQueueTest`、`ObjectRuntimeStatsTest`、`ObjectCandidateGeometryTest`、
+  `LatestOnlyQueueTest`、`ObjectRuntimeStatsTest`、`AnonymousObjectTrackerTest`、
+  `LitterEvidenceTrackerTest`、`ObjectCandidateGeometryTest`、
   `ModelsControllerTest`。pose/object 測試用
   純資料，不 mock `ImageProxy` 或真模型。
 - `PersonOverlayGeometryTest` 覆蓋 confidence/NaN 過濾、邊界裁切、取景提示與多人 list UI 合約；
@@ -187,9 +196,10 @@ main thread
   Pixel WindowManager 強制 ROTATION_90 已驗 landscape 雙欄與控制可用；這不會改變實體 orientation
   sensor，故不能替代四向 camera buffer 驗收。四向 rotation 與 2F→1F zoom 依 issue #37/#38
   逐項實機驗收；host／強制 display rotation 都不能冒充感測器校準。
-- MediaPipe Object Detector 候選 adapter 已接線；Pixel 已量首輪 p50/p95 與合併率，仍須補真人／
-  小物 allowlist coverage、最小物件像素與 overlay alignment。ROI、匿名人—物 tracker、litter schema／
-  state machine 仍未接線，不能把 COCO detection 直接映射成 Event。
+- MediaPipe Object Detector 候選 adapter、匿名短時 tracker 與 pre-Event evidence state 已接線；
+  Pixel 已量 detector 首輪 p50/p95 與合併率，仍須補真人／小物 allowlist coverage、最小物件像素、
+  多人／多物 ID-switch 與完整時序 overlay。ROI、litter schema/Event 仍未接線，不能把 COCO
+  detection 或 pending-review 直接映射成 Event。
 - Rust/JNI 純邏輯另由 `core-rs cargo test` 與 Android 裝置煙霧測試覆蓋。
 
 ## 追溯

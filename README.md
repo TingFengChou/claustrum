@@ -6,8 +6,9 @@
 的跌倒／倒地安全與亂丟垃圾兩個可驗收情境，不做泛用影像理解。
 目前已完成相機串流、L0 變化閘控與 L1 客觀場景描述；L2 已有 Rust engine 與
 Android↔JNI bridge，並接上 ML Kit `STREAM_MODE` 單人 pose fast path 實際產生 observation。
-MediaPipe Object Detector 候選快路徑也已接線；它只畫出可攜物件／人物候選，不會把單幀類別
-誤稱為亂丟垃圾。兩條路徑仍待真實素材校準，人—物時序、policy 與對外告警尚未啟用。影像不外傳。
+MediaPipe Object Detector 候選快路徑與 session-local 匿名人／物短時 tracker 也已接線；它只
+顯示類別、槽位、移動與可見時序階段，不會把單幀類別或內部 evidence 誤稱為亂丟垃圾。兩條
+路徑仍待真實素材校準，litter Event、policy 與對外告警尚未啟用。影像不外傳。
 
 Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack Compose · Edge AI
 
@@ -45,7 +46,7 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 | 場景 | MVP 目標 | 目前狀態 |
 |---|---|---|
 | 社區有人跌倒 | 裝置端以可見時序證據確認，數秒內通知保全並附原因 | ML Kit 單人 pose→Kotlin 時序特徵→Rust state machine 已接線；實機校準 / policy / 通知待續 |
-| 場域有人亂丟垃圾 | 以「人—物分離→物件落地並持續遺留→人離開」的可見時序證據建立候選事件 | MediaPipe 候選 detector + 動態閘門 + 預覽框已接線；匿名人／物 tracker、litter state machine 與場域資料驗收見 issue #39 |
+| 場域有人亂丟垃圾 | 以「人—物分離→物件落地並持續遺留→人離開」的可見時序證據建立候選事件 | MediaPipe detector + 動態閘門 + session-local 匿名 tracker + fail-closed evidence stage 已接線；ROI、多人 association、litter Event 與場域資料驗收見 issue #39 |
 
 重點是**主動且可驗收**：不做泛用影像理解。偵測與告警在事件當下於裝置上完成，影像不外傳；
 暴力、居家查詢、藥袋辨識等 foundation 保留但不列入近期完成定義。
@@ -58,7 +59,7 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 |---|---|---|
 | 感知核心(L0 signature · L2 事件引擎) | **Rust**(cargo-ndk → `.so`,JNI) | 每幀計算 64-bit aHash；L2 保存匿名 observation 的時序狀態 |
 | L2 pose fast path | **ML Kit Pose Detection + Kotlin** | bundled base model `STREAM_MODE`；單人 landmark→保守 pose/descent/motion，未校準前不告警 |
-| L2 object candidate fast path | **MediaPipe Object Detector + Kotlin** | pinned EfficientDet-Lite2 int8（448×448，精度優先）；受控 `VIDEO` 串流回傳 category/bbox；匿名人／物時序才能判斷遺留，不把物件類別直接當垃圾 |
+| L2 object candidate fast path | **MediaPipe Object Detector + Kotlin** | pinned EfficientDet-Lite2 int8（448×448，精度優先）；受控 `VIDEO` category/bbox → session-local 幾何槽位 → 可見近接／分離／靜置 evidence；不把類別或 evidence stage 直接當垃圾 Event |
 | L1 VLM 推論 | **Google AI Edge / LiteRT**(Kotlin;LiteRT-LM,`.litertlm`) | on-device 多模態 Gemma；目前實測 GPU/GPU，依序 fallback CPU/GPU、CPU/CPU；不自建 llama.cpp(ADR-0009) |
 | 相機擷取 | **CameraX(Kotlin)** | Preview 只供本機 UI 顯示；ImageAnalysis 的 luma 交給 Rust L0，放行影格才交給 L1 |
 | 平台 / UI | **Kotlin + Jetpack Compose**(原生 Android) | 預覽 / 字幕 / 告警 / 控制;**無 React Native** |
@@ -70,8 +71,9 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 `CameraX → movement/ROI gate → object detector → 匿名人／物時序`；`CameraX → Rust L0 閘控 →
 LiteRT L1` 只產生候選事件所需的客觀文字脈絡。**影格只在裝置端流動；
 L2 只接收匿名結構化 observation 與可選文字，不接收 pixels。**目前 L0/L1 已接線，L2 Rust
-engine/schema、Android↔JNI bridge、ML Kit 單人 pose 與 MediaPipe object candidate 已接線；實機
-校準、litter tracker/observation/schema 與 policy 待續。**設計詳見
+engine/schema、Android↔JNI bridge、ML Kit 單人 pose、MediaPipe object candidate 與 Kotlin
+短時 tracker/evidence stage 已接線；實機校準、ROI、多人 association、litter observation/schema
+與 policy 待續。**設計詳見
 [ADR-0007](docs/adr/0007-rust-first-redesign.md)、[ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md)與
 [ADR-0011](docs/adr/0011-l2-fast-path-evidence.md)與 [ADR-0012](docs/adr/0012-two-scenario-mvp-and-object-gating.md)。
 
@@ -137,7 +139,7 @@ flowchart LR
   L0["Rust aHash + Kotlin ChangeGate<br/>✅ 已接線"]
   L1["LiteRT L1 客觀描述<br/>✅ 已接線"]
   EXT["ML Kit base pose STREAM_MODE<br/>+ Kotlin 時序特徵 🟡 已接線；待校準"]
-  OBJ["aHash movement gate → MediaPipe Object Detector<br/>✅ category/score/bbox candidate；ROI/tracker ⏳ #39"]
+  OBJ["aHash movement gate → MediaPipe Object Detector<br/>→ session-local tracker → fail-closed evidence ✅<br/>ROI/多人 association/Event ⏳ #39"]
   OBS["匿名 Observation + JNI<br/>✅ bridge 與 lifecycle 已實作"]
   L2["Rust L2 時序事件引擎<br/>🟡 foundation"]
   POLICY["去重 / 冷卻 / 人工確認 / 通知<br/>⏳ 待實作"]
@@ -169,7 +171,7 @@ Ethogram 摘要與自然語言查詢屬後續路線圖，不在目前執行路�
 | 模組 | 語言 | 狀態 | 用途 |
 |---|---|---|---|
 | `core-rs/` | Rust | 🟢 P0/P1 · 🟡 P3 | 感知核心：L0 aHash/JNI + L2 Fall/ZoneExit/Violence 狀態機/Event serde + 安全的 event-engine handle registry |
-| `android/` | Kotlin + Compose | 🟢 P1/P2.5 · 🟡 P3 fast path | 原生 App:CameraX→ML Kit 單人 pose→Rust L2；另有 MediaPipe object candidate 與 Rust L0→LiteRT L1；tracker/實機校準/policy 待續 |
+| `android/` | Kotlin + Compose | 🟢 P1/P2.5 · 🟡 P3 fast path | 原生 App:CameraX→ML Kit 單人 pose→Rust L2；另有 MediaPipe object candidate、匿名短時 tracker/evidence 與 Rust L0→LiteRT L1；場域校準/Event/policy 待續 |
 | `schemas/` | JSON Schema | ✅ 就緒 | 領域型別**單一真實來源**(跨 Rust / Kotlin / Python) |
 | `core/` `bench/` `eval/` | Python | ✅ 就緒 | 領域型別參考、離線基準測試 / 評測(工具) |
 | ~~`app/`(RN)~~ | React Native | 🗑️ 已移除 | 概念驗證(即時字幕 on-device 已驗證)· 已隨 ADR-0007/0009 淘汰並自 repo 移除,保留於 git 歷史 |
@@ -289,8 +291,9 @@ Rust；L0 只有 luma copy，L2 只有匿名數值 observation。重模型 L1 �
 | L2 特徵 | 純 Kotlin `PoseObservationExtractor` | landmarks → pose/descent/motion + 短時匿名 slot | tracking miss/gap/大跳位會換 slot，防止把不同人時序拼接；impact/contact/strike 固定 0 |
 | 物件排程 | analyzer 的 Rust aHash → `ObjectCandidateGate` | scene signature → 是否建立 Bitmap 候選 | 變化達 4 bits 後每 ≥250ms、持續 1.5s；靜態每 2s probe。這只省算力，不能證明框內物件在動；ROI 尚待 #39 |
 | 物件候選 | `objectExecutor` → MediaPipe Object Detector `VIDEO` | 旋正 Bitmap → allowlisted category/score/bbox | 獨立 current + latest pending 有界佇列；刻意不用 async `LIVE_STREAM`，由 App 明確擁有／recycle 每張 Bitmap；模型忙碌時合併中間候選。單幀 COCO 類別不能證明「垃圾」或意圖 |
-| 物件疊圖 | main thread / Compose Canvas | CameraX analysis-to-preview transform → 橘色 bbox + 類別摘要／延遲／合併數 | 只在本機 RAM；rotation/FIT_CENTER/zoom 使用 CameraX transform；退背景、撤回同意或 destroy 清除 |
-| 亂丟垃圾時序(規劃) | 匿名人／物 tracker + L2 | carried/separated/stationary/dwell/person-left → candidate | association 不確定、合法暫放後取回、既有物品時 fail closed；見 issue #39 |
+| 匿名物件短時追蹤 | `objectExecutor` → `AnonymousObjectTracker` | normalized bbox → 同類別幾何 association、session-local P/O 槽位、速度／靜止 | 不用臉、外觀 embedding 或跨 session ID；3 秒 gap／退背景／撤回即重設。候選過載會合併影格，所以槽位不是逐幀或身分保證 |
+| 亂丟垃圾 evidence | `LitterEvidenceTracker`(純 Kotlin) | 連續人—物近接 → 可見分離 → 分離後靜置 → 人離開待檢視 | 人漏偵不能當分離；離開需同一槽位至少兩次可見拉遠、物件連續可見且靜置 ≥30 秒。最終仍不產生 Event/告警；ROI、多人 association 與場域門檻見 #39 |
+| 物件疊圖 | main thread / Compose Canvas | CameraX transform → 橘色 bbox + P/O 槽位、移動／靜止、客觀 evidence stage、延遲／合併數 | 只在本機 RAM；不顯示身分或「垃圾」結論；rotation/FIT_CENTER/zoom 使用 CameraX transform；退背景、撤回同意或 destroy 清除 |
 | L0 特徵 | Kotlin → JNI → Rust → Kotlin | Y plane `ByteArray` → 64-bit aHash | JNI 會複製 luma 到 Rust；Rust 不保存，回傳 hash 後釋放 |
 | L0 決策 | Kotlin `PerceptionPipeline` / `ChangeGate` | hash → admit/skip + telemetry | 只保存 64-bit「最後放行 hash」；節流比例依場景而變 |
 | L1 取圖 | analyzer，僅 admit | `ImageProxy` → 旋正 `Bitmap` | 必須在 proxy close 前複製；之後 proxy 立即關閉 |
@@ -367,6 +370,14 @@ score、bbox；EfficientDet-Lite2 的 COCO 類別也沒有「亂丟」意圖。�
 物都只能是候選，必須經人—物分離、落地、持續遺留與人離開的時序才成立。完整實作與 hard-negative
 驗收見 [issue #39](https://github.com/TingFengChou/claustrum/issues/39)。
 
+目前 detector 後已接純 Kotlin `AnonymousObjectTracker` 與 `LitterEvidenceTracker`：只以同類別
+bbox 的 IoU／中心距離建立 3 秒內 session-local `P/O` 槽位，並從連續「與人近接」開始累積。
+只有同一人物槽位仍可見且與物件拉遠才叫「可見分離」；兩次可見拉遠、物件分離後靜置至少
+30 秒、人物之後持續未見，才顯示「人離開待檢視」。人單純漏偵、既有靜止物、物件被取回、
+track gap 或 App 退背景都 fail closed／重設。這是可觀察的內部 evidence stage，**不是 litter
+Event、更不是意圖判定或告警**。多人交錯時的 greedy geometry association 仍可能換槽；需用
+固定鏡位標註資料評估 ID-switch，未達門檻前不接 Event。
+
 2026-08-08 同一 Pixel 10／2×／2F→1F 實測：Lite0（320×320）約 121 ms，畫面有一名小型行人時
 輸出兩個落在樹木／告示牌附近的 `person` 候選，真人漏報；改用 Lite2（448×448）後空景約
 176–227 ms；20 幀 window 為 p50 191 ms／p95 237 ms、提交 20 幀合併 2 幀，連續約三分鐘未再
@@ -376,6 +387,11 @@ score、bbox；EfficientDet-Lite2 的 COCO 類別也沒有「亂丟」意圖。�
 位移掩蓋 detector domain gap。
 因此正式 catalog 選 Lite2 作較保守基線，代價是會合併部分影格；此通用 COCO 模型仍未達部署
 證據門檻，必須以同一鏡位的正負樣本算 confusion matrix，不足時依官方 custom-model 流程微調。
+
+加入 tracker 後的同裝置 smoke 已確認真 detector 結果能畫出 `人 P5 76%` 這類 session-local
+槽位標籤，Activity 前後景 CameraService stop/start 後也能恢復；但稍後畫面清楚出現一名成人推
+嬰兒車時 detector 回傳 0。這不是 tracker 能補救的問題：沒有 detection 就沒有 association。
+因此目前只證明 runtime 接線與 reset，**不證明 person recall、槽位穩定或 litter 時序可用**。
 
 **MediaPipe 在哪?** 目前 `tasks-vision 0.10.35` 實際承載 EfficientDet-Lite2 object candidates；
 L1 場景描述則不走 MediaPipe LLM Inference，而用較新的 LiteRT-LM SDK(`litertlm-android`)讀
@@ -585,7 +601,8 @@ Skills 是開發 agent 的工作指引，**不是 App runtime dependency，也�
 
 **現在 —— 手機優先、單節點**(ADR-0004)：Pixel 10 已承載相機、L0 與 L1；Rust L2 engine
 已有 ML Kit 單人 pose→observation/JNI 餐取與 MediaPipe object candidate；實機校準、匿名人—物
-tracker／litter state machine 與告警仍待續。
+多人 association、litter Event/schema 與告警仍待續；單人／低密度的 session-local tracker 與
+fail-closed evidence stage 已接線，但不是部署完成宣告。
 目標仍由同一裝置完成 L0–L2 與
 告警。單一行程會同時持有影格並判斷，因此影格隔離目前靠**政策**(不外傳、用完即刪)而非
 拓撲落實。日後 Jetson 就緒，再評估 [ADR-0003](docs/adr/0003-two-node-topology.md) 的雙節點結構性隔離。
@@ -616,6 +633,9 @@ tracker／litter state machine 與告警仍待續。
 - **啟停控制仍有缺口。** 相機需手動啟動、退背景由 CameraX lifecycle 停止，但前景內尚缺明確
   「停止守護」與跨 tab 狀態指示；完成 [issue #42](https://github.com/TingFengChou/claustrum/issues/42)
   前不能把現況描述成完整的隱私控制。
+- **物件槽位不是身分。** 現行只做短時 bbox 幾何 association；遮擋、多人／多物交錯、漏偵與
+  latest-only 合併都可能換槽或失去時序。任何「待檢視」stage 都不可直接對外告警；完整限制與
+  confusion matrix／ID-switch 驗收持續追蹤於 [issue #39](https://github.com/TingFengChou/claustrum/issues/39)。
 
 ## 關鍵指標
 

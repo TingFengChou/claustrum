@@ -39,17 +39,28 @@ import com.claustrum.model.MediaPipeMetricsConsent
 import com.claustrum.model.ModelSpec
 import com.claustrum.model.ModelsController
 import com.claustrum.monitor.GuardianSession
+import com.claustrum.objects.AnonymousObjectTracker
 import com.claustrum.objects.DetectedObject
+import com.claustrum.objects.LitterEvidenceStage
+import com.claustrum.objects.LitterEvidenceTracker
 import com.claustrum.objects.MediaPipeObjectDetector
 import com.claustrum.objects.LatestOnlyQueue
+import com.claustrum.objects.NormalizedObjectBounds
 import com.claustrum.objects.ObjectCandidateGate
+import com.claustrum.objects.ObjectDetectionSample
+import com.claustrum.objects.ObjectMotion
 import com.claustrum.objects.ObjectRuntimeStats
+import com.claustrum.objects.ObjectTrackKind
+import com.claustrum.objects.TemporalObjectCandidate
+import com.claustrum.objects.TrackedObjectCandidate
 import com.claustrum.vlm.ModelEval
 import com.claustrum.ui.AppShell
 import com.claustrum.ui.IntroScreen
 import com.claustrum.ui.MonitorUi
 import com.claustrum.ui.ObjectCandidateGeometry
+import com.claustrum.ui.ObjectCandidateMotionUi
 import com.claustrum.ui.ObjectCandidateUi
+import com.claustrum.ui.ObjectEvidenceStageUi
 import com.claustrum.ui.PreviewPoint
 import com.claustrum.ui.SplashScreen
 import com.claustrum.ui.TrackedJoint
@@ -93,6 +104,8 @@ class MonitorActivity : ComponentActivity() {
     private val poseExtractor = PoseObservationExtractor()
     private val objectGate = ObjectCandidateGate()
     private val objectStats = ObjectRuntimeStats()
+    private val objectTracker = AnonymousObjectTracker()
+    private val litterEvidenceTracker = LitterEvidenceTracker()
     private val objectQueue = LatestOnlyQueue<ObjectFrame> { it.bitmap.recycle() }
     private val imageProxyTransformFactory = ImageProxyTransformFactory().apply {
         isUsingRotationDegrees = true
@@ -615,6 +628,8 @@ class MonitorActivity : ComponentActivity() {
                     objectDetectorStatus = "物件候選未啟用 · 到模型頁查看"
                 } else {
                     objectStats.reset()
+                    objectTracker.reset()
+                    litterEvidenceTracker.reset()
                     objectMapProbeLogged.set(false)
                     objectSubmitted = 0L
                     objectCoalesced = 0L
@@ -636,6 +651,8 @@ class MonitorActivity : ComponentActivity() {
     /** Consent withdrawal stops new submissions before serialized close. */
     private fun disableObjectDetectorForConsent() {
         val detector = objectDetector ?: run {
+            objectQueue.clear()
+            resetObjectTemporalState()
             val status = "物件候選未啟用 · 到模型頁查看"
             if (objectDetectorStatus != status || objectCandidates.isNotEmpty()) {
                 objectDetectorStatus = status
@@ -649,7 +666,11 @@ class MonitorActivity : ComponentActivity() {
         objectQueue.clear()
         clearObjectOverlay()
         pushState()
-        objectExecutor.execute { try { detector.close() } catch (_: Throwable) {} }
+        objectExecutor.execute {
+            objectTracker.reset()
+            litterEvidenceTracker.reset()
+            try { detector.close() } catch (_: Throwable) {}
+        }
     }
 
     /** Current + latest pending queue: bounded memory and no stale detector backlog. */
@@ -686,12 +707,18 @@ class MonitorActivity : ComponentActivity() {
                         // Withdrawal may race an already-running native call. Never let its
                         // late result restore an overlay after consent has been revoked.
                         if (objectDetector != null && MediaPipeMetricsConsent.isGranted(this)) {
+                            val samples = detected.mapNotNull { detection ->
+                                detection.toTrackingSample(frame.bitmap.width, frame.bitmap.height)
+                            }
+                            val trackingFrame = objectTracker.update(samples, frame.atMs)
+                            val temporal = litterEvidenceTracker.update(trackingFrame)
                             publishObjectOverlay(
-                            sourceTransform = frame.sourceTransform,
-                            detections = detected,
-                            latencyMs = latencyMs,
-                            inputWidth = frame.bitmap.width,
-                            inputHeight = frame.bitmap.height,
+                                sourceTransform = frame.sourceTransform,
+                                detections = trackingFrame.current,
+                                temporal = temporal,
+                                latencyMs = latencyMs,
+                                inputWidth = frame.bitmap.width,
+                                inputHeight = frame.bitmap.height,
                             )
                         }
                     } catch (t: Throwable) {
@@ -713,7 +740,8 @@ class MonitorActivity : ComponentActivity() {
     /** Map all four rectangle corners so rotation, crop and zoom stay aligned. */
     private fun publishObjectOverlay(
         sourceTransform: OutputTransform,
-        detections: List<DetectedObject>,
+        detections: List<TrackedObjectCandidate>,
+        temporal: List<TemporalObjectCandidate>,
         latencyMs: Long,
         inputWidth: Int,
         inputHeight: Int,
@@ -741,12 +769,14 @@ class MonitorActivity : ComponentActivity() {
                             "view=${viewWidth}x$viewHeight full=${fullFrame.joinToString()}",
                     )
                 }
+                val temporalByObjectSlot = temporal.associateBy { it.tracked.slot }
                 val mapped = detections.mapNotNull { detection ->
+                    val sourceBounds = detection.bounds
                     val corners = floatArrayOf(
-                        detection.leftPx, detection.topPx,
-                        detection.rightPx, detection.topPx,
-                        detection.rightPx, detection.bottomPx,
-                        detection.leftPx, detection.bottomPx,
+                        sourceBounds.left * inputWidth, sourceBounds.top * inputHeight,
+                        sourceBounds.right * inputWidth, sourceBounds.top * inputHeight,
+                        sourceBounds.right * inputWidth, sourceBounds.bottom * inputHeight,
+                        sourceBounds.left * inputWidth, sourceBounds.bottom * inputHeight,
                     )
                     transform.mapPoints(corners)
                     val xs = floatArrayOf(corners[0], corners[2], corners[4], corners[6])
@@ -759,7 +789,19 @@ class MonitorActivity : ComponentActivity() {
                         viewWidth = viewWidth,
                         viewHeight = viewHeight,
                     ) ?: return@mapNotNull null
-                    ObjectCandidateUi(detection.category, detection.score, bounds)
+                    val evidence = if (detection.kind == ObjectTrackKind.PORTABLE_OBJECT) {
+                        temporalByObjectSlot[detection.slot]?.stage.toUi()
+                    } else {
+                        ObjectEvidenceStageUi.OBSERVED
+                    }
+                    ObjectCandidateUi(
+                        category = detection.category,
+                        score = detection.score,
+                        bounds = bounds,
+                        trackSlot = detection.slot,
+                        motion = detection.motion.toUi(),
+                        evidenceStage = evidence,
+                    )
                 }
                 val queue = if (objectCoalesced == 0L) "" else {
                     " · 合併 $objectCoalesced/$objectSubmitted"
@@ -790,6 +832,48 @@ class MonitorActivity : ComponentActivity() {
     private fun clearObjectOverlay() {
         val version = objectOverlayVersion.incrementAndGet()
         applyObjectOverlay(emptyList(), objectDetectorStatus, version)
+    }
+
+    private fun DetectedObject.toTrackingSample(inputWidth: Int, inputHeight: Int): ObjectDetectionSample? {
+        if (inputWidth <= 0 || inputHeight <= 0 || category.isBlank() || !score.isFinite()) return null
+        if (!listOf(leftPx, topPx, rightPx, bottomPx).all(Float::isFinite)) return null
+        val left = (leftPx / inputWidth).coerceIn(0f, 1f)
+        val top = (topPx / inputHeight).coerceIn(0f, 1f)
+        val right = (rightPx / inputWidth).coerceIn(0f, 1f)
+        val bottom = (bottomPx / inputHeight).coerceIn(0f, 1f)
+        if (right <= left || bottom <= top) return null
+        return ObjectDetectionSample(
+            category = category,
+            score = score.coerceIn(0f, 1f),
+            bounds = NormalizedObjectBounds(left, top, right, bottom),
+        )
+    }
+
+    private fun ObjectMotion.toUi(): ObjectCandidateMotionUi = when (this) {
+        ObjectMotion.UNKNOWN -> ObjectCandidateMotionUi.UNKNOWN
+        ObjectMotion.MOVING -> ObjectCandidateMotionUi.MOVING
+        ObjectMotion.STATIONARY -> ObjectCandidateMotionUi.STATIONARY
+    }
+
+    private fun LitterEvidenceStage?.toUi(): ObjectEvidenceStageUi = when (this) {
+        null, LitterEvidenceStage.OBSERVED -> ObjectEvidenceStageUi.OBSERVED
+        LitterEvidenceStage.PERSON_ASSOCIATED -> ObjectEvidenceStageUi.PERSON_ASSOCIATED
+        LitterEvidenceStage.VISIBLE_SEPARATION -> ObjectEvidenceStageUi.VISIBLE_SEPARATION
+        LitterEvidenceStage.STATIONARY_AFTER_SEPARATION ->
+            ObjectEvidenceStageUi.STATIONARY_AFTER_SEPARATION
+        LitterEvidenceStage.PERSON_LEFT_PENDING_REVIEW ->
+            ObjectEvidenceStageUi.PERSON_LEFT_PENDING_REVIEW
+    }
+
+    private fun resetObjectTemporalState() {
+        try {
+            objectExecutor.execute {
+                objectTracker.reset()
+                litterEvidenceTracker.reset()
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Activity teardown already owns the final reset/close task.
+        }
     }
 
     private fun ensureEventEngine() {
@@ -1083,6 +1167,8 @@ class MonitorActivity : ComponentActivity() {
         val detector = objectDetector
         objectDetector = null
         objectExecutor.execute {
+            objectTracker.reset()
+            litterEvidenceTracker.reset()
             try { detector?.close() } catch (_: Throwable) {}
         }
         objectExecutor.shutdown()
@@ -1101,6 +1187,7 @@ class MonitorActivity : ComponentActivity() {
         clearPoseOverlay()
         clearObjectOverlay()
         objectGate.reset()
+        resetObjectTemporalState()
         super.onStop()
     }
 
