@@ -414,11 +414,11 @@ flowchart LR
 
 | 區塊 | 指令 | 目的 |
 |---|---|---|
-| Python | `python3 -m unittest discover -s tests` | schema、領域型別與離線工具 |
-| Rust | `cargo test` + `cargo clippy --all-targets -- -D warnings` | L0/L2 邏輯、serde/JNI registry 與 lint |
-| Android | `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` | JVM 單元測試、Android lint 與 APK 組裝 |
-| JNI 變更 | `cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release` | 確認 Android target 與 `.so` ABI；產物不進版控 |
-| AI review | `scripts/ai-review.sh main` | commit 後以 `agy` 審查 `main...HEAD`；唯讀、不需 secret |
+| Python | repo root：`python3 -m unittest discover -s tests` | schema、領域型別與離線工具 |
+| Rust | `cd core-rs && cargo test && cargo clippy --all-targets -- -D warnings` | L0/L2 邏輯、serde/JNI registry 與 lint |
+| Android | `cd android && ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` | JVM 單元測試、Android lint 與 APK 組裝 |
+| JNI 變更 | `cd core-rs && cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release` | 確認 Android target 與 `.so` ABI；產物不進版控 |
+| AI review | repo root：`scripts/ai-review.sh main` | commit 後以 `agy` 審查 `main...HEAD`；唯讀、不需 secret |
 
 ### GitHub Actions 現況
 
