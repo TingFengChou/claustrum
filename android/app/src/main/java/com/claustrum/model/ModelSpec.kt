@@ -9,6 +9,7 @@ import java.io.File
  */
 enum class Capability(val label: String) {
     ASK_IMAGE("看圖描述"),   // image + text → text (our L1)
+    DETECT_OBJECTS("物件偵測"), // category + score + bbox (L2 candidate gate)
     CHAT("純文字對話"),       // text → text
     ASK_AUDIO("聽音描述"),   // audio + text → text (future)
 }
@@ -34,6 +35,10 @@ data class ModelSpec(
     val gated: Boolean,
     val description: String = "",
     val version: String = "v1",
+    /** Optional pinned non-Hugging-Face source, for example an official MediaPipe model. */
+    val downloadUrl: String? = null,
+    /** Optional lowercase SHA-256. Required for small public runtime models we control. */
+    val sha256: String? = null,
     // LiteRT-LM sampler defaults (see AI Edge Gallery allowlist).
     val topK: Int = 64,
     val topP: Float = 0.95f,
@@ -43,7 +48,8 @@ data class ModelSpec(
     val supportsImage: Boolean get() = Capability.ASK_IMAGE in capabilities
 
     /** Hugging Face resolve URL for the model file. */
-    fun resolveUrl(): String = "https://huggingface.co/$modelId/resolve/main/$fileName"
+    fun resolveUrl(): String =
+        downloadUrl ?: "https://huggingface.co/$modelId/resolve/main/$fileName"
 
     /** Final on-device path once fully downloaded: <externalFiles>/models/<version>/<file>. */
     fun localFile(context: Context): File =
@@ -99,9 +105,26 @@ data class ModelSpec(
             description = "Gemma3 1B(純文字)· 較小,用於快速驗證下載/文字任務(HF gated)",
         )
 
+        val EFFICIENTDET_LITE2_OBJECTS = ModelSpec(
+            name = "EfficientDet-Lite2 int8",
+            modelId = "google-mediapipe/object-detector-efficientdet-lite2-int8",
+            fileName = "efficientdet_lite2.tflite",
+            sizeBytes = 7_515_971L,
+            capabilities = setOf(Capability.DETECT_OBJECTS),
+            gated = false,
+            description = "MediaPipe Object Detector 448×448 精度優先候選模型 · COCO 類別/bbox 不等於垃圾事件",
+            downloadUrl = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/int8/1/efficientdet_lite2.tflite",
+            sha256 = "b3f50554cb0ea559e90328845f7d9ba4d13c8bff372914d24e06bc8bb72fa896",
+        )
+
         /** Browseable catalog. */
         val CATALOG: List<ModelSpec> =
-            listOf(GEMMA_3N_E2B_VISION, GEMMA_3N_E4B_VISION, GEMMA3_1B_TEXT)
+            listOf(
+                EFFICIENTDET_LITE2_OBJECTS,
+                GEMMA_3N_E2B_VISION,
+                GEMMA_3N_E4B_VISION,
+                GEMMA3_1B_TEXT,
+            )
 
         /** Default L1 target (must support ASK_IMAGE). */
         val DEFAULT_L1 = GEMMA_3N_E2B_VISION

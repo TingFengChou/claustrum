@@ -8,15 +8,32 @@
 
 | 承諾 | 執行方式 |
 |---|---|
-| 影片影格絕不離開裝置 | **手機時代:政策**(單節點 — 同一個行程持有影格並回答查詢,因此不存在結構性邊界)。**雙節點時代:結構性** — 查詢介面沒有任何通往影格儲存的程式碼路徑。見 [ADR-0004](adr/0004-phone-first-single-node.md)。 |
+| 影片影格絕不離開裝置 | **目前程式邊界:** CameraX/ML Kit/MediaPipe/LiteRT 都在 App 行程；Bitmap 只在有界 RAM queue，用完 recycle，不寫入 Event、CaptionLog 或網路 payload。**雙節點時代:結構性** — 查詢介面沒有任何通往影格儲存的程式碼路徑。見 [ADR-0004](adr/0004-phone-first-single-node.md)。 |
 | 不做臉部辨識、不做身分歸屬 | **結構性** — `Actant` 是一個角色槽位;schema 中根本不存在身分欄位 |
-| 影格靜態加密,7 天後刪除 | 政策 — 保留政策工作排程,可設定 |
-| Kineme 文字保留 90 天 | 政策 — 可設定 |
+| 影格保存 | **預設不保存**；現行 App 沒有錄影或影格資料庫。開發者測試素材只讀使用者主動放入的 app external-files |
+| Caption/Kineme 保存 | 現行 `CaptionLog` 只在 RAM 最多 100 筆，process death 清除；未來若持久化需另立 retention ADR |
 | 雲端升級預設關閉 | 政策 — 需逐次同意授權 |
-| 攝影機具備實體遮蓋與 App 內暫停 | 硬體 + 政策 |
-| 暫停狀態有可見的指示 | 常駐通知 / LED |
+| 攝影機啟停 | **部分落地** — App 預設待命、需手動啟動；Activity 退背景時 CameraX lifecycle 停止取幀。目前尚缺前景內明確的「停止守護」控制與硬體遮蓋，追蹤於 issue #42。 |
+| 相機狀態指示 | **部分落地** — 守護頁 badge 與 Android 系統 camera privacy indicator 可見；跨 tab 的 App 內指示、常駐通知／硬體 LED 待 issue #42。 |
 
 浴室與臥室預設不在範圍內。若真要部署於此,也僅限純文字模式且不保留任何影格。
+
+## MediaPipe Tasks 的非影像 metrics
+
+MediaPipe 的推論輸入仍在裝置端；Google 的
+[Privacy Notice（2026-06-05）](https://github.com/google-ai-edge/mediapipe#privacy-notice)則另行說明，
+Tasks API 會把 API performance/utilization metrics 傳給 Google，並要求 App 視適用法律取得知情
+同意。對 Android `tasks-core:0.10.35` AAR 的實際稽核顯示 payload schema 含 platform、app id／
+version、task/mode、呼叫／丟幀數、延遲與 init error；沒有 image、bbox、category 或 caption 欄位。
+
+本專案因此採以下邊界：
+
+- 預設不初始化 MediaPipe Object Detector；模型頁下載前顯示獨立告知，使用者可拒絕。
+- 同意狀態只存在本機 SharedPreferences；撤回會直接通知 detector owner、停止新 candidate
+  submission 並序列化關閉 detector，不依賴 CameraX 再送下一張影格。
+- 影像、物件框與類別只在 RAM；不接 Google DataTransport，也不寫入 App 自己的網路 payload。
+- 這仍不是「零網路 metadata」。完全停用／隔離 SDK metrics 的可重現方案追蹤於
+  [issue #41](https://github.com/TingFengChou/claustrum/issues/41)；完成前文件與 UI 必須持續揭露。
 
 ## AppFunctions 的難題
 

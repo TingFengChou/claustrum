@@ -12,7 +12,9 @@ L2 把裝置端輕量 pose/motion/object extractor 產生的時間序列，轉�
 
 本階段已交付 Rust `EventEngine`、跨語言 `event.schema.json`、Android `FastPathObservation`、
 具生命週期的 JNI engine bridge，以及 CameraX→ML Kit 單人 pose→Rust 的第一條實際 fast path。
-它尚未經真實素材校準，也沒有 impact/多人 action、通知或 UI policy，因此不宣稱可部署告警。
+Android 另已接 MediaPipe category/score/bbox candidate，但尚未產生 L2 `ObjectObservation`。它們
+都未經真實素材校準，也沒有 impact/多人 action、litter tracker、通知或 UI policy，因此不宣稱
+可部署告警。
 
 ## 2. 功能需求
 
@@ -71,9 +73,10 @@ L2 把裝置端輕量 pose/motion/object extractor 產生的時間序列，轉�
   速度/姿態條件式門檻，不能只為 recall 直接放寬。
 - 預設 thresholds 是保守起點，不等於已達 `<1/24h`；須用 72 小時無事件語料與演練素材校準。
 - `latency_ms` 是事件時窗延遲，不含 CameraX/extractor/JNI/通知；端到端 p95 需實機量測。
-- MediaPipe Object Detector 只提供 category/score/bbox，`LIVE_STREAM` 忙碌會略過輸入，且沒有可
-  依賴的 tracking ID；COCO 的 bottle/cup 也不等於垃圾。litter adapter/schema/state machine 尚未
-  實作，追蹤於 issue #39。
+- MediaPipe Object Detector 只提供 category/score/bbox 且沒有可依賴的 tracking ID；Android 以
+  `VIDEO` + current/latest queue 主動合併中間候選，語意上同樣不是逐幀 recall 保證。COCO 的
+  bottle/cup 也不等於垃圾。candidate adapter 已接，但 litter observation/schema/tracker/state
+  machine 尚未實作，追蹤於 issue #39。
 
 ## 追溯
 

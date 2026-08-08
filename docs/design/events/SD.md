@@ -12,7 +12,7 @@
 | `android/.../events/NativeEventEngine` | 將 Kotlin `FastPathObservation` 映射至 JNI；`close()` 可重入，不暴露 Rust 指標 |
 | `MlKitPoseFrameAdapter` | 只取肩/髖/膝/踝，正規化為 upright-frame 座標；landmark 不跨 JNI |
 | `PoseObservationExtractor` | 純 Kotlin 時序特徵；保守 pose、rapid descent/motion、匿名 slot continuity |
-| `MediaPipeObjectAdapter`(規劃) | LIVE_STREAM category/score/bbox 邊界；movement/ROI gate 後才執行 |
+| `MediaPipeObjectDetector`(Android 已接) | EfficientDet-Lite2 `VIDEO` category/score/bbox 邊界；movement gate 後才執行，不產生 Event |
 | `AnonymousObjectTracker`(規劃) | 短時 person/object association 與遮擋恢復；不做跨 session re-identification |
 | `LitterState`(規劃) | carried→separated→stationary/dwell→person-left；不完整證據 fail closed |
 | `TrackState` | 每個匿名 actant 的 fall/zone 狀態；stale 後清除 |
@@ -79,7 +79,9 @@ stateDiagram-v2
 
 Object Detector 的類別只是候選；「動態物」、「瓶子」或「杯子」都不能直接進入 Candidate。
 預設模型 coverage、最小物件像素、association 門檻與 dwell 必須由 2F→1F 場域資料決定。完整
-實作／schema 變更另由 issue #39 交付，避免在尚無資料時先固定錯誤契約。
+Android candidate 階段已用 aHash movement window、13 類 allowlist 與 bounded latest-frame queue
+接線並畫本機框；但全域變化不是單一物件的 motion evidence。tracker／schema／state machine
+變更仍由 issue #39 交付，避免在尚無資料時先固定錯誤契約。
 
 ## 6. 時序、錯誤與資源
 
@@ -117,6 +119,9 @@ rename 為 `type`，risk 為 nested object。`to_json` 是正式 transport 邊�
   覆蓋欄位映射、init/payload 錯誤與可重入 close，不需相機或 `.so`。
 - `PoseObservationExtractorTest` 覆蓋 upright/seated/horizontal、rapid descent、低信心/缺點、
   timestamp 邊界及 detector 換人時的匿名 slot 隔離；只用純 landmark 資料。
+- `ObjectCandidateGateTest` 覆蓋首次放行、active window、最小間隔、periodic probe、out-of-order
+  與 reset；bbox normalization/clamp 另由 Android host test 覆蓋。這些只證明排程／幾何，不能
+  代替 detector accuracy 或 litter event 測試。
 - Python schema:合法 fall、reason 必填、VLM-only 拒絕、zone neutral、角色 privacy、禁止額外 payload。
 - 接上 extractor 後必補錄影素材 confusion matrix、p95 end-to-end latency、72h negative corpus 與
   `<1/24h` 誤報門檻；目前 host 測試不能替代實機校準。

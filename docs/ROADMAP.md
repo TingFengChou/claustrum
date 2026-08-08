@@ -9,7 +9,8 @@
 > **P2** L1 場景描述(**Google AI Edge / LiteRT-LM SDK**,不自建 llama.cpp — ADR-0009)〔✅ 大致完成:L0→L1、App 內模型下載、Compose 全貌、`.litertlm` 原生 Gemma 3n 真描述〕·
 > **P2.5** Compose UI ✅ · **P3** L2 事件引擎 🟡〔Rust Fall/ZoneExit/Violence 狀態機 +
 > Event serde/schema + Android/JNI bridge + ML Kit 單人 pose/CameraX fast path 已落地；實機校準、
-> 匿名單人 preview 框、zoom/旋轉基礎已落地；跌倒場域校準與 litter object fast path、通知待續〕·
+> 匿名單人 preview 框、zoom/旋轉、MediaPipe object candidate 已落地；跌倒場域校準與 litter
+> tracker/state、通知待續〕·
 > **P4** 音訊融合(#6)。續作見 [`HANDOFF.md`](HANDOFF.md)。
 > 詳見 [ADR-0007](adr/0007-rust-first-redesign.md)。
 
@@ -76,15 +77,17 @@ flowchart TD
 - PR #24/#30 已 merge 至 `main`：裝置 App 已具進入流程、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、L0 變化閘控、**L1 真實場景描述**與開發者驗證工具；Rust L2
   Fall/ZoneExit/Violence engine + Event schema 已有 foundation；後續已接上 Android/JNI bridge 與
-  ML Kit base `STREAM_MODE` 單人 pose fast path。尚未完成實機素材校準、litter object fast path 與告警。
+  ML Kit base `STREAM_MODE` 單人 pose fast path。後續 MediaPipe EfficientDet-Lite2 candidate adapter、
+  aHash movement gate、有界佇列與本機 bbox 亦已接線；尚未完成實機素材校準、匿名人—物時序與告警。
 - Camera preview 已用 CameraX analysis→PreviewView transform 顯示匿名人物框（關節只作內部特徵，不在產品 UI 顯示）；資料型別預留多人，
   但 detector 仍只回最顯著一人。多人交錯/遮擋解法與驗收追蹤於 issue #36，未完成前不得宣稱多人。
 - Preview 採 FIT_CENTER 保留完整人物證據；`fullSensor`、響應式 landscape、Preview/Analysis
   `targetRotation` 與持久化 zoom 已實作，四向實機驗收追蹤於 issue #37。2F→1F 的 1×/2×/3×、
   FOV、主體像素與俯角遮擋驗收見 issue #38。
-- MVP 只聚焦跌倒與亂丟垃圾。後者採 movement/ROI gate → MediaPipe Object Detector → 匿名
-  人—物 association → separated/stationary/dwell/person-left 時序；COCO 類別不直接等於垃圾，
-  實作與 72h hard-negative 驗收見 issue #39。
+- MVP 只聚焦跌倒與亂丟垃圾。後者第一段 aHash movement gate → MediaPipe Object Detector
+  candidate 已接；ROI → 匿名人—物 association → separated/stationary/dwell/person-left 時序仍待續。
+  COCO 類別不直接等於垃圾，完整實作與 72h hard-negative 驗收見 issue #39。MediaPipe API
+  metrics 採獨立同意，無遙測替代見 #41。
 - **關鍵發現:L1 場景描述非可靠跌倒偵測器**(遠景/小主體會漏或幻覺)→ 事件偵測須 L2;
   相機佈建須讓主體佔畫面 ≥ ⅓(見 [`docs/design/vlm/SD.md`](design/vlm/SD.md) §8、issue #26)。
 - **2F→1F 首輪實機亦證明 pose 有場域 domain gap:** 1× 無人時樹幹／告示牌出現人體姿態候選，

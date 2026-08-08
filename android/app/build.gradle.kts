@@ -65,6 +65,9 @@ dependencies {
     // Bundled base pose model: single-person, low-latency STREAM_MODE L2 fast path.
     implementation("com.google.mlkit:pose-detection:18.0.0-beta5")
 
+    // MediaPipe Tasks Object Detector for the bounded litter-candidate fast path.
+    implementation("com.google.mediapipe:tasks-vision:0.10.35")
+
     // WorkManager: in-app model download (resumable, foreground, progress).
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 

@@ -40,4 +40,16 @@ class ModelSpecTest {
         val files = ModelSpec.CATALOG.map { "${it.modelId}/${it.fileName}" }
         assertEquals(files.size, files.toSet().size)
     }
+
+    @Test fun objectDetectorUsesPinnedOfficialModelAndChecksum() {
+        val spec = ModelSpec.EFFICIENTDET_LITE2_OBJECTS
+
+        assertTrue(Capability.DETECT_OBJECTS in spec.capabilities)
+        assertFalse(spec.gated)
+        assertEquals(
+            "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/int8/1/efficientdet_lite2.tflite",
+            spec.resolveUrl(),
+        )
+        assertEquals(64, spec.sha256?.length)
+    }
 }

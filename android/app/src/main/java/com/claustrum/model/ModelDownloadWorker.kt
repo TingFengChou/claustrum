@@ -17,6 +17,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 /**
  * Downloads one model file to the app's external files dir, with resume and
@@ -36,10 +37,16 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) :
         val tmpPath = inputData.getString(KEY_TMP) ?: return@withContext fail("缺少暫存路徑")
         val totalBytes = inputData.getLong(KEY_TOTAL, 0L)
         val modelName = inputData.getString(KEY_NAME) ?: "model"
+        val expectedSha256 = inputData.getString(KEY_SHA256)?.lowercase()
         // SECURITY: read the HF token from encrypted storage at runtime — never
         // pass it through WorkManager's persisted job input (would land on disk
         // unencrypted). See Codex review / TokenStore.
-        val token = TokenStore(applicationContext).hfToken()
+        val parsedUrl = URL(url)
+        val token = if (parsedUrl.host.equals("huggingface.co", ignoreCase = true)) {
+            TokenStore(applicationContext).hfToken()
+        } else {
+            null
+        }
 
         val destFile = java.io.File(destPath)
         val tmpFile = java.io.File(tmpPath)
@@ -52,7 +59,7 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) :
         }
 
         try {
-            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            val connection = (parsedUrl.openConnection() as HttpURLConnection).apply {
                 if (token != null) setRequestProperty("Authorization", "Bearer $token")
                 connectTimeout = 30_000
                 readTimeout = 30_000
@@ -113,7 +120,20 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) :
                 }
             }
 
-            // Complete: promote tmp → final.
+            if (totalBytes > 0 && tmpFile.length() != totalBytes) {
+                return@withContext fail(
+                    "模型大小不符:預期 $totalBytes bytes，實際 ${tmpFile.length()} bytes",
+                )
+            }
+            if (expectedSha256 != null) {
+                val actual = sha256(tmpFile)
+                if (actual != expectedSha256) {
+                    tmpFile.delete()
+                    return@withContext fail("模型 SHA-256 驗證失敗，已刪除不可信暫存檔")
+                }
+            }
+
+            // Complete: promote verified tmp → final.
             destFile.parentFile?.mkdirs()
             if (destFile.exists()) destFile.delete()
             if (!tmpFile.renameTo(destFile)) {
@@ -128,6 +148,21 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) :
     }
 
     private fun fail(msg: String): Result = Result.failure(workDataOf(KEY_ERROR to msg))
+
+    private fun sha256(file: java.io.File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { byte ->
+            (byte.toInt() and 0xff).toString(16).padStart(2, '0')
+        }
+    }
 
     private fun pct(received: Long, total: Long): Int =
         if (total > 0) (received * 100 / total).toInt().coerceIn(0, 100) else 0
@@ -164,6 +199,7 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) :
         const val KEY_TMP = "tmp"
         const val KEY_TOTAL = "total"
         const val KEY_NAME = "name"
+        const val KEY_SHA256 = "sha256"
 
         const val KEY_P_RECEIVED = "p_received"
         const val KEY_P_TOTAL = "p_total"

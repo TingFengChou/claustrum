@@ -25,13 +25,16 @@ object ModelRepository {
      * never lands in WorkManager's persisted job input (security).
      */
     fun enqueueDownload(context: Context, spec: ModelSpec): String {
-        val input = workDataOf(
+        val baseInput = workDataOf(
             ModelDownloadWorker.KEY_URL to spec.resolveUrl(),
             ModelDownloadWorker.KEY_DEST to spec.localFile(context).absolutePath,
             ModelDownloadWorker.KEY_TMP to spec.tempFile(context).absolutePath,
             ModelDownloadWorker.KEY_TOTAL to spec.sizeBytes,
             ModelDownloadWorker.KEY_NAME to spec.name,
         )
+        val input = androidx.work.Data.Builder().putAll(baseInput).apply {
+            spec.sha256?.let { putString(ModelDownloadWorker.KEY_SHA256, it) }
+        }.build()
         val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
             .setConstraints(
                 Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
