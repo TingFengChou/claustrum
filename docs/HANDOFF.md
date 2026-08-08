@@ -6,9 +6,10 @@
 
 - **裝置端 App 已成形**:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、**L1 真實場景描述已通**(`.litertlm`-native Gemma 3n)、開發者模式驗證工具。
-- **一切都在 PR #24**(分支 `feat/litert-captioner`,**尚未 merge**)。既有 AI review 的 7 個
+- **Android/L1 主線在 PR #24**(分支 `feat/litert-captioner`,**尚未 merge**)。既有 AI review 的 7 個
   P1 threads 已 outdated；2026-08-08 再審新增修正相機失敗不可重試、analyzer 健康狀態與
-  LiteRT fallback 前的 Engine 資源釋放。合併前以 PR 最新 SHA 的 checks 為準。
+  LiteRT fallback 前的 Engine 資源釋放；最新 SHA checks 全綠。L2 foundation 疊在 draft
+  PR #30(`codex/l2-event-engine`)；三項 checks 亦全綠。
 - **最重要的發現**:**L1 場景描述不是可靠的跌倒偵測器**(遠景/小主體會漏、會幻覺)。真偵測要 **L2**(見 issue #26)+ 相機佈建讓主體佔比足夠(見 `docs/design/vlm/SD.md` §8)。
 
 ## 目前狀態
@@ -34,6 +35,15 @@ Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G
 | 移除 legacy RN `app/` | ✅ |
 | 43 個 Android host 單元測試(含 GuardianSession) + Rust 10 + Python 18 | ✅ |
 
+### Legacy React Native / Rush 退場稽核(2026-08-08)
+
+- tracked React Native source 已由 commit `4a4dffaa` 刪除，只有 ADR 與 git 歷史保留決策脈絡。
+- 工作目錄曾殘留約 12GB 的未追蹤 `app/node_modules`、舊 RN Android build 與 iOS local 檔；已
+  整包移至 macOS Trash：`/Users/austin/.Trash/claustrum-legacy-react-native-app-20260808`，可復原。
+- repo 歷史與現況均未找到 Microsoft Rush 的 `rush.json`、`common/config/rush` 或相關套件設定；
+  搜尋到的 `Brush` 是 Jetpack Compose graphics API，與 Rush 無關。
+- 若「Rush」是指 Rust：Rust 是 ADR-0007 的現行感知核心，不在退場範圍。
+
 ## L1 模型現況(重要)
 
 - **模型:** `google/gemma-3n-E2B-it-litert-lm` → `gemma-3n-E2B-it-int4.litertlm`(**3,655,827,456 bytes**,gated)。
@@ -44,7 +54,13 @@ Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G
 ## 下一步(建議順序)
 
 1. **複核並 Merge PR #24**(owner 決定；先確認最新 SHA checks 與 review threads)。`gh pr merge 24 --squash`。
-2. **L2 事件引擎(issue #26,P3)—— 這才是真偵測**:`core-rs` events 模組(Fall/Leave/Violence 狀態機,pose/動作/時序快路徑),建 `schemas/event.schema.json`;風險判斷需**畫面內可見證據**(ADR-0006);L1 描述作輔助語意。
+2. **L2 事件引擎(issue #26,P3)已開始**:`codex/l2-event-engine` 已建立 Rust
+   Fall/ZoneExit/Violence 狀態機、`schemas/event.schema.json`、serde transport 與 SA/SD；
+   下一個關鍵是 Android pose/action extractor → JNI observation 接線與真實素材校準。L1 描述
+   只能附加二階脈絡，不能單獨升級 risk/alert。
+   - **相鄰技術債:** `NativeCore.describe` + `core-rs/src/vlm.rs` 是 ADR-0008 的未使用 Rust L1
+     佔位 seam；現行 `MonitorActivity` 只走 Kotlin `LiteRtCaptioner`。另開小 PR 移除 JNI symbol、
+     Rust module/tests 並更新 ADR-0008/0009；**保留**仍在用的 Rust `frameSignature` 與 L2 engine。
 3. **相機佈建準則落地**:依 §8,關注區主體佔比 ≥ ⅓、多機分區;dev 模式的模型驗證(`dev_eval/` + `dev_videos/`)用來量測。
 4. **釐清模型能力 vs 取景(issue #29)**:用開發者模式跑 E2B vs E4B 同組近景影格,比 pass-rate/幻覺/延遲 → 決定 `DEFAULT_L1` 與是否需更強模型。
 5. **L1 效能**(issues #25/#27/#28):變化閘控外加「L1 最小間隔」節流(壓熱/耗電)· 評估 NPU delegate · prefill/輸出優化。
@@ -98,7 +114,8 @@ Gradle 9.3.1 · AGP 8.12.0 · **Kotlin 2.2.10**(為 litertlm metadata 升)· com
 
 ## 已知限制
 
-- **L1 延遲 ~6.5–11.5s/張**(有效 ~0.15 fps);單飛只追最新放行幀(不漏球但不卡住)。
+- **L1 延遲 ~6.5–11.5s/張**(有效 ~0.15 fps)；single-flight 只保留最新 pending 放行幀，
+  會合併中間畫面，因此只保證不阻塞，不保證事件召回；事件召回必須走獨立 L2 fast path。
 - **L1 非跌倒偵測器**(遠景會漏/幻覺)→ 需 L2 + 相機佈建(§8)。
 - 音訊模態尚未啟用(誠實標示,不誤報)。
 

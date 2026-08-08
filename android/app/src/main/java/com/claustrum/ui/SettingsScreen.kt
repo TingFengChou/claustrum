@@ -39,7 +39,7 @@ fun SettingsScreen(l1Backend: String, dev: DevUi = DevUi()) {
             "開啟後,守護頁出現「模型驗證 / 測試影片」工具;用測試影片與標註影格驗證換模型後的正確率與延遲。",
             dev.enabled, dev.onToggle,
         )
-        InfoRow("L0 變化閘控閾值", "8 bits(靜態場景省 ~100% 運算)")
+        InfoRow("L0 變化閘控閾值", "8 bits(靜態幀節流比例依場景而變)")
         InfoRow("L1 場景描述後端", l1Backend)
         InfoRow("加速", "LiteRT 自動嘗試 GPU/GPU → CPU/GPU → CPU/CPU；實際後端見上方狀態")
         InfoRow("隱私", "影格只在裝置端、用完即刪;只有文字描述/事件可外傳。無人物身分特徵。")

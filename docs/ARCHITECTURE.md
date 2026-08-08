@@ -10,13 +10,11 @@
 
 成本低、永遠開著、毫秒級。決定哪些瞬間值得付出昂貴的一次呼叫。
 
-訊號:
-- 影格差分(Frame differencing)— 到底有沒有任何東西在動
-- 物件偵測(Object detection)— 是否有人 / 動物 / 相關物件出現
-- 姿態關鍵點(Pose landmarks)— 骨架關鍵點,同時餵給閘控與 L2 的快速路徑
-- 影格嵌入(Frame embedding)— 與上一張已描述影格的餘弦相似度
+目前已實作的訊號是 luma 64-bit aHash 與前一影格的 Hamming distance。物件偵測、pose
+landmarks、frame embedding 都是候選或後續 extractor，不得在文件中當成現況。尤其 pose/
+motion observation 必須走獨立 L2 fast path，不得被只為 L1 節流的 aHash gate 擋住。
 
-策略:
+下列是目標策略草圖，不是目前已上線的行為:
 
 ```
 if no motion and last kineme < 15 min ago:        skip, record "quiet"
@@ -28,51 +26,50 @@ else:                                             → L1 caption
 
 相似度檢查之所以存在,是因為一個人靜靜坐著看電視二十分鐘,不該產生二十個一模一樣的 Kineme。少了它,L3 的摘要會被一堆「什麼都沒發生」的重述給淹沒。
 
-目標:每秒 0.05–0.5 個關鍵影格 — 60 倍到 600 倍的壓縮。
+壓縮率必須以實際部署場景的 runtime telemetry 回報，不預設固定百分比或「不漏事件」。L0
+只負責控制 L1 成本，不能承擔安全事件召回保證。
 
 ### L1 — 影像描述(Caption)
 
 手機上的 Gemma E2B / E4B(LiteRT-LM),常駐記憶體,每個被選中的關鍵影格呼叫一次(或每個 2×4 時間網格一次 — 見 M0 spike)。ADR-0001 假設的 12B 模型塞不進手機,也塞不進 Jetson Nano;見 [ADR-0004](adr/0004-phone-first-single-node.md)。
 
-輸入:關鍵影格 + 前一個 Kineme 的一行摘要,用以維持連續性。
-輸出:一個符合 [`schemas/kineme.schema.json`](../schemas/kineme.schema.json) 的結構化 `Kineme`。
+目前輸入是單一放行關鍵影格 + 固定客觀 prompt；每幀使用新的 Conversation，避免跨幀上下文
+污染。輸出是繁中單句**可見場景描述文字**，不含 risk/event 判斷，也沒有可當真值使用的校準
+confidence。若後續建 Kineme，由管線填入 model/prompt/novelty 等 metadata；`novelty` 必須由 L0/
+時間序列計算，絕不由只看到單一瞬間的模型回報。任何跨幀比較都屬管線/L2，不是 L1。
 
-模型會回報 `confidence`,但**不會**回報 `novelty`。novelty 是一個 Kineme 相對於其鄰居的性質,而只看到單一瞬間的模型無從計算;這個值由管線根據 L0 的影格嵌入距離填入。任何需要跨 Kineme 比較的工作,都是管線的職責,不是模型的。
-
-模型選擇是抗幻覺(hallucination-control)的決策,不是效能決策。見 ADR-0001。
+模型選擇同時影響幻覺、描述品質、延遲、記憶體與熱功耗；必須用同一組素材量測，不以模型
+大小或單一跑分臆測。見 HANDOFF issue #29。
 
 ### L2 — 警示(Alerting)
 
-**刻意拆成兩條路徑。**
-
-一次 VLM 呼叫要花上數秒。若讓它獨自判定一次跌倒,這樣的延遲無法接受。姿態啟發式(pose heuristic)可以在毫秒內回應,但只要有人坐下、彎腰撿東西、躺在沙發上,它都會誤觸發 — 它的誤報率高到單獨使用毫無用處。
-
-所以:
+**事件確認不等待 VLM。** 一次 L1 呼叫實測約 6.5–11.5 秒，且小模型會幻覺；它不能是
+<1 秒偵測或對外通報的唯一 gate。L2 改用可回歸的 pose/motion/action 多訊號時序證據:
 
 ```
-L0 pose heuristic detects candidate
+lightweight extractor → Observation(timestamp + anonymous role + scores)
     │
-    ├──▶ immediately enter PENDING state, start buffering frames
-    │
-    └──▶ VLM examines 3 frames (before / during / after):
-         "Is this person falling, or lying down / sitting deliberately?
-          Did they get up afterwards?"
-              │
-              ├── confirmed  → dispatch alert   (total latency ~3–5 s)
-              └── rejected   → record silently, do not notify the user
+    ├── Fall:站立 → ≤1s 快速下降 + 水平/倒臥
+    │      ├── 高 impact → confirmed fast path
+    │      └── 無 impact → candidate → 持續倒臥才 confirmed
+    ├── Violence:同一匿名兩人 pair 在 1s 內重複高 motion/contact/strike → confirmed
+    └── ZoneExit:可見邊界穿越 → confirmed neutral event(risk none)
+                │
+                ├── confirmed + medium/high + fast-path evidence → 通知/人工確認層
+                └── L1 caption 後到時只附加客觀文字脈絡,不改 status/risk
 ```
 
-**啟發式(heuristic)負責召回率(recall),VLM 負責精確率(precision)。**這是本專案主要的技術貢獻,也是它與現成 AI 攝影機最大的區別所在。
+正常坐下、單一高動作 sample、不同人物 pair 的動作不得拼成 confirmed。上層再做去重、類別
+速率限制、冷卻與人工確認。完整決策見 [ADR-0011](adr/0011-l2-fast-path-evidence.md) 與
+[`events` 設計](design/events/SD.md)。
 
-上層再疊加抑制(suppression)規則:在一個時間窗內去重、依類別做速率限制、並要求在同一地點出現一次被否決的候選之後有一段冷卻期。
-
-### L3 — 摘要(Summarize)
+### L3 — 摘要(Summarize；後續規劃，未實作)
 
 純文字 LLM,在閒置期間以批次執行。階層式:Kineme → 15 分鐘窗格 → 小時 → 每日的 `Ethogram`。
 
 Kineme 依 `novelty` 與 `confidence` 加權,決定是否納入。異常(Anomaly)是透過與觀察對象**自身**前兩週的歷史比較來偵測,而不是對照絕對規則。這是一種低成本的做法,能把系統從「基於規則的警報器」推進到「有記憶的觀察者」。
 
-### L4 — 查詢(Query)
+### L4 — 查詢(Query；後續規劃，未實作)
 
 Kineme 及其嵌入存放在 NVMe 上的 SQLite。以自然語言檢索事件日誌,回傳文字與時間戳記。
 
@@ -92,7 +89,9 @@ Schema 與 dataclass 逐漸分歧,是這類管線中最常見的隱形 bug。CI 
 
 一個看到單一靜態影格的小模型,會自行編造因果敘事 —「他跌倒了,然後爬起來去拿藥」,單憑一張照片。對一個安全警示系統而言,這不是品質問題,而是正確性的失敗。
 
-模型容量過去是第一線防線 — ADR-0001 正是為此仰賴 12B。在手機上(以及最終的 Jetson Nano 上)這個槓桿已不復存在:E2B/E4B 模型的虛構比 12B 模型**更多**,而非更少。因此結構性與提示層級的防禦扛起了重擔,而且它們如今是第一線,不再是第二線 — 見 [ADR-0004](adr/0004-phone-first-single-node.md)。
+不能只憑參數量推論 E2B/E4B 與 12B 的幻覺率；目前尚缺同素材、同 prompt 的對照評測。
+無論模型大小，結構性防禦、輸出驗證與 L2 可見時序證據都是第一線——見
+[ADR-0004](adr/0004-phone-first-single-node.md)與 HANDOFF issue #29。
 
 各項防禦,依其在小模型上的有效程度排序:
 
@@ -105,22 +104,13 @@ Schema 與 dataclass 逐漸分歧,是這類管線中最常見的隱形 bug。CI 
 
 幻覺率是一項被追蹤的退步指標,不是一個口號式的期望。見 [`eval/`](../eval/)。
 
-## 雲端升級(Cloud escalation)
+## 雲端升級(目前不允許影格)
 
-預設:完全離線。存在一條可選路徑:
+依 ADR-0010 與專案隱私不變式，感知與事件判斷預設完全離線，**影格/影像/音訊不送雲端**。
+Firebase 等後端日後只能接收文字描述、結構化事件與不含 PII 的穩定度指標。若未來要改變這條
+紅線，必須另立 ADR、完成 PDPA/同意與威脅模型審查；目前不存在「使用者同意就上傳單張」的程式路徑。
 
-```
-L1 confidence < 0.5 and risk != none
-  or user explicitly asks for a closer look
-      │
-      ▼ per-instance explicit user consent
-      └──▶ Gemini Robotics-ER 1.6 / Gemini 3 Flash
-           precise spatial reasoning, pointing, multi-view success detection
-```
-
-限制:對使用者可見、預設關閉、僅單一張去識別化影格、絕不上傳影片。
-
-## 機器人延伸
+## 機器人延伸(後續構想，未實作)
 
 家庭部署是第一個垂直領域。可長期沿用的資產是 L1 感知與 L4 語意記憶。
 

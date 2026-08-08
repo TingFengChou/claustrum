@@ -31,23 +31,26 @@ ADR-0008 選 llama.cpp(GGUF + mmproj,Rust FFI)跑 L1 場景描述。實際查證
 2. **模型 = LiteRT 社群的多模態 Gemma**(Gemma 3n E2B/E4B,或 AI Edge 目前主打的 Gemma 4
    E2B/E4B)`.litertlm`/`.task`,支援「圖+文 → 文」。實際版本於下載時在 AI Edge 生態擇一。
 3. **分層(微調 ADR-0007):**
-   - **L0 變化閘控** — Rust(`core-rs`),**每幀**跑。不變。
+   - **L0 變化閘控** — Kotlin analyzer 每幀拆 luma，Rust 經 JNI 計 aHash，Kotlin
+     `ChangeGate` 保存狀態並做放行決策。
    - **L1 場景描述** — **Kotlin 端呼叫 LiteRT / LLM Inference**,**只在放行幀**跑。取代原 Rust FFI→llama.cpp。
-   - **L2 事件** — Rust(`core-rs`),吃 L1 輸出。不變(規劃)。
-   - 「效能優先」在此體現為:每幀熱路徑(L0)在 Rust;重模型(L1)交給裝置 NPU/LiteRT——用對工具,而非什麼都自幹。
+   - **L2 事件** — Rust(`core-rs`)，吃獨立 fast path 的匿名 pose/motion/action Observation；
+     L1 只可後補客觀文字，不主導判定(由 ADR-0011 精化)。
+   - 「效能優先」在此體現為：每幀只做輕量 Kotlin/Rust 處理；重模型 L1 交給裝置
+     GPU/LiteRT，時間敏感事件走不等待 L1 的 L2 fast path。
 4. **沿用而非重造:** 參考 Google AI Edge Gallery(Apache-2.0)的模型下載器與 LLM Inference
    初始化;必要時把其模式移植為我們的 `LiteRtCaptioner`(Kotlin)。
-5. **`Captioner` 邊界保留,但落在 L1 執行所在的 Kotlin 層。** 現有 Rust `vlm` 佔位
-   (`NativeCore.describe`,誠實診斷)續作**過渡後端**,直到 `LiteRtCaptioner` 接上;屆時 L1
-   切換到 Kotlin LiteRT,Rust 佔位退為測試/後備。既有管線不浪費。
+5. **`Captioner` 邊界保留,但落在 L1 執行所在的 Kotlin 層。** `LiteRtCaptioner` 與 Kotlin
+   `PlaceholderCaptioner` 已接上。Rust `vlm`/`NativeCore.describe` 未被現行 App 呼叫，不再是
+   fallback，待獨立 cleanup 移除。
 
 ## 後果
 
 - **好處:** 省掉高風險原生建置;取得 Gemma 多模態 + NPU 加速;跨平台;沿用開源、開發更快。
 - **代價/取捨:** L1 不再經 Rust FFI(ADR-0007 的「熱路徑在 Rust」僅嚴格適用於每幀的 L0/L2;
   L1 本就是偶發的重推論,交給 LiteRT 更合適)。新增 LiteRT/MediaPipe 相依。
-- **待辦:** 下載多模態 Gemma `.litertlm` 到裝置(可經 AI Edge Gallery 或 HF LiteRT Community)→
-  Android 加 LLM Inference 相依 → 實作 `LiteRtCaptioner`(圖+文 → 描述)→ 接到放行幀 → 裝置驗證。
+- **已落地:** App 內下載原生 `.litertlm` → `LiteRtCaptioner` 圖+文描述 → 放行幀接線 →
+  Pixel 10 GPU/GPU 實機驗證。後續是 E2B/E4B 同素材評測、NPU 與熱功耗優化。
 - ADR-0008 標記為被取代;`cmake`/llama.cpp 前置不再需要。
 
 ## 追溯

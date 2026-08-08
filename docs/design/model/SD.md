@@ -1,6 +1,6 @@
 # model(裝置端模型管理)— 系統設計(SD)
 
-**狀態:** active · **最後更新:** 2026-08-06 · **負責人:** claustrum
+**狀態:** active · **最後更新:** 2026-08-08 · **負責人:** claustrum
 **分析:** [`SA.md`](SA.md)
 
 ## 1. 概觀
@@ -18,6 +18,9 @@ Android 端 `com.claustrum.model` 套件。移植/簡化自 Google AI Edge Galle
 | `ModelRepository` | present 判定、`enqueueUniqueWork` 下載、供 Activity 觀察進度 | ✅ |
 | `TokenStore` | HF 存取權杖:EncryptedSharedPreferences(AES-256)加密儲存;`hfToken()`/`setHfToken()`/`hasHfToken()` | ✅ |
 | HF 授權 UI | 模型目錄頂部權杖列 + 對話框輸入;gated 下載注入 `Bearer`(`KEY_TOKEN`) | ✅ |
+| `ModelsController` | Compose-observable 目錄、下載/存在狀態與 HF token UI bridge | ✅ |
+| `LiteRtCaptioner` 載入 | App 啟動時若 `DEFAULT_L1` 存在則背景初始化並 swap 進管線 | ✅ |
+| 模型選擇/熱切換 | 讓使用者指定 E2B/E4B 並安全重建後端 | 待續 |
 
 ## 3. 介面與合約
 
@@ -51,8 +54,9 @@ Android 端 `com.claustrum.model` 套件。移植/簡化自 Google AI Edge Galle
 
 1. ~~**HF 授權**~~ ✅ 已落地:`TokenStore`(EncryptedSharedPreferences)+ 目錄權杖 UI,gated 下載注入 `Bearer`。
    後續可加 HF OAuth 網頁登入流程(目前為貼上 read 權杖)。
-2. **`LiteRtCaptioner`**:下載完成的多模態 Gemma 以 LiteRT-LM(`litertlm-android`)載入並推論(見 [vlm SD](../vlm/SD.md))。
-3. **模型切換 UI**:選定 L1 用哪顆 vision 模型(UI/UX 定稿見 [`ui`](../ui/README.md))。
+2. ~~**`LiteRtCaptioner`**~~ ✅ `DEFAULT_L1` 已以 LiteRT-LM(`litertlm-android`)載入並真實推論。
+3. **模型切換 UI**:選定 L1 用哪顆 vision 模型並安全重建後端；目前下載完成後需重啟，
+   固定載入 E2B `DEFAULT_L1`(UI/UX 方向見 [`ui`](../ui/README.md))。
 
 ## 追溯
 

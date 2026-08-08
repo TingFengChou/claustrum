@@ -5,6 +5,10 @@ edition = "2021"
 description = "claustrum perception core: L0 gating, frame pipeline, L2/L3 event engine (Rust)."
 license = "Apache-2.0"
 
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
 [lib]
 # rlib for host `cargo test`; cdylib for the Android `.so` (cargo-ndk).
 crate-type = ["cdylib", "rlib"]

@@ -1,22 +1,22 @@
 # core-rs(Rust 感知核心)— 系統設計(SD)
 
-**狀態:** active · **最後更新:** 2026-08-06 · **負責人:** claustrum
+**狀態:** active · **最後更新:** 2026-08-08 · **負責人:** claustrum
 **實作:** [`SA.md`](SA.md)
 
 ## 1. 概觀
 
-純 Rust lib crate(`claustrum-core`)。`crate-type = ["rlib"]` 供 Host `cargo test`;之後加
-`cdylib` 產 `.so`(cargo-ndk)供 Android JNI。P0 已落地 **L0 變化閘控**;pipeline 與 events
-後續加入。
+純 Rust lib crate(`claustrum-core`)。`crate-type = ["rlib", "cdylib"]`：前者供 Host
+`cargo test`，後者由 cargo-ndk 產 `.so` 供 Android JNI。P0/P1 已落地 L0 aHash/JNI；P3
+已有 events foundation。
 
 ## 2. 元件與職責
 
 | 模組 | 職責 | 狀態 |
 |---|---|---|
 | `gate` | L0 變化閘控:`Signature`(8×8 aHash)、`frame_signature`、`distance`、`ChangeGate` | ✅ P0 |
-| `vlm` | L1 邊界 `Captioner` + 佔位後端(誠實診斷);真後端改走 Kotlin 端 Google AI Edge / LiteRT(見 [vlm 設計](../vlm/SD.md)、ADR-0009) | ✅ P2 seam |
-| `events`(規劃) | L2/L3 detector 狀態機(見 events 設計) | P3 |
-| `ffi` | JNI 入口(`jni` crate);android target only:`nativeHello`/`frameSignature`/`describe` | ✅ P0/P2 |
+| `vlm` | ADR-0008 的 legacy Rust 佔位；現行 Android 不呼叫，待小 PR 與 `NativeCore.describe` 一併移除 | ⚠️ legacy |
+| `events` | L2 Fall/ZoneExit/Violence 狀態機 + Event serde(見 events 設計) | ✅ P3 foundation |
+| `ffi` | JNI 入口(`jni` crate)；active:`nativeHello`/`frameSignature`；legacy:`describe` | ✅ P0/P1 · ⚠️ legacy seam |
 
 ## 3. 介面與合約
 
@@ -25,8 +25,8 @@
 - `frame_signature(luma, w, h) -> Signature` / `distance(a, b) -> u32` —— 純函式。
 - **JNI**(`src/ffi.rs`,android target only):`com.claustrum.core.NativeCore` 對應
   `nativeHello(): String`、`frameSignature(luma: ByteArray, w, h): Long`(回 aHash;Kotlin 端
-  以 `Long.bitCount(prev xor cur)` 做閘控)。傳 luma、回結果;**影格不過橋**。
-- **影格不留**:只從 luma 算 signature。
+  以 `Long.bitCount(prev xor cur)` 做閘控)。luma 會由 JNI 複製到 Rust，回傳 hash 後釋放；
+  不保存影格，也不把完整彩色 Bitmap 交給 Rust L0。
 
 `.so` 建置(cargo-ndk):
 ```bash
@@ -36,16 +36,18 @@ cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release
 
 ## 4. 資料結構
 
-`Signature(u64)` —— 8×8 average-hash 位元。後續 `Observation` / `Event` 對齊 `schemas/`。
+`Signature(u64)` —— 8×8 average-hash 位元。`events::{Observation, Event}` 的 transport 以
+serde 對齊 `schemas/event.schema.json`；匿名角色只用 `person_<slot>`。
 
 ## 5. 關鍵流程(L0 閘控)
 
 ```
 luma(w×h)→ 降採樣 8×8 區塊平均 → 與整體均值比較設 aHash 位元 → Signature
-Signature vs 上次已放行 Signature 的 Hamming 距離 ≥ threshold ? 放行(叫 L1) : 略過
+Signature → Kotlin ChangeGate → 與上次已放行 Signature 的 Hamming 距離 ≥ threshold ? 放行(叫 L1) : 略過
 ```
 
-閾值建議起始 6–10 bits;`ChangeGate` 對照「上次已放行」幀,讓慢速漂移能累積。
+閾值建議起始 6–10 bits。Rust `ChangeGate` 保留純邏輯 contract/host test；Android 現行狀態由
+Kotlin `ChangeGate` 保存，兩者都對照「上次已放行」幀，讓慢速漂移能累積。
 
 ## 6. 錯誤處理與穩健性
 
@@ -54,8 +56,8 @@ Signature vs 上次已放行 Signature 的 Hamming 距離 ≥ threshold ? 放行
 
 ## 7. 相依性
 
-- P0:無外部 crate。
-- 後續:`jni`(已用);L1 不再是 core-rs 相依(改走 Kotlin 端 LiteRT,ADR-0009)。
+- Host/Rust core:`serde` + `serde_json`(Event transport)。
+- Android target:`jni`；L1 不是 core-rs 相依(改走 Kotlin 端 LiteRT,ADR-0009)。
 
 ## 8. 測試策略(必備)
 
@@ -64,7 +66,8 @@ Signature vs 上次已放行 Signature 的 Hamming 距離 ≥ threshold ? 放行
 - CI(`.github/workflows/ci.yml`)執行 `cargo test --manifest-path core-rs/Cargo.toml`。
 - JNI `ffi` 為薄包裝(僅 `convert_byte_array` → 已測的 `gate::frame_signature`,含長度/零維度
   防呆),以裝置端**整合測試**(Android app 載入 `.so` 呼叫)覆蓋;可測的純邏輯已在 host 測。
-- 後續 events 同樣以合成序列測試。L1 觸發邏輯在 Kotlin 端以 `Captioner` 介面 + `FakeCaptioner`
+- events 已以合成序列覆蓋正常坐下、fall 快/慢確認、恢復、zone 去重、violence pair 隔離、
+  VLM 不升級與 serde shape。L1 觸發邏輯在 Kotlin 端以 `Captioner` 介面 + `FakeCaptioner`
   做 host 單元測試(不綁硬體);只有 `LiteRtCaptioner` 真呼叫需裝置整合測試(見 [android SD](../android/SD.md))。
 
 ## 追溯

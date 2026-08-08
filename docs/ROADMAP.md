@@ -6,7 +6,10 @@
 > **Rust 感知核心 + 原生 Android(Kotlin/Compose)+ L1 用 Google AI Edge / LiteRT**(ADR-0009,不自建 llama.cpp)。MVP 的功能目標(下方
 > A–D、社區/幼兒園)不變;實作技術棧改變。重建階段:
 > **P0** 骨架(Rust `.so` + Android + JNI)〔✅ 完成:L0 變化閘控(host `cargo test` 綠)、JNI/`.so`、Android 外殼在 Pixel 10 實測 `nativeHello()` 回話 + L0 閘控 PASS〕· **P1** L0 變化閘控接 CameraX luma 流〔✅ 完成:Pixel 10 實測 640×480 即時串流,靜態場景 1/2250 放行 → 省下 ~100% 運算;`ChangeGate` 7 個 JVM 單元測試綠〕·
-> **P2** L1 場景描述(**Google AI Edge / LiteRT-LM SDK**,不自建 llama.cpp — ADR-0009)〔✅ 大致完成:(a)L0→L1 觸發 + `Captioner` 邊界已裝置驗證;(b)**App 內模型下載 + 目錄/能力/切換**已落地(WorkManager 前景下載、gated 401 提示);(c)**UI/UX 已定稿**並以 **Compose 實作全貌**(進入流程 + 底部導覽 + 機器之眼);(d)**`LiteRtCaptioner`(litertlm-android 0.11.0)真多模態推論已通**——`.litertlm`-native Gemma 3n,Pixel 10 實測真實場景描述 ~6.5s(`.task` 格式只吐 `<pad>`,已改原生 `.litertlm`)〕· **P2.5** Compose UI ✅ · **P3** L2 事件引擎(#5)· **P4** 音訊融合(#6)。續作見 [`HANDOFF.md`](HANDOFF.md)。
+> **P2** L1 場景描述(**Google AI Edge / LiteRT-LM SDK**,不自建 llama.cpp — ADR-0009)〔✅ 大致完成:L0→L1、App 內模型下載、Compose 全貌、`.litertlm` 原生 Gemma 3n 真描述〕·
+> **P2.5** Compose UI ✅ · **P3** L2 事件引擎 🟡 foundation〔Rust Fall/ZoneExit/Violence 狀態機 +
+> Event serde/schema + host 測試已落地；Android pose/action extractor、JNI、通知與實機校準待續〕·
+> **P4** 音訊融合(#6)。續作見 [`HANDOFF.md`](HANDOFF.md)。
 > 詳見 [ADR-0007](adr/0007-rust-first-redesign.md)。
 
 ## 全景圖
@@ -194,7 +197,8 @@ MVP 里程碑(取代下方 M0–M7 的近期優先序;M2–M7 的概念仍適用
 **工作項目**
 - 透過 CameraX 進行手機相機擷取(只有在需要第二個來源時,才用備用手機的 RTSP);DeepStream/CSI 是 Jetson 時期才要煩惱的事
 - L0 作為常駐的 Android 前景服務(systemd daemon 是 Jetson 時期的做法)
-- L2 雙路徑:以姿態啟發式衝召回率,以 VLM 確認衝精確率
+- L2 快路徑:以 pose/motion/action 時序證據產生 candidate/confirmed；VLM 只補客觀脈絡，
+  **不能單獨確認或升級 risk**
 - 警示抑制:去重、各類別速率限制、被拒後的冷卻期
 - 推播通知送達 Pixel
 

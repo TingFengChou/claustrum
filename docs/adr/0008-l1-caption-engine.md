@@ -1,6 +1,6 @@
 # ADR-0008 — L1 場景描述引擎:llama.cpp(Rust FFI)+ 可抽換 Captioner 介面
 
-**狀態:** ⚠️ **部分被取代** — L1 引擎已由 [ADR-0009](0009-edge-ai-litert-ai-edge.md) 改為 Google AI Edge / LiteRT(不自建 llama.cpp)。**仍有效的部分**:`Captioner` 可抽換邊界、`PlaceholderCaptioner` 誠實診斷佔位、「只在放行幀喚醒 L1」原則。**作廢的部分**:llama.cpp via Rust FFI 作為真實後端。 · **日期:** 2026-08-06
+**狀態:** ⚠️ **實作已被取代** — L1 已由 [ADR-0009](0009-edge-ai-litert-ai-edge.md) 改為 Kotlin Google AI Edge / LiteRT。仍沿用的是「可抽換 Captioner」「誠實 fallback」「只在放行幀喚醒 L1」等概念，不是本 ADR 的 Rust/JNI 介面。`core-rs::vlm` 與 `NativeCore.describe` 只剩未使用 legacy seam，待 HANDOFF 所列小 PR 移除。 · **日期:** 2026-08-06
 **延續:** [ADR-0007](0007-rust-first-redesign.md)(Rust 優先、效能優先)
 **保留:** [ADR-0004](0004-phone-first-single-node.md)、[ADR-0006](0006-safety-alert-mvp.md)
 

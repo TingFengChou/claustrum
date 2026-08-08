@@ -2,9 +2,9 @@ package com.claustrum.core
 
 /**
  * Kotlin ↔ Rust bridge. Backed by `libclaustrum_core.so` (crate `claustrum-core`,
- * see core-rs/src/ffi.rs). Frames are handed over as single-channel luma byte
- * arrays; only compact results (a hash / boolean / later a Kineme) cross back —
- * the frame itself never leaves the native layer.
+ * see core-rs/src/ffi.rs). The active path copies single-channel luma bytes into
+ * Rust only long enough to compute an aHash, then receives the compact signature
+ * back. Full-color L1 frames stay in Kotlin/LiteRT.
  */
 object NativeCore {
     init {
@@ -25,16 +25,7 @@ object NativeCore {
      */
     external fun frameSignature(luma: ByteArray, width: Int, height: Int): Long
 
-    /**
-     * L1 scene description for an *admitted* frame (call only when [ChangeGate]
-     * admits, so the VLM wakes only on change). Returns a short description
-     * string; malformed input returns a safe placeholder, never throws.
-     *
-     * Backed today by the diagnostic placeholder captioner; the real on-device
-     * llama.cpp VLM (ADR-0008) slots in behind the same signature.
-     *
-     * Nullable: the native side returns null only if JNI string allocation
-     * fails (rare) — callers substitute a fallback rather than risk an NPE.
-     */
+    /** Legacy ADR-0008 seam; MonitorActivity uses Kotlin LiteRtCaptioner instead. */
+    @Deprecated("Legacy Rust L1 placeholder; use com.claustrum.vlm.Captioner")
     external fun describe(luma: ByteArray, width: Int, height: Int): String?
 }

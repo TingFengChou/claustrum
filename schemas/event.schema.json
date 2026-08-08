@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/TingFengChou/claustrum/schemas/event.schema.json",
+  "title": "SafetyEvent",
+  "description": "L2 時序事件契約。confirmed 只代表快路徑已有畫面可見證據；VLM 描述只能作二階脈絡，不能單獨升級事件或風險。",
+  "type": "object",
+  "required": [
+    "id", "type", "status", "ts_start_ms", "ts_end_ms", "detected_at_ms",
+    "source_id", "actants", "evidence", "risk", "confidence", "detector", "latency_ms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^evt_[0-9]+_[0-9]+$"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["fall", "zone_exit", "violence"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["candidate", "confirmed"]
+    },
+    "ts_start_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "事件可見動作開始的 Unix epoch 毫秒。"
+    },
+    "ts_end_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "detected_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "邏輯感測來源，例如 living_room；不得使用裝置序號。"
+    },
+    "actants": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/actant" }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/evidence" }
+    },
+    "risk": { "$ref": "#/$defs/risk" },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "detector": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+_v[0-9]+$",
+      "description": "可回歸比較的快路徑 detector 名稱與版本。"
+    },
+    "latency_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "detected_at_ms - ts_start_ms；不含後到的 VLM 脈絡。"
+    }
+  },
+  "$defs": {
+    "actant": {
+      "type": "object",
+      "required": ["type", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "person" },
+        "label": {
+          "type": "string",
+          "pattern": "^person_[0-9]+$",
+          "description": "短時窗內匿名角色槽位，不代表人物身分。"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["kind", "source", "observed_at_ms", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "upright_pose", "rapid_descent", "horizontal_or_prone_pose",
+            "impact_motion", "sustained_prone", "zone_boundary_crossing",
+            "two_people_visible", "close_contact", "repeated_rapid_motion",
+            "repeated_strike_motion", "vlm_visible_description"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["fast_path", "vlm"]
+        },
+        "observed_at_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "只寫畫面中可見或由 pose/motion/action 特徵直接支持的事實。"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "source": { "const": "vlm" } }, "required": ["source"] },
+          "then": { "properties": { "kind": { "const": "vlm_visible_description" } } },
+          "else": { "properties": { "kind": { "not": { "const": "vlm_visible_description" } } } }
+        }
+      ]
+    },
+    "risk": {
+      "type": "object",
+      "required": ["level", "category", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["none", "low", "medium", "high"]
+        },
+        "category": {
+          "type": "string",
+          "enum": ["none", "fall", "violence"]
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 240
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "level": { "const": "none" } }, "required": ["level"] },
+          "then": {
+            "properties": {
+              "category": { "const": "none" },
+              "reason": { "type": "null" }
+            }
+          },
+          "else": {
+            "properties": {
+              "category": { "enum": ["fall", "violence"] },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "risk": { "properties": { "level": { "not": { "const": "none" } } } } },
+        "required": ["risk"]
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "contains": {
+              "type": "object",
+              "properties": { "source": { "const": "fast_path" } },
+              "required": ["source"]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "fall" } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "risk": { "properties": { "category": { "const": "fall" } } },
+          "evidence": {
+            "allOf": [
+              { "contains": { "properties": { "kind": { "const": "rapid_descent" } }, "required": ["kind"] } },
+              { "contains": { "properties": { "kind": { "const": "horizontal_or_prone_pose" } }, "required": ["kind"] } }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "violence" } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "actants": { "minItems": 2 },
+          "risk": { "properties": { "category": { "const": "violence" } } },
+          "evidence": {
+            "allOf": [
+              { "contains": { "properties": { "kind": { "const": "two_people_visible" } }, "required": ["kind"] } },
+              { "contains": { "properties": { "kind": { "const": "repeated_strike_motion" } }, "required": ["kind"] } }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "zone_exit" } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "risk": {
+            "properties": {
+              "level": { "const": "none" },
+              "category": { "const": "none" },
+              "reason": { "type": "null" }
+            }
+          },
+          "evidence": {
+            "contains": {
+              "properties": { "kind": { "const": "zone_boundary_crossing" } },
+              "required": ["kind"]
+            }
+          }
+        }
+      }
+    }
+  ]
+}
