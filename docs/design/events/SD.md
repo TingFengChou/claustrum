@@ -23,6 +23,7 @@ stateDiagram-v2
   Candidate --> Confirmed: "同時高 impact（快路徑）"
   Candidate --> Confirmed: "持續水平/倒臥 ≥2s（保守路徑）"
   Candidate --> Tracking: "恢復站立 / 坐下 / 蹲下 / observation 中斷"
+  Candidate --> Candidate: "Unknown 中斷連續倒臥 dwell；下次可見倒臥重新計時"
   Confirmed --> Tracking: "恢復站立"
 ```
 
@@ -39,8 +40,10 @@ stateDiagram-v2
 - 同一排序後匿名 pair 才能累積，1 秒窗內 2 hits → candidate、4 hits → confirmed；
 - confirmed 後同 pair 冷卻 30 秒。
 
-不同 pair 絕不共用計數器，避免繁忙場景把無關動作拼成暴力。`strike_score` 必須來自後續經高
-precision 校準的動作模型；在 extractor 尚未接上前，本 detector 只有 host-testable contract。
+不同 pair 絕不共用計數器，避免繁忙場景把無關動作拼成暴力。設定驗證要求 candidate 至少
+2 hits、confirmed 必須多於 candidate hits，且所有 score threshold 必須大於 0，避免錯誤設定
+把單一或預設零分 sample 變成事件。`strike_score` 必須來自後續經素材校準的動作模型；在
+extractor 尚未接上前，本 detector 只有 host-testable contract。
 
 ## 4. ZoneExit
 
@@ -59,7 +62,8 @@ precision 校準的動作模型；在 extractor 尚未接上前，本 detector �
 - score 非 finite 視為 0，其他值 clamp 0..1。
 - `EventEngine::new` 先驗證 source 長度、score thresholds、時間窗/hit/retention 關係；不合法回
   `EventConfigError`，不讓「所有影格皆命中」的壞設定進入監看。
-- 單一 actant observation gap >750ms 會中斷 fall transition。
+- 單一 actant observation gap >750ms 會中斷 fall transition；candidate 期間的 `Unknown` pose
+  也會中斷「持續倒臥」計時，後續可見倒臥須重新累積 dwell。
 - actant/pair 超過 60 秒未見即移除，避免長期監看狀態無界成長。
 - ID 為 `evt_<detected_at_ms>_<sequence>`；source_id 是邏輯位置，不是硬體序號。
 
@@ -75,8 +79,9 @@ rename 為 `type`，risk 為 nested object。`to_json` 是正式 transport 邊�
 
 ## 8. 測試策略
 
-- Rust 合成序列:正常坐下、impact fall、dwell fall、恢復取消、gap、zone 去重、孤立 motion、
-  repeated violence、pair 隔離、VLM 不升級、NaN/out-of-order、serde transport shape。
+- Rust 合成序列:正常坐下、impact fall、dwell fall、Unknown 中斷 dwell、恢復取消、gap、zone
+  去重、孤立 motion、repeated violence、pair 隔離、危險設定拒絕、VLM 不升級、NaN/out-of-order、
+  serde transport shape。
 - Python schema:合法 fall、reason 必填、VLM-only 拒絕、zone neutral、角色 privacy、禁止額外 payload。
 - 接上 extractor 後必補錄影素材 confusion matrix、p95 end-to-end latency、72h negative corpus 與
   `<1/24h` 誤報門檻；目前 host 測試不能替代實機校準。

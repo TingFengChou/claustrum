@@ -10,13 +10,11 @@
 
 成本低、永遠開著、毫秒級。決定哪些瞬間值得付出昂貴的一次呼叫。
 
-訊號:
-- 影格差分(Frame differencing)— 到底有沒有任何東西在動
-- 物件偵測(Object detection)— 是否有人 / 動物 / 相關物件出現
-- 姿態關鍵點(Pose landmarks)— 骨架關鍵點,同時餵給閘控與 L2 的快速路徑
-- 影格嵌入(Frame embedding)— 與上一張已描述影格的餘弦相似度
+目前已實作的訊號是 luma 64-bit aHash 與前一影格的 Hamming distance。物件偵測、pose
+landmarks、frame embedding 都是候選或後續 extractor，不得在文件中當成現況。尤其 pose/
+motion observation 必須走獨立 L2 fast path，不得被只為 L1 節流的 aHash gate 擋住。
 
-策略:
+下列是目標策略草圖，不是目前已上線的行為:
 
 ```
 if no motion and last kineme < 15 min ago:        skip, record "quiet"
@@ -28,7 +26,8 @@ else:                                             → L1 caption
 
 相似度檢查之所以存在,是因為一個人靜靜坐著看電視二十分鐘,不該產生二十個一模一樣的 Kineme。少了它,L3 的摘要會被一堆「什麼都沒發生」的重述給淹沒。
 
-目標:每秒 0.05–0.5 個關鍵影格 — 60 倍到 600 倍的壓縮。
+壓縮率必須以實際部署場景的 runtime telemetry 回報，不預設固定百分比或「不漏事件」。L0
+只負責控制 L1 成本，不能承擔安全事件召回保證。
 
 ### L1 — 影像描述(Caption)
 
@@ -39,7 +38,8 @@ else:                                             → L1 caption
 confidence。若後續建 Kineme，由管線填入 model/prompt/novelty 等 metadata；`novelty` 必須由 L0/
 時間序列計算，絕不由只看到單一瞬間的模型回報。任何跨幀比較都屬管線/L2，不是 L1。
 
-模型選擇是抗幻覺(hallucination-control)的決策,不是效能決策。見 ADR-0001。
+模型選擇同時影響幻覺、描述品質、延遲、記憶體與熱功耗；必須用同一組素材量測，不以模型
+大小或單一跑分臆測。見 HANDOFF issue #29。
 
 ### L2 — 警示(Alerting)
 
@@ -63,13 +63,13 @@ lightweight extractor → Observation(timestamp + anonymous role + scores)
 速率限制、冷卻與人工確認。完整決策見 [ADR-0011](adr/0011-l2-fast-path-evidence.md) 與
 [`events` 設計](design/events/SD.md)。
 
-### L3 — 摘要(Summarize)
+### L3 — 摘要(Summarize；後續規劃，未實作)
 
 純文字 LLM,在閒置期間以批次執行。階層式:Kineme → 15 分鐘窗格 → 小時 → 每日的 `Ethogram`。
 
 Kineme 依 `novelty` 與 `confidence` 加權,決定是否納入。異常(Anomaly)是透過與觀察對象**自身**前兩週的歷史比較來偵測,而不是對照絕對規則。這是一種低成本的做法,能把系統從「基於規則的警報器」推進到「有記憶的觀察者」。
 
-### L4 — 查詢(Query)
+### L4 — 查詢(Query；後續規劃，未實作)
 
 Kineme 及其嵌入存放在 NVMe 上的 SQLite。以自然語言檢索事件日誌,回傳文字與時間戳記。
 
@@ -89,7 +89,9 @@ Schema 與 dataclass 逐漸分歧,是這類管線中最常見的隱形 bug。CI 
 
 一個看到單一靜態影格的小模型,會自行編造因果敘事 —「他跌倒了,然後爬起來去拿藥」,單憑一張照片。對一個安全警示系統而言,這不是品質問題,而是正確性的失敗。
 
-模型容量過去是第一線防線 — ADR-0001 正是為此仰賴 12B。在手機上(以及最終的 Jetson Nano 上)這個槓桿已不復存在:E2B/E4B 模型的虛構比 12B 模型**更多**,而非更少。因此結構性與提示層級的防禦扛起了重擔,而且它們如今是第一線,不再是第二線 — 見 [ADR-0004](adr/0004-phone-first-single-node.md)。
+不能只憑參數量推論 E2B/E4B 與 12B 的幻覺率；目前尚缺同素材、同 prompt 的對照評測。
+無論模型大小，結構性防禦、輸出驗證與 L2 可見時序證據都是第一線——見
+[ADR-0004](adr/0004-phone-first-single-node.md)與 HANDOFF issue #29。
 
 各項防禦,依其在小模型上的有效程度排序:
 
@@ -108,7 +110,7 @@ Schema 與 dataclass 逐漸分歧,是這類管線中最常見的隱形 bug。CI 
 Firebase 等後端日後只能接收文字描述、結構化事件與不含 PII 的穩定度指標。若未來要改變這條
 紅線，必須另立 ADR、完成 PDPA/同意與威脅模型審查；目前不存在「使用者同意就上傳單張」的程式路徑。
 
-## 機器人延伸
+## 機器人延伸(後續構想，未實作)
 
 家庭部署是第一個垂直領域。可長期沿用的資產是 L1 感知與 L4 語意記憶。
 

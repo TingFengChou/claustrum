@@ -276,9 +276,11 @@ impl EventConfig {
         ];
         if scores
             .iter()
-            .any(|score| !score.is_finite() || !(0.0..=1.0).contains(score))
+            .any(|score| !score.is_finite() || !(0.0..=1.0).contains(score) || *score == 0.0)
         {
-            return Err(EventConfigError("score thresholds must be finite 0..=1"));
+            return Err(EventConfigError(
+                "score thresholds must be finite 0<score<=1",
+            ));
         }
         if self.observation_max_gap_ms == 0
             || self.fall_transition_ms == 0
@@ -290,8 +292,8 @@ impl EventConfig {
             ));
         }
         if self.violence_window_ms == 0
-            || self.violence_candidate_hits == 0
-            || self.violence_confirm_hits < self.violence_candidate_hits
+            || self.violence_candidate_hits < 2
+            || self.violence_confirm_hits <= self.violence_candidate_hits
             || self.violence_cooldown_ms == 0
         {
             return Err(EventConfigError(
@@ -507,9 +509,15 @@ fn process_fall(
         return events;
     }
     if !matches!(observation.pose, Pose::Horizontal | Pose::Prone) {
+        // Unknown is not visible proof that the person stayed prone. Break the
+        // continuous dwell clock instead of stitching evidence across a tracking
+        // miss; a later horizontal/prone sample must start a fresh dwell period.
+        track.horizontal_since = None;
         return events;
     }
-    if track.horizontal_since.is_none() && at.saturating_sub(descent_at) > config.fall_transition_ms
+    if track.horizontal_since.is_none()
+        && !track.fall_candidate_emitted
+        && at.saturating_sub(descent_at) > config.fall_transition_ms
     {
         // A horizontal pose first appearing long after the descent is not the same
         // visible transition and must not be stitched into a fall.
@@ -731,7 +739,7 @@ fn violence_event(
             fast_evidence(
                 EvidenceKind::RepeatedStrikeMotion,
                 detected_at,
-                "高精度動作分類器重複偵測到打擊型動作",
+                "短時窗內重複偵測到打擊型動作特徵",
             ),
         ],
         risk_level: if status == EventStatus::Confirmed {
@@ -855,6 +863,27 @@ mod tests {
     }
 
     #[test]
+    fn unknown_pose_breaks_continuous_prone_dwell() {
+        let mut engine = engine();
+        engine.process(observation(0, Pose::Upright));
+        let mut fall = observation(400, Pose::Horizontal);
+        fall.rapid_descent_score = 0.95;
+        assert_eq!(engine.process(fall)[0].status, EventStatus::Candidate);
+        assert!(engine.process(observation(900, Pose::Prone)).is_empty());
+
+        // A tracking miss must not count as visible sustained-prone evidence.
+        assert!(engine.process(observation(1_400, Pose::Unknown)).is_empty());
+        assert!(engine.process(observation(1_900, Pose::Prone)).is_empty());
+        assert!(engine.process(observation(2_400, Pose::Prone)).is_empty());
+        assert!(engine.process(observation(2_900, Pose::Prone)).is_empty());
+        assert!(engine.process(observation(3_400, Pose::Prone)).is_empty());
+
+        let confirmed = engine.process(observation(3_900, Pose::Prone));
+        assert_eq!(confirmed.len(), 1);
+        assert_eq!(confirmed[0].status, EventStatus::Confirmed);
+    }
+
+    #[test]
     fn observation_gap_breaks_pose_transition() {
         let mut engine = engine();
         engine.process(observation(0, Pose::Upright));
@@ -904,7 +933,7 @@ mod tests {
     }
 
     #[test]
-    fn repeated_high_precision_hits_confirm_violence_under_one_second() {
+    fn repeated_visible_hits_confirm_violence_under_one_second() {
         let mut engine = engine();
         let mut statuses = Vec::new();
         for at in [1_000, 1_200, 1_400, 1_600] {
@@ -1012,6 +1041,17 @@ mod tests {
             ..EventConfig::default()
         };
         assert!(EventEngine::new("living_room", config).is_err());
+        let zero_threshold = EventConfig {
+            violence_motion_threshold: 0.0,
+            ..EventConfig::default()
+        };
+        assert!(EventEngine::new("living_room", zero_threshold).is_err());
+        let single_hit_confirmation = EventConfig {
+            violence_candidate_hits: 1,
+            violence_confirm_hits: 1,
+            ..EventConfig::default()
+        };
+        assert!(EventEngine::new("living_room", single_hit_confirmation).is_err());
         assert!(EventEngine::new("   ", EventConfig::default()).is_err());
     }
 }

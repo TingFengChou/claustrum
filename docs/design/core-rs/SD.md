@@ -5,18 +5,18 @@
 
 ## 1. 概觀
 
-純 Rust lib crate(`claustrum-core`)。`crate-type = ["rlib"]` 供 Host `cargo test`;之後加
-`cdylib` 產 `.so`(cargo-ndk)供 Android JNI。P0 已落地 **L0 變化閘控**;pipeline 與 events
-後續加入。
+純 Rust lib crate(`claustrum-core`)。`crate-type = ["rlib", "cdylib"]`：前者供 Host
+`cargo test`，後者由 cargo-ndk 產 `.so` 供 Android JNI。P0/P1 已落地 L0 aHash/JNI；P3
+已有 events foundation。
 
 ## 2. 元件與職責
 
 | 模組 | 職責 | 狀態 |
 |---|---|---|
 | `gate` | L0 變化閘控:`Signature`(8×8 aHash)、`frame_signature`、`distance`、`ChangeGate` | ✅ P0 |
-| `vlm` | L1 邊界 `Captioner` + 佔位後端(誠實診斷);真後端改走 Kotlin 端 Google AI Edge / LiteRT(見 [vlm 設計](../vlm/SD.md)、ADR-0009) | ✅ P2 seam |
+| `vlm` | ADR-0008 的 legacy Rust 佔位；現行 Android 不呼叫，待小 PR 與 `NativeCore.describe` 一併移除 | ⚠️ legacy |
 | `events` | L2 Fall/ZoneExit/Violence 狀態機 + Event serde(見 events 設計) | ✅ P3 foundation |
-| `ffi` | JNI 入口(`jni` crate);android target only:`nativeHello`/`frameSignature`/`describe` | ✅ P0/P2 |
+| `ffi` | JNI 入口(`jni` crate)；active:`nativeHello`/`frameSignature`；legacy:`describe` | ✅ P0/P1 · ⚠️ legacy seam |
 
 ## 3. 介面與合約
 
@@ -25,8 +25,8 @@
 - `frame_signature(luma, w, h) -> Signature` / `distance(a, b) -> u32` —— 純函式。
 - **JNI**(`src/ffi.rs`,android target only):`com.claustrum.core.NativeCore` 對應
   `nativeHello(): String`、`frameSignature(luma: ByteArray, w, h): Long`(回 aHash;Kotlin 端
-  以 `Long.bitCount(prev xor cur)` 做閘控)。傳 luma、回結果;**影格不過橋**。
-- **影格不留**:只從 luma 算 signature。
+  以 `Long.bitCount(prev xor cur)` 做閘控)。luma 會由 JNI 複製到 Rust，回傳 hash 後釋放；
+  不保存影格，也不把完整彩色 Bitmap 交給 Rust L0。
 
 `.so` 建置(cargo-ndk):
 ```bash
@@ -43,10 +43,11 @@ serde 對齊 `schemas/event.schema.json`；匿名角色只用 `person_<slot>`。
 
 ```
 luma(w×h)→ 降採樣 8×8 區塊平均 → 與整體均值比較設 aHash 位元 → Signature
-Signature vs 上次已放行 Signature 的 Hamming 距離 ≥ threshold ? 放行(叫 L1) : 略過
+Signature → Kotlin ChangeGate → 與上次已放行 Signature 的 Hamming 距離 ≥ threshold ? 放行(叫 L1) : 略過
 ```
 
-閾值建議起始 6–10 bits;`ChangeGate` 對照「上次已放行」幀,讓慢速漂移能累積。
+閾值建議起始 6–10 bits。Rust `ChangeGate` 保留純邏輯 contract/host test；Android 現行狀態由
+Kotlin `ChangeGate` 保存，兩者都對照「上次已放行」幀，讓慢速漂移能累積。
 
 ## 6. 錯誤處理與穩健性
 

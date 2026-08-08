@@ -42,7 +42,8 @@ action extractor、JNI 串接、通知與實機資料校準是接續工作，不
 ## 5. 驗收
 
 - 撞擊型 fall 與高精度 violence 合成序列在 1 秒事件窗內產生 confirmed。
-- 無撞擊 fall 先在 1 秒內產生 candidate，持續倒臥達門檻才 confirmed；恢復站立即取消。
+- 無撞擊 fall 先在 1 秒內產生 candidate，持續**可見**倒臥達門檻才 confirmed；恢復站立即
+  取消，`Unknown` tracking miss 會中斷 dwell 計時。
 - 正常坐下、孤立高動作、stale/out-of-order、不同 pair 的動作都不 confirmed。
 - VLM-only payload 無法通過非 none risk 的 schema 驗證。
 - Rust serialization 欄位/enum 與 JSON Schema transport shape 一致。

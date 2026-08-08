@@ -1,59 +1,57 @@
 # vlm(L1 場景描述)— 系統設計(SD)
 
-**狀態:** active · **最後更新:** 2026-08-06 · **負責人:** claustrum
+**狀態:** active · **最後更新:** 2026-08-08 · **負責人:** claustrum
 **分析:** [`SA.md`](SA.md)
 
 ## 1. 概觀
 
-L1 的單一邊界為 `Captioner`。**過渡佔位** `PlaceholderCaptioner` 落在 `core-rs`(誠實診斷,
-經 JNI `describe`),證明 L0→L1 觸發管線可跑。**真實後端 `LiteRtCaptioner` 落在 Kotlin**——
-Google AI Edge / LiteRT LLM Inference,多模態 Gemma `.litertlm`(ADR-0009,取代 ADR-0008 的
-llama.cpp 路線)。L1 執行所在的層 = Kotlin,因為 LiteRT/LLM Inference 是 Android(Kotlin)API。
+L1 的 active 邊界是 Kotlin `Captioner<Bitmap>`。`PerceptionPipeline` 負責 L0 放行後的觸發，
+`MonitorActivity` 以 single-flight + 最新 pending 一張把工作交給背景 inference executor，真實後端
+`LiteRtCaptioner` 使用 Google AI Edge LiteRT-LM 與多模態 Gemma `.litertlm`。Rust
+`Captioner`/JNI `NativeCore.describe` 是未被呼叫的 ADR-0008 legacy seam，不在現行影像路徑。
 
 ## 2. 元件與職責
 
 | 元件 | 職責 | 狀態 |
 |---|---|---|
-| `Captioner`(trait) | L1 邊界:`describe(&mut self, luma, w, h) -> String`、`backend()` | ✅ |
-| `PlaceholderCaptioner` | 誠實診斷:尺寸 + 平均亮度 + 2×2 亮度網格;標示「未載入 VLM」 | ✅ |
-| `LumaStats` | 從 luma 算整體與 2×2 象限平均亮度(純函式) | ✅ |
-| `ffi::…_describe` | JNI:`convert_byte_array` → `PlaceholderCaptioner.describe` → `new_string` | ✅(android only) |
+| `Captioner<F>`(Kotlin) | L1 可抽換邊界:`describe(frame) -> String`、`backend` | ✅ active |
+| `PerceptionPipeline<F>` | Kotlin L0 gate/stats + 可抽換 Captioner；generic 讓 host test 使用 fake frame | ✅ active |
+| `PlaceholderCaptioner` / `FallbackCaptioner`(Kotlin) | 模型未就緒或首次明確失敗時回誠實診斷，不成死路 | ✅ active |
 | `LiteRtCaptioner`(Kotlin) | LiteRT-LM SDK `litertlm-android`:`Engine`(backend fallback GPU/GPU→CPU/GPU→CPU/CPU)+ 每放行幀新 `Conversation`;`Content.ImageBytes(png)`+`Text` → 描述;`enable_thinking=false`;穩定 cache 目錄;`maxNumImages=1` + 文字由 `Content.Text` 取出 + client 端輸出上限 + `.litertlm`-native 模型 | ✅ **實機真實描述**(GPU/GPU,~6.5s,非 `<pad>`);`.litertlm` 取代 `.task` 修復(見 §6.1) |
+| `CaptionText` / `CaptionLog` | 清理/限制輸出；RAM 內保存最近 100 筆文字、來源與延遲 | ✅ active |
+| Rust `vlm` / JNI `describe` | 舊 luma 診斷佔位，不被 `MonitorActivity` 呼叫 | ⚠️ legacy，待移除 |
 
 ## 3. 介面與合約
 
-- **Rust:** `Captioner::describe(&mut self, luma: &[u8], width, height) -> String`。
-  畸形(零維度、`luma.len() < w*h`)回 `"L1 佔位:無效幀"`,不 panic。
-- **JNI:** `com.claustrum.core.NativeCore.describe(luma: ByteArray, w: Int, h: Int): String`
-  (`src/ffi.rs`,android target only)。傳 luma、回描述;**幀不回傳**。
-- **呼叫時機:** Kotlin analyzer **僅在 `ChangeGate.admit()==true`** 時呼叫 `describe`——
-  這正是「只在場景變化才喚醒 L1」的省算力點。
+- **Kotlin:** `Captioner<F>.describe(frame: F): String`；production `F=Bitmap`，host test 可用 String/fake。
+- **呼叫時機:** analyzer 只在 `ChangeGate.admit()==true` 時複製/旋正 Bitmap，接著由
+  inference executor 呼叫；編碼與 LiteRT 不在 analyzer thread。
+- **輸出界線:** L1 回客觀文字，不回 risk/event；`CaptionLog` 只在 RAM 保存最近 100 筆。
+- **legacy:** `NativeCore.describe(luma,w,h)` 已標 deprecated，現行程式沒有 call site。
 
 ## 4. 資料結構
 
-`LumaStats { mean: u32, quads: [u32;4] }`——象限序 0=TL 1=TR 2=BL 3=BR;百分比對 255 正規化。
-真後端另持有模型 handle / context(`&mut self`)。
+`LiteRtCaptioner` 持有可重用 `Engine`；每次呼叫建立短生命週期 `Conversation`。輸入 Bitmap
+downscale 至最長邊 768 後編成 PNG bytes；輸出以 `CaptionText` 收斂成有界單句。
 
 ## 5. 關鍵流程
 
 ```
-# 過渡(佔位,Rust):
-L0 放行 → NativeCore.describe(luma,w,h) → (JNI) Captioner.describe
-        → PlaceholderCaptioner:LumaStats.of(luma) → "L1 佔位(未載入 VLM)· WxH · 亮度 N% · 網格[..]"
-# 真後端(Kotlin/LiteRT-LM SDK litertlm-android):
-L0 放行 → LiteRtCaptioner.describe(bitmap)
+CameraX ImageAnalysis → Rust aHash → Kotlin ChangeGate 放行
+        → 旋正 Bitmap → single-flight / latest pending → inference executor
+        → LiteRtCaptioner.describe(bitmap)
         → engine(載一次,visionBackend=GPU)+ **每幀新 Conversation**(單幀獨立,不累積歷史)
         → Content.ImageBytes(png) + Content.Text(客觀提示) → sendMessageAsync
-        → LiteRT(目前 Pixel 10 實測 GPU/GPU；NPU 待評估)→ 場景描述字串;用畢 conversation.close()
-        → Kotlin 覆蓋層顯示 / 餵給 L2
+        → LiteRT(目前 Pixel 10 實測 GPU/GPU；NPU 待評估)→ 清理後場景描述字串
+        → CaptionLog / UI；日後只能後補 L2 脈絡，不能主導事件判定
 ```
 
 ## 6. 錯誤處理與穩健性
 
-- 佔位後端與 JNI 皆對零維度/短 luma 早退回安全字串。
-- JNI `new_string` 失敗回 null;Kotlin `describe` 宣告為 `String?`,呼叫端以
-  `?: "L1 佔位:描述失敗"` 兜底,避免熱路徑 NPE。
-- 真後端:模型載入失敗須回可辨識錯誤字串(不崩潰),並在 UI 標示後端狀態。
+- 模型不存在或所有 Engine backend 初始化失敗時使用 Kotlin `PlaceholderCaptioner`。
+- delegate fallback 每次失敗會先 close 部分建立的 Engine，避免多份模型/GPU allocation 疊加 OOM。
+- `FallbackCaptioner` 在明確 timeout/error 後降級；空白/無效描述不覆蓋最後有效文字。
+- `MonitorActivity` 連續 analyzer 失敗會顯示需處理；成功影格可恢復健康狀態。
 
 ## 6.1 真後端狀態管理(LiteRT 在 Kotlin)
 
@@ -63,7 +61,7 @@ maxNumTokens)`)**載入一次**(初始化成本高)、跨放行幀重用,`onDest
 建立全新 `Conversation`**(單幀獨立判斷,避免累積對話歷史造成上下文污染 / token 爆量),送
 `Content.ImageBytes(png)` + `Content.Text(客觀提示)`,用畢 `close()`。因 L0 已閘控,PNG 編碼與新對話
 只在放行幀付出,非逐幀熱路徑。不需早先規劃的 Rust 端 `OnceLock<Mutex<…>>`(llama.cpp-in-Rust 路線的
-產物,已隨 ADR-0009 作廢)。過渡期 `PlaceholderCaptioner` 仍為無狀態、JNI 每次新建即可。
+產物,已隨 ADR-0009 作廢)。誠實 fallback 已由 Kotlin `PlaceholderCaptioner` 承擔。
 
 **裝置端實測(Pixel 10,截至目前):**
 - 相依 `com.google.ai.edge.litertlm:litertlm-android:0.11.0`(需 Kotlin ≥ 2.2 讀其 metadata)。
@@ -79,15 +77,14 @@ maxNumTokens)`)**載入一次**(初始化成本高)、跨放行幀重用,`onDest
 **LiteRtCaptioner 實作守則(穩健性,必守):**
 - **生命週期競態:** `sendMessageAsync` 為非同步;`onDestroy` 前須先 `conversation.cancelProcess()`
   並等待/保證回呼結束,才 `engine.close()`,避免釋放使用中資源導致 C++ 崩潰。
-- **單線(single-flight)防重入:** L0 快速連續放行時,**推論中則丟棄新放行幀**(只保留最新一張,
-  比照 CameraX `KEEP_ONLY_LATEST`),不得並發建立多個 `Conversation`(否則 OOM / GPU 過載)。
+- **單線(single-flight)防重入:** L0 快速連續放行時只保留最新 pending 一張，中間放行幀會被
+  合併；不得並發建立多個 `Conversation`(否則 OOM / GPU 過載)。這只保證 L1 有界，不保證事件召回。
 - **執行緒:** PNG 編碼與推論在**背景 executor**(非 CameraX analyzer 執行緒)進行,避免阻塞取幀。
 
 ## 7. 測試策略(必備)
 
-- **Host `cargo test`(✅ 4):** 畸形安全、回報尺寸與 backend、暗/亮幀亮度極值、
-  2×2 網格定位(下半亮 → `網格[0 0 / 100 100]`)。
-- **裝置整合(✅):** 放行幀觸發、描述含正確尺寸/亮度/網格(Pixel 10)。
+- **Legacy Rust host tests(✅ 4，待隨 seam 移除):** 舊 luma placeholder 診斷；不代表現行 L1 路徑。
+- **裝置整合(✅):** 放行幀觸發 LiteRT 真實描述，Engine GPU/GPU 與 lifecycle 已於 Pixel 10 驗證。
 - **輸出後處理(✅ host):** `CaptionText`(去 emoji/符號、取首句、非中文拒絕)9 項單元測試。
 - **模型驗證 harness(✅):** `ModelEval`(關鍵詞 any-match 計 pass、彙總 pass-rate + avg/p50 延遲)6 項單元測試;開發者模式以 `dev_eval/` 標註影格 + `dev_videos/` 測試影片在裝置上跑,**換模型時基本正確率與效能驗證**。裝置實測:跌倒影片(去字幕)L1 正確判讀「一人倒臥在馬路上」;3/3 影格通過、單張 ~6.5–11.5s。
 
@@ -111,7 +108,8 @@ maxNumTokens)`)**載入一次**(初始化成本高)、跨放行幀重用,`onDest
 
 **→ 兩條獨立軸線,勿混為一談(待釐清):**
 1. **輸入品質/取景**(上述):主體佔比、距離、光線、字幕干擾、取樣頻率。可由相機佈建改善。
-2. **模型能力上限**:目前用的是 Gemma 3n **E2B**(較小的變體)。小模型對**細粒度姿態/動作推理**能力較弱、且**較易幻覺**(實測出現「驚慌駕駛」等畫面不存在的描述)。即使取景良好,E2B 仍可能有天花板。
+2. **模型能力上限**:目前用的是 Gemma 3n **E2B**。已觀察到「驚慌駕駛」等畫面不存在的
+   描述，但尚未用相同素材與 E4B 對照，因此不能只憑模型大小斷言根因或幻覺率。
 
 **尚未隔離哪一項主導。** 釐清方法(用現成工具即可):以**同一組 `dev_eval/` 標註影格**(近景取景良好、去字幕)跑 **E2B vs E4B**(E4B 已在目錄)比較 **pass-rate / 幻覺率 / 延遲**——
 - 若 E4B 明顯較佳 → **能力**是主要瓶頸,權衡採用 E4B(較重、較慢)或換更適配的模型;

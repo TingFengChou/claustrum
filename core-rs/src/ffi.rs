@@ -1,9 +1,10 @@
 //! JNI bridge — Android (Kotlin) → Rust perception core.
 //!
 //! Device-only glue (see lib.rs cfg). Kotlin side: `com.claustrum.core.NativeCore`
-//! with `external fun` declarations matching these symbols. Frames are passed as
-//! single-channel luma byte arrays; only compact results (a hash / boolean / later
-//! a Kineme) cross back — never the frame itself.
+//! with `external fun` declarations matching these symbols. The active path copies
+//! single-channel luma bytes in only long enough to return a compact aHash. The
+//! legacy `describe` export below is not called by MonitorActivity; L1 now runs in
+//! Kotlin/LiteRT (ADR-0009).
 
 use jni::objects::{JByteArray, JClass};
 use jni::sys::{jint, jlong, jstring};
@@ -18,7 +19,10 @@ pub extern "system" fn Java_com_claustrum_core_NativeCore_nativeHello(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
-    let msg = format!("claustrum-core {} — Rust core online", env!("CARGO_PKG_VERSION"));
+    let msg = format!(
+        "claustrum-core {} — Rust core online",
+        env!("CARGO_PKG_VERSION")
+    );
     match env.new_string(msg) {
         Ok(s) => s.into_raw(),
         Err(_) => std::ptr::null_mut(),
@@ -48,12 +52,9 @@ pub extern "system" fn Java_com_claustrum_core_NativeCore_frameSignature(
     frame_signature(&bytes, width as usize, height as usize).0 as jlong
 }
 
-/// `NativeCore.describe(luma: ByteArray, width: Int, height: Int): String`
-/// — the L1 scene description for an *admitted* frame (the L0 gate decides when
-/// to call this). Currently the diagnostic [`PlaceholderCaptioner`]; the real
-/// llama.cpp VLM backend (ADR-0008) slots in behind the same `Captioner` trait
-/// without changing this signature. Frames are passed as luma; only the text
-/// description crosses back — the frame never leaves native.
+/// Legacy ADR-0008 diagnostic export. The active L1 path is Kotlin
+/// `LiteRtCaptioner`; keep this temporarily only until the ABI cleanup recorded in
+/// HANDOFF removes `core-rs::vlm` and this JNI symbol together.
 #[no_mangle]
 pub extern "system" fn Java_com_claustrum_core_NativeCore_describe(
     env: JNIEnv,

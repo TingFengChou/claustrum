@@ -46,8 +46,8 @@ class MonitorActivity : ComponentActivity() {
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private val inferenceExecutor = Executors.newSingleThreadExecutor() // L1 off the analyzer thread
     private val inFlight = java.util.concurrent.atomic.AtomicBoolean(false) // single-flight L1
-    // Latest admitted frame that arrived while L1 was busy — drained when it finishes,
-    // so a scene change during inference is never lost (ChangeGate.prev already advanced).
+    // Latest admitted frame that arrived while L1 was busy. Intermediate admitted frames
+    // are intentionally coalesced: this bounds L1 work but is not an event-recall guarantee.
     private val pending = java.util.concurrent.atomic.AtomicReference<Bitmap?>(null)
     @Volatile private var pipeline: PerceptionPipeline<Bitmap>? = null
     @Volatile private var lastRes = "—"
@@ -180,8 +180,9 @@ class MonitorActivity : ComponentActivity() {
     /**
      * Play test videos from `<externalFiles>/dev_videos/` through the pipeline. The
      * display advances on its own thread (smooth) while L1 samples frames single-flight
-     * off the inference executor — same "不漏球但不卡住" discipline as the camera, so
-     * playback never freezes on a 6.5s describe. Lets us validate on real footage
+     * off the inference executor. L1 coalesces intermediate samples so playback never
+     * freezes on a slow describe; this tool evaluates captions, not event recall. Lets us
+     * validate on real footage
      * without physically aiming the camera.
      */
     private fun playDevVideo() {
@@ -336,8 +337,8 @@ class MonitorActivity : ComponentActivity() {
     /**
      * Hand an admitted frame to L1. Single-flight: if inference is already running,
      * the frame is kept as the (replaceable) latest pending frame and processed as
-     * soon as the current one finishes — so a scene change during a slow describe is
-     * never dropped, and L1 never runs on the analyzer thread.
+     * soon as the current one finishes. Intermediate admitted frames can be replaced;
+     * L1 stays bounded and never runs on the analyzer thread.
      */
     private fun enqueueL1(bmp: Bitmap) {
         if (inFlight.compareAndSet(false, true)) {
