@@ -1,6 +1,6 @@
 # model(裝置端模型管理)— 系統分析(SA)
 
-**狀態:** active(下載器 + 目錄已落地;HF 授權待接) · **最後更新:** 2026-08-06 · **負責人:** claustrum
+**狀態:** active(下載器 + 目錄 + HF 授權 + DEFAULT_L1 載入已落地；模型切換待續) · **最後更新:** 2026-08-08 · **負責人:** claustrum
 **設計:** [`SD.md`](SD.md)
 
 ## 1. 目的
@@ -15,7 +15,8 @@
   可續傳、前景服務、進度)、gated 401 誠實提示、模型「已下載/尚未」狀態。
 - **已落地:** Hugging Face 授權——`TokenStore`(EncryptedSharedPreferences 加密)+ 目錄權杖 UI,
   gated 下載注入 `Bearer`。
-- **待接:** 下載後供 L1 [`LiteRtCaptioner`](../vlm/SD.md) 載入、模型**切換** UI(選定 L1 用哪顆)。
+- **已落地:** `DEFAULT_L1` 下載完成後由 [`LiteRtCaptioner`](../vlm/SD.md) 背景載入並產生真描述。
+- **待接:** 模型**切換** UI(選定 L1 用哪顆)；目前固定使用 E2B `DEFAULT_L1`，下載後需重啟 App 才會載入。
 - **不在範圍:** 推論本身(見 vlm)、L0/L2(見 core-rs)。
 
 ## 3. 需求
@@ -35,14 +36,16 @@
 
 - 下載來源:Hugging Face(`https://huggingface.co/<id>/resolve/main/<file>`)。
 - WorkManager(前景 dataSync 服務,需 manifest 宣告 `foregroundServiceType`)。
-- **Gemma 全系列在 HF 為 gated**(Gemma 授權)→ 產品化下載需 HF 登入/權杖(下一步)。
-- 下游:[`vlm` LiteRtCaptioner](../vlm/SD.md) 以下載好的 `.task`/`.litertlm` 初始化 LiteRT-LM。
+- **Gemma 全系列在 HF 為 gated**(Gemma 授權)→ 目前由使用者貼上 read 權杖；OAuth 待續。
+- 下游:[`vlm` LiteRtCaptioner](../vlm/SD.md) 以下載好的 `.litertlm` 原生模型初始化 LiteRT-LM；
+  MediaPipe `.task` 不相容於目前 SDK，不能混用。
 
 ## 5. 驗收
 
 - **已驗(Pixel 10):** 目錄畫面呈現 3 模型 + 能力/大小/gated;點下載 → WorkManager 前景服務
   啟動 → HTTP 到 HF → gated 模型正確顯示「需要授權(401)」;**無崩潰**。ModelSpec 6 個 JVM 測試綠。
-- **待驗:** HF 授權後完整下載一顆多模態 Gemma;L1 以其產生真實描述。
+- **已驗(Pixel 10):** HF 權杖下載 3.66GB E2B `.litertlm`；GPU/GPU L1 產生真實繁中描述。
+- **待驗:** 下載中斷續傳、自動/手動模型切換與 E2B vs E4B 同組素材評測。
 
 ## 追溯
 

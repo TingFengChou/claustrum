@@ -44,7 +44,10 @@ Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G
 ## 下一步(建議順序)
 
 1. **複核並 Merge PR #24**(owner 決定；先確認最新 SHA checks 與 review threads)。`gh pr merge 24 --squash`。
-2. **L2 事件引擎(issue #26,P3)—— 這才是真偵測**:`core-rs` events 模組(Fall/Leave/Violence 狀態機,pose/動作/時序快路徑),建 `schemas/event.schema.json`;風險判斷需**畫面內可見證據**(ADR-0006);L1 描述作輔助語意。
+2. **L2 事件引擎(issue #26,P3)已開始**:`codex/l2-event-engine` 已建立 Rust
+   Fall/ZoneExit/Violence 狀態機、`schemas/event.schema.json`、serde transport 與 SA/SD；
+   下一個關鍵是 Android pose/action extractor → JNI observation 接線與真實素材校準。L1 描述
+   只能附加二階脈絡，不能單獨升級 risk/alert。
 3. **相機佈建準則落地**:依 §8,關注區主體佔比 ≥ ⅓、多機分區;dev 模式的模型驗證(`dev_eval/` + `dev_videos/`)用來量測。
 4. **釐清模型能力 vs 取景(issue #29)**:用開發者模式跑 E2B vs E4B 同組近景影格,比 pass-rate/幻覺/延遲 → 決定 `DEFAULT_L1` 與是否需更強模型。
 5. **L1 效能**(issues #25/#27/#28):變化閘控外加「L1 最小間隔」節流(壓熱/耗電)· 評估 NPU delegate · prefill/輸出優化。

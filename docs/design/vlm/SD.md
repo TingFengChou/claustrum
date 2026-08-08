@@ -44,7 +44,7 @@ L0 放行 → NativeCore.describe(luma,w,h) → (JNI) Captioner.describe
 L0 放行 → LiteRtCaptioner.describe(bitmap)
         → engine(載一次,visionBackend=GPU)+ **每幀新 Conversation**(單幀獨立,不累積歷史)
         → Content.ImageBytes(png) + Content.Text(客觀提示) → sendMessageAsync
-        → LiteRT(Tensor G5 GPU/NPU)→ 場景描述字串;用畢 conversation.close()
+        → LiteRT(目前 Pixel 10 實測 GPU/GPU；NPU 待評估)→ 場景描述字串;用畢 conversation.close()
         → Kotlin 覆蓋層顯示 / 餵給 L2
 ```
 

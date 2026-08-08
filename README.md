@@ -25,7 +25,8 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 
 <img src="assets/design/uiux-screens.png" width="100%" alt="claustrum 四個核心畫面:即時守護(機器之眼)、模型目錄與切換、主動告警、事件記錄"/>
 
-**① 即時守護 · 機器之眼** · **② 模型目錄與切換**(多模型 + App 內下載 + 一鍵切換 L1 模型)· **③ 主動告警**(附畫面內可見證據 → 通知保全)· **④ 事件記錄**(嚴重度分色 + 誤報回流)。
+**① 即時守護 · 機器之眼** · **② 模型目錄與下載**(多模型 + App 內下載；切換待續)·
+**③ 主動告警**(L2/通知尚在開發)· **④ 描述記錄**(目前保存 L1 文字供驗證)。
 
 貫穿不變式:影格不離裝置;L1 只客觀描述、風險判斷屬 L2 且需可見證據;**模型可換為一等公民**。進入完整開發前,UI/UX 以此稿定義(dev-standards)。
 
@@ -47,14 +48,18 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 | 層 | 技術 | 說明 |
 |---|---|---|
 | 感知核心(L0 閘控 · 影格管線 · L2/L3 事件引擎) | **Rust**(cargo-ndk → `.so`,JNI) | 記憶體安全 + 接近 C 的效能;逐幀比較與狀態機的家 |
-| L1 VLM 推論 | **Google AI Edge / LiteRT**(Kotlin;LLM Inference,`.litertlm`) | on-device 多模態 Gemma,走 Tensor G5 NPU;沿用 AI Edge Gallery(Apache-2.0),不自建 llama.cpp(ADR-0009) |
+| L1 VLM 推論 | **Google AI Edge / LiteRT**(Kotlin;LiteRT-LM,`.litertlm`) | on-device 多模態 Gemma；目前實測 GPU/GPU，依序 fallback CPU/GPU、CPU/CPU；不自建 llama.cpp(ADR-0009) |
 | 相機擷取 | **CameraX(Kotlin)** | 影格交給 Rust,**永不進 UI 層** |
 | 平台 / UI | **Kotlin + Jetpack Compose**(原生 Android) | 預覽 / 字幕 / 告警 / 控制;**無 React Native** |
 | 領域契約 | **JSON Schema** | 跨 Rust / Kotlin / Python 單一真實來源 |
 | 離線工具 | **Python**(bench / eval) | 基準測試、評測 |
 | 建置 | Gradle + cargo-ndk(NDK 27) | Rust `.so` 隨 App 打包 |
 
-資料流:`CameraX → Rust L0 閘控(每幀)→ 變化才喚醒 L1 VLM(Google AI Edge / LiteRT,只在放行幀)→ 描述 → Rust L2 事件 → UI`。**影格只在裝置端流動,只有文字描述進入後續判斷**(隱私 + 效能)。設計詳見 [ADR-0007](docs/adr/0007-rust-first-redesign.md)、[ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md)。
+目標資料流:`CameraX → Rust L0 閘控 + 輕量 pose/motion observation → Rust L2 快路徑事件`；
+L0 放行幀另喚醒 LiteRT L1 場景描述，之後只能附加為事件脈絡。**影格只在裝置端流動；L2
+只接收結構化特徵/文字，不接收 pixels。**目前 L0/L1 已接線，L2 純 Rust engine/schema 已完成
+foundation，Android pose extractor/JNI 待續。設計詳見 [ADR-0007](docs/adr/0007-rust-first-redesign.md)、
+[ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md)。
 
 ## 路線圖與現階段重點
 
@@ -70,7 +75,7 @@ flowchart TD
     P1["P1 CameraX × L0 變化閘控(省算力)✅"]
     P2["P2 L1 場景描述:LiteRT + App 內模型管理 + UI 定稿 🔶"]
     P25["P2.5 Compose UI:進入流程 + 底部導覽 + 機器之眼 ✅"]
-    P3T["P3 L2 事件引擎(Rust)· P4 音訊融合"]
+    P3T["P3 L2 事件引擎:Rust 狀態機/schema 🟡<br/>pose extractor/JNI/實機校準待續 · P4 音訊融合"]
     P0 --> P1 --> P2 --> P25 --> P3T
   end
 
@@ -95,9 +100,9 @@ flowchart TD
   classDef next fill:#3a2a10,stroke:#ffb054,color:#ffe9cf;
   classDef future fill:#1c1636,stroke:#6b6690,color:#c7c3e0;
   class P0,P1,P25 done;
-  class P2 now;
+  class P2,P3T now;
   class B next;
-  class C,D,P3T,F future;
+  class C,D,F future;
 ```
 
 完整里程碑、驗收標準與全景圖:[`docs/ROADMAP.md`](docs/ROADMAP.md);續作交接:[`docs/HANDOFF.md`](docs/HANDOFF.md)。
@@ -115,8 +120,8 @@ flowchart TD
  L1  感知        裝置端 VLM(Google AI Edge / LiteRT;多模態 Gemma)→ 結構化 Kineme
      │
      ▼
- L2  告警        快路徑:pose / 音訊啟發式(recall)★ MVP 核心
-     │           慢路徑:VLM 確認(precision)→ 通知保全 / 聲光告警
+ L2  告警        快路徑:pose / motion / action 時序證據 ★ MVP 核心
+     │           L1 VLM 只補客觀脈絡,不能單獨升級 risk/alert
      ▼
  L3/L4 (延後)    摘要 Ethogram · 自然語言查詢
 ```
@@ -129,13 +134,14 @@ flowchart TD
 
 | 模組 | 語言 | 狀態 | 用途 |
 |---|---|---|---|
-| `core-rs/` | Rust | 🟢 P0/P1 · P2 seam | 感知核心:L0 閘控(host 測綠)· L1 `Captioner` 邊界(佔位)· L2/L3 事件引擎(→ `.so`) |
+| `core-rs/` | Rust | 🟢 P0/P1 · 🟡 P3 foundation | 感知核心:L0 閘控 + L2 Fall/ZoneExit/Violence 狀態機 + Event serde/schema；Android observation/JNI 待接 |
 | `android/` | Kotlin + Compose | 🟢 P1 · P2.5 UI | 原生 App:進入流程(Splash→介紹→守護)+ 底部導覽(守護/事件/模型/設定)+ 機器之眼;CameraX luma → Rust L0 閘控 → 放行幀喚醒 L1(Pixel 10 實測省 ~100% 運算)· LiteRT 引擎背景初始化 · **L1 真實場景描述已通(`.litertlm`-native Gemma 3n,~6.5s)** |
 | `schemas/` | JSON Schema | ✅ 就緒 | 領域型別**單一真實來源**(跨 Rust / Kotlin / Python) |
 | `core/` `bench/` `eval/` | Python | ✅ 就緒 | 領域型別參考、離線基準測試 / 評測(工具) |
 | ~~`app/`(RN)~~ | React Native | 🗑️ 已移除 | 概念驗證(即時字幕 on-device 已驗證)· 已隨 ADR-0007/0009 淘汰並自 repo 移除,保留於 git 歷史 |
 
-L1 推論採 **Google AI Edge / LiteRT**(多模態 Gemma,`.litertlm`),走 Tensor G5 NPU;不自建 llama.cpp(ADR-0009)。用法見下方「Edge AI 模型使用」。影格只在裝置端流動。
+L1 推論採 **Google AI Edge / LiteRT**(多模態 Gemma,`.litertlm`)，目前 Pixel 10 實測
+GPU/GPU；NPU 仍是待評估項目。不自建 llama.cpp(ADR-0009)。影格只在裝置端流動。
 
 ### 設計文件(SA/SD)
 
@@ -146,8 +152,8 @@ L1 推論採 **Google AI Edge / LiteRT**(多模態 Gemma,`.litertlm`),走 Tensor
 | `core-rs/`(Rust 感知核心) | 🟢 P0 | [SA](docs/design/core-rs/SA.md) · [SD](docs/design/core-rs/SD.md) |
 | `android/`(Kotlin 裝置外殼) | 🟢 P0/P1 | [SA](docs/design/android/SA.md) · [SD](docs/design/android/SD.md) |
 | `vlm/`(L1 場景描述) | 🔶 P2 seam | [SA](docs/design/vlm/SA.md) · [SD](docs/design/vlm/SD.md) |
-| `model/`(App 內模型下載/切換) | 🔶 P2 | [SA](docs/design/model/SA.md) · [SD](docs/design/model/SD.md) |
-| `events/`(時序事件引擎) | 📐 P3 規劃 | 與實作 PR 一併補上 SA/SD |
+| `model/`(App 內模型下載) | 🟢 P2(切換待續) | [SA](docs/design/model/SA.md) · [SD](docs/design/model/SD.md) |
+| `events/`(時序事件引擎) | 🟡 P3 foundation | [SA](docs/design/events/SA.md) · [SD](docs/design/events/SD.md) |
 | `ui/`(UI/UX 設計定義) | 🎨 草案 v1 | [設計 + 互動原型](docs/design/ui/README.md) |
 | `schemas/` 領域型別 | ✅ | 型別即 SoT;參考 [`core/`](docs/design/core/SD.md) |
 | `medication/`(藥單辨識) | 🗄️ 參考 | [medication SD](docs/design/medication/SD.md)(ADR-0007 前;`app/` RN 設計文件已隨程式移除,見 git 歷史) |
@@ -171,11 +177,13 @@ cd ../android && ./gradlew :app:testDebugUnitTest
 adb install -r app/build/outputs/apk/debug/app-debug.apk   # 舊簽章衝突先 adb uninstall com.claustrum
 ```
 
-App 啟動 → 進入**模型目錄**下載一顆多模態 Gemma(見「Edge AI 模型使用」)→「進入即時偵測」看 L0→L1 管線。續作與交接見 [`docs/HANDOFF.md`](docs/HANDOFF.md)。離線工具(bench/eval,Python)見 [`bench/README.md`](bench/README.md)。
+App 啟動 → 模型 tab 設定 HF read 權杖並下載多模態 Gemma → 守護 tab 點「啟動守護」看
+L0→L1 管線。L2 目前是純 Rust foundation，尚未在 UI 宣稱事件告警。續作見
+[`docs/HANDOFF.md`](docs/HANDOFF.md)。
 
 ## Edge AI 模型使用(Google AI Edge / LiteRT)
 
-> L1(場景描述/VLM)的**推論引擎採 Google AI Edge / LiteRT,不自建 llama.cpp**([ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md),取代 ADR-0008)。理由:Gemma 3n 多模態只在 LiteRT 跑得動、走 Tensor G5 的 GPU/NPU 比 CPU 版 llama.cpp 快、跨平台(Android/iOS/macOS)、且 [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery) 為 Apache-2.0 開源可直接沿用——**善用而非重造**。
+> L1(場景描述/VLM)的**推論引擎採 Google AI Edge / LiteRT,不自建 llama.cpp**([ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md),取代 ADR-0008)。理由:Gemma 3n 多模態可用 LiteRT 裝置 delegate；目前 Pixel 10 已驗證 GPU/GPU，NPU 待 issue #27 評估；且 [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery) 為 Apache-2.0 開源可直接沿用——**善用而非重造**。
 
 ### 感知管線:擷取頻率 · 各模組職責 · 與 AI Edge Gallery 的差異
 
@@ -201,7 +209,7 @@ flowchart TB
   end
 
   FB["FallbackCaptioner<br/>逾時/錯誤即降級 PlaceholderCaptioner(不成死路)"]
-  L2["④ L2 事件引擎(Rust · 規劃 P3)<br/>跌倒/離開/暴力 → 告警"]
+  L2["④ L2 事件引擎(Rust · P3 foundation)<br/>Fall/ZoneExit/Violence 狀態機 ✅<br/>Android pose/action observation + JNI 待接"]
 
   IA --> SIG
   SIG --> GATE
@@ -248,7 +256,7 @@ flowchart TB
 | 模型 | **多模態 Gemma 3n**——`google/gemma-3n-E2B-it-litert-lm`(預設 L1)/ E4B |
 | 格式 | **`.litertlm`(原生,實測可用)**;MediaPipe `.task` 在 litertlm 0.11.0 只吐 `<pad>`、不採用 |
 | 能力 | 圖+文 → 文("Ask Image");日後音+文 |
-| 加速 | Tensor G5 GPU / NPU(LiteRT delegate) |
+| 加速 | 目前 GPU/GPU；fallback CPU/GPU→CPU/CPU；NPU 待評估 |
 
 ### 取得模型:App 內建下載(產品化做法)
 
@@ -299,11 +307,14 @@ conv.sendMessageAsync(
 
 ### 現況
 
-L1 目前為 `core-rs` 的**佔位後端**(誠實診斷:尺寸/亮度/2×2 網格,標示「未載入 VLM」,不偽造理解),證明 L0→L1 觸發管線在 Pixel 10 端到端可跑。**`LiteRtCaptioner`(真多模態)接入中**——見 [ROADMAP](docs/ROADMAP.md) P2、[ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md)。
+L1 已以 `LiteRtCaptioner` + `.litertlm` 原生 Gemma 3n 在 Pixel 10 產生真實場景描述；模型不存在
+或推論錯誤時才使用誠實的 placeholder 診斷。L1 不是跌倒偵測器，風險判斷交由 L2 的
+pose/motion/action 時序證據；VLM 描述只能作二階脈絡。
 
 ### 隱私
 
-影格只在裝置端流動、用完即刪(手機優先單節點,[ADR-0004](docs/adr/0004-phone-first-single-node.md));只有 L1 產出的**文字描述**進入後續 L2 判斷——不外傳、不落地、不留人物身分特徵。
+影格只在裝置端流動、用完即刪(手機優先單節點,[ADR-0004](docs/adr/0004-phone-first-single-node.md));
+L2 只接收匿名 pose/motion/action observations 與可選的 L1 文字描述，不接收 pixels、不留人物身分特徵。
 
 ## 測試
 

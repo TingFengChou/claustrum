@@ -5,6 +5,7 @@
 //! lives in the Android layer; everything here runs under `cargo test` on the
 //! host with synthetic inputs — no Android hardware required.
 
+pub mod events;
 pub mod gate;
 pub mod vlm;
 

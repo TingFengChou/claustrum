@@ -1,6 +1,6 @@
 # core-rs(Rust 感知核心)— 系統分析(SA)
 
-**狀態:** active · **最後更新:** 2026-08-06 · **負責人:** claustrum
+**狀態:** active · **最後更新:** 2026-08-08 · **負責人:** claustrum
 **實作:** [`SD.md`](SD.md)
 
 ## 1. 目的與範圍
@@ -23,7 +23,8 @@ Compose)、L1 VLM 本體(改走 Kotlin 端 **Google AI Edge / LiteRT**,ADR-0009;
 - **FR-1(P1,已起步)** L0 變化閘控:以 aHash + Hamming 距離判斷畫面是否改變到值得叫 L1,
   **省算力**(靜態場景不叫 VLM)。
 - **FR-2(P2)** 提供 L0 放行決策給 Kotlin analyzer,由其在放行時觸發 L1(Kotlin/LiteRT)→ Kineme;core-rs 本身不含 VLM 呼叫。
-- **FR-3(P3)** L2/L3 事件引擎:對 Kineme/Observation 時間序列的狀態機(Fall/Leave/Violence)→ Event。
+- **FR-3(P3 foundation ✅)** L2 事件引擎:對輕量 pose/motion/action Observation 時間序列的
+  狀態機(Fall/ZoneExit/Violence)→ Event；VLM 僅二階佐證。Android extractor/JNI 接線待續。
 - **FR-4(P0/後續)** JNI 介面:向 Android 暴露必要的入口。
 
 ## 4. 非功能需求
@@ -36,12 +37,14 @@ Compose)、L1 VLM 本體(改走 Kotlin 端 **Google AI Edge / LiteRT**,ADR-0009;
 
 ## 5. 領域模型
 
-`Signature`(64-bit aHash);後續 `Observation`(時間戳觀察)與 `Event`(由 [events 設計](../events/SA.md) 而來),以 `schemas/` 為跨語言契約。
+`Signature`(64-bit aHash)、`Observation`(時間戳 pose/motion/action 特徵)與 `Event`(見
+[events 設計](../events/SA.md))；Event 以 serde 對齊 `schemas/event.schema.json`。
 
 ## 6. 限制與假設
 
 - 輸入影格為單通道 luma(由 Android CameraX 提供 / 轉換)。
-- L1 由 Kotlin 端 Google AI Edge / LiteRT 提供(ADR-0009);L2 型別對齊 `schemas/event.schema.json`(待建)。
+- L1 由 Kotlin 端 Google AI Edge / LiteRT 提供(ADR-0009)；L2 型別對齊
+  `schemas/event.schema.json`，但 pose/action extractor 尚未接線。
 
 ## 7. 驗收標準
 

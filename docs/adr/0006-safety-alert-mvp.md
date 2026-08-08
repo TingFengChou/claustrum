@@ -1,7 +1,8 @@
 # ADR-0006 — MVP 重新聚焦:多模態主動安全告警(社區跌倒、幼兒園暴力)
 
 **狀態:** 已接受 · **日期:** 2026-08-06
-**釐清/調整:** [ADR-0005](0005-react-native-app.md)(產品形態)、ROADMAP 第二模態閘門
+**釐清/調整:** [ADR-0005](0005-react-native-app.md)(產品形態)、ROADMAP 第二模態閘門、
+[ADR-0011](0011-l2-fast-path-evidence.md)(L2 確認用快路徑可見證據；VLM 僅作脈絡)
 
 > **北極星不變**([ADR-0005](0005-react-native-app.md)):即時串流、edge AI、綁定多模態的
 > 機器人視覺大腦。本 ADR 只改「第一個垂直與 MVP 範圍」,不改核心架構。
@@ -47,8 +48,8 @@ edge AI 方向不變。
 
 - **L2 警示成為 MVP 主軸**:pose 快路徑(recall)+ 確認(precision)。fall recall 與
   false-alerts/24h 就是 MVP 指標。
-- App 內要接:**CameraX(視覺)+ 麥克風(音訊)**、**裝置端偵測**(pose/聲音事件,
-  逐步加入 VLM 確認)、**告警通道**(通知保全 / 幼兒園端聲光告警)。
+- App 內要接:**CameraX(視覺)+ 麥克風(音訊)**、**裝置端偵測**(pose/motion/action/聲音事件;
+  依 ADR-0011 由快路徑證據確認，VLM 不作唯一 gate)、**告警通道**(通知保全 / 幼兒園端聲光告警)。
 - **音訊模組提前**:新增裝置端音訊事件偵測(如尖叫/衝突聲);原第二模態閘門相應調整。
 - 醫療/藥袋(schema/prompt/parse/tests 已在 repo)**保留但暫停**,待 MVP 站穩再回頭。
 - 需要新增/調整領域型別:`RiskCategory` 增加暴力/衝突類別(schema 變更走既有流程)。
