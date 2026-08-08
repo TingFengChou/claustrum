@@ -6,11 +6,12 @@
 
 - **裝置端 App 已成形**:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、**L1 真實場景描述已通**(`.litertlm`-native Gemma 3n)、開發者模式驗證工具。
-- **PR #24/#30/#33/#34/#35/#40/#43/#44/#45/#46 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
+- **PR #24/#30/#33/#34/#35/#40/#43/#44/#45/#46/#47 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
   merge commit 為 `65905cd2`，#40 的 FIT_CENTER／rotation／zoom／匿名框 merge commit 為
   `898662ba`，#43 的 object candidate merge commit 為 `bd258aed`，#44 的 litter tracker merge
   commit 為 `f41fa46f`，#45 的明確停止守護 merge commit 為 `1481831f`，#46 的 legacy Rust L1
-  移除 merge commit 為 `acd180d4`。checks 與 review threads 均
+  移除 merge commit 為 `acd180d4`，#47 的 fixed-camera object eval merge commit 為 `4301af98`。
+  checks 與 review threads 均
   逐則處理後合併；Pixel 10 已驗證相機、pose/JNI、
   前後景恢復與 2F→1F 初測。
 - **PR #44:** #43 後新增 session-local `AnonymousObjectTracker` 與 `LitterEvidenceTracker`：
@@ -43,7 +44,7 @@
   CameraService stop/start 後無 crash；但稍後清楚可見成人推嬰兒車時 detector 回 0，沒有
   detection 就無法 association。故只驗證接線／reset，不宣稱 recall、ID stability 或 litter stage
   可用；#39 保持 open。
-- **Object eval harness 已接線（待本 PR merge）:** `dev_object_eval/manifest.json` 可在停止守護時以
+- **Object eval harness 已接線:** `dev_object_eval/manifest.json` 可在停止守護時以
   真 Lite2 量 TP/FP/FN、P/R、IoU、hard-negative、min-pixel 與 p50/p95；strict parser 拒絕 identity／
   路徑／未知欄位，不接 tracker/Event。Pixel 非固定鏡位 2 張 smoke 為 TP0/FP4/FN3；兩次
   p50/p95 180/241 與 138/185ms，只驗接線且再次證明 domain gap，不能當 2F→1F 驗收。
@@ -78,7 +79,7 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 | Codex P1(初始化移出 analyzer、保留放行幀、旋正、有界輸出) | ✅ |
 | 相機權限/bind 失敗可重試、連續 analyzer 失敗顯示「需處理」並可恢復 | ✅ |
 | LiteRT delegate 初始化失敗先 close Engine，再嘗試下一個 backend(防 OOM) | ✅ |
-| 開發者模式:L1/影片 + 固定鏡位 object bbox 評估、描述串流+記錄 | ✅ object eval 待本 PR merge |
+| 開發者模式:L1/影片 + 固定鏡位 object bbox 評估、描述串流+記錄 | ✅ |
 | 移除 legacy RN `app/` | ✅ |
 | 移除 legacy Rust L1 module/JNI placeholder（保留正式 L0/L2） | ✅ 本輪 cleanup |
 | Rust L2 + Android/JNI + ML Kit 單人 pose fast path | ✅ 接線；素材校準/policy 待續 |
