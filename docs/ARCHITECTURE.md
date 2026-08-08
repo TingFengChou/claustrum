@@ -47,7 +47,8 @@ confidence。若後續建 Kineme，由管線填入 model/prompt/novelty 等 meta
 <1 秒偵測或對外通報的唯一 gate。L2 改用可回歸的 pose/motion/action 多訊號時序證據:
 
 ```
-lightweight extractor → Observation(timestamp + anonymous role + scores)
+lightweight extractor(待接) → FastPathObservation(timestamp + anonymous role + scores)
+    → NativeEventEngine / JNI opaque handle → Rust EventEngine
     │
     ├── Fall:站立 → ≤1s 快速下降 + 水平/倒臥
     │      ├── 高 impact → confirmed fast path
@@ -58,6 +59,10 @@ lightweight extractor → Observation(timestamp + anonymous role + scores)
                 ├── confirmed + medium/high + fast-path evidence → 通知/人工確認層
                 └── L1 caption 後到時只附加客觀文字脈絡,不改 status/risk
 ```
+
+目前 `FastPathObservation`、JNI create/process/destroy 與 Rust engine registry 已實作；還沒有
+extractor 將實際 pose/action 特徵餵入此路徑，因此 App 仍不宣稱已能偵測或告警。
+JNI 傳輸不含 pixels/landmarks，每個返回字串是一份 schema-aligned Event JSON。
 
 正常坐下、單一高動作 sample、不同人物 pair 的動作不得拼成 confirmed。上層再做去重、類別
 速率限制、冷卻與人工確認。完整決策見 [ADR-0011](adr/0011-l2-fast-path-evidence.md) 與

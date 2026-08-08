@@ -7,8 +7,8 @@
 > A–D、社區/幼兒園)不變;實作技術棧改變。重建階段:
 > **P0** 骨架(Rust `.so` + Android + JNI)〔✅ 完成:L0 變化閘控(host `cargo test` 綠)、JNI/`.so`、Android 外殼在 Pixel 10 實測 `nativeHello()` 回話 + L0 閘控 PASS〕· **P1** L0 變化閘控接 CameraX luma 流〔✅ 完成:Pixel 10 實測 640×480 即時串流,靜態場景 1/2250 放行 → 省下 ~100% 運算;`ChangeGate` 7 個 JVM 單元測試綠〕·
 > **P2** L1 場景描述(**Google AI Edge / LiteRT-LM SDK**,不自建 llama.cpp — ADR-0009)〔✅ 大致完成:L0→L1、App 內模型下載、Compose 全貌、`.litertlm` 原生 Gemma 3n 真描述〕·
-> **P2.5** Compose UI ✅ · **P3** L2 事件引擎 🟡 foundation〔Rust Fall/ZoneExit/Violence 狀態機 +
-> Event serde/schema + host 測試已落地；Android pose/action extractor、JNI、通知與實機校準待續〕·
+> **P2.5** Compose UI ✅ · **P3** L2 事件引擎 🟡〔Rust Fall/ZoneExit/Violence 狀態機 +
+> Event serde/schema + Android/JNI observation bridge 已落地；pose/action extractor、CameraX 餐取、通知與實機校準待續〕·
 > **P4** 音訊融合(#6)。續作見 [`HANDOFF.md`](HANDOFF.md)。
 > 詳見 [ADR-0007](adr/0007-rust-first-redesign.md)。
 
@@ -74,7 +74,8 @@ flowchart TD
   MediaPipe `.task` 格式在 litertlm 0.11.0 只吐 `<pad>`,已改用原生 `.litertlm`。
 - PR #24/#30 已 merge 至 `main`：裝置 App 已具進入流程、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、L0 變化閘控、**L1 真實場景描述**與開發者驗證工具；Rust L2
-  Fall/ZoneExit/Violence engine + Event schema 已有 foundation，Android observation/JNI 待接。
+  Fall/ZoneExit/Violence engine + Event schema 已有 foundation；Android/JNI observation bridge 已完成，
+  pose/action extractor 與 CameraX 餐取待續。
 - **關鍵發現:L1 場景描述非可靠跌倒偵測器**(遠景/小主體會漏或幻覺)→ 事件偵測須 L2;
   相機佈建須讓主體佔畫面 ≥ ⅓(見 [`docs/design/vlm/SD.md`](design/vlm/SD.md) §8、issue #26)。
 - 首個應用**藥單辨識**的軟體層(schema、prompt、安全解析、單元測試、SA/SD)完成

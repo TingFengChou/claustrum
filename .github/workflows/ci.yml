@@ -29,6 +29,9 @@ jobs:
       - name: Rust core (host cargo test)
         run: cargo test --manifest-path core-rs/Cargo.toml
 
+      - name: Rust lint
+        run: cargo clippy --manifest-path core-rs/Cargo.toml --all-targets -- -D warnings
+
       - name: No committed imagery
         run: |
           # The rule protects against committing camera frames (see docs/PRIVACY.md).
@@ -65,6 +68,6 @@ jobs:
       - uses: android-actions/setup-android@v3
       - name: Install SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0" > /dev/null
-      - name: Android unit tests
+      - name: Android unit tests and lint
         working-directory: android
-        run: ./gradlew :app:testDebugUnitTest --console=plain --no-daemon
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug --console=plain --no-daemon

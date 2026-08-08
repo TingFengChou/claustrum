@@ -10,10 +10,13 @@
 
 ## 建置 / 測試
 
-- Rust 核心:`cd core-rs && cargo test`;交叉編譯 `.so`:`cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release`(需 `ANDROID_NDK_HOME`)。
-- Android:`cd android && ./gradlew :app:testDebugUnitTest` / `:app:assembleDebug`。
+- Rust 核心:`cd core-rs && cargo test`;靜態檢查:`cargo clippy --all-targets -- -D warnings`;交叉編譯 `.so`:
+  `cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release`(需 `ANDROID_NDK_HOME`)。
+- Android:`cd android && ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`。
 - Python 工具:`python -m unittest discover -s tests`。
 - 建置產物不進版控:`android/app/src/main/jniLibs/`、`core-rs/target/`、`android/local.properties`、模型檔。
+- Android/CameraX 工作優先使用 Google 官方 [android/skills](https://github.com/android/skills)
+  的 `camerax`、`testing-setup`、`android-cli`；測試用 fake 而非 mock 複雜 CameraX 介面。
 
 ## 交付流程(強制)
 

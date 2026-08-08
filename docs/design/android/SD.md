@@ -30,6 +30,8 @@ L0→L1 管線；Compose 只渲染 immutable `MonitorUi`。L0 的 aHash 在 Rust
 | `PerceptionPipeline` | L0 統計、可替換 Captioner、最後有效描述 |
 | `LiteRtCaptioner` | 初始化 delegate、每幀新 Conversation、有界串流輸出、資源釋放 |
 | `FallbackCaptioner` | 真後端首次 timeout/error 後降級為誠實 placeholder |
+| `FastPathObservation` | pixel-free L2 輸入；匿名 slot、pose、motion/action scores 與 timestamp |
+| `NativeEventEngine` | 擁有一個 Rust L2 opaque handle；同步 process/close，返回單筆 Event JSON 清單 |
 | `ModelsController` | 模型目錄、HF token、WorkManager 下載狀態 |
 | `AppShell` | 守護/事件/模型/設定四個 Compose tab |
 
@@ -47,6 +49,10 @@ inferenceExecutor(single thread)
 
 main thread
   GuardianSession / pipeline snapshot → MonitorUi → Compose
+
+future L2 extractor executor (not wired yet)
+  CameraX frame → pose/action extractor → FastPathObservation
+  → NativeEventEngine/JNI → Rust EventEngine → Event JSON
 ```
 
 - analyzer 不初始化模型、不等待 L1。
@@ -83,14 +89,17 @@ main thread
 
 - Camera frame 不落地、不上傳；luma 僅跨 JNI 給 Rust 算 signature。
 - `ImageProxy` 在 `finally` close；L1 Bitmap、downscale Bitmap 與被取代 pending 幀都 recycle。
+- L2 JNI 不接收 luma/Bitmap/landmark，只接收短時匿名 observation；`NativeEventEngine.close()`
+  可重入，Rust registry 的 handle 不是 memory address。
 - CaptionLog 只存文字、時間、來源與延遲，process death 即清空。
 - Dev 素材只讀使用者明確放入 app external-files 的 `dev_eval/`、`dev_videos/`。
 
 ## 8. 測試
 
 - Host JVM:`ChangeGateTest`、`GuardianSessionTest`、`PerceptionPipelineTest`、
-  `FallbackCaptionerTest`、`CaptionTextTest`、`ModelEvalTest`、`ModelSpecTest`。
+  `FallbackCaptionerTest`、`CaptionTextTest`、`ModelEvalTest`、`ModelSpecTest`、`NativeEventEngineTest`。
 - Android build:`./gradlew :app:testDebugUnitTest :app:assembleDebug`。
+- Android lint:`./gradlew :app:lintDebug`；bridge 測試使用 fake，不 mock Android/CameraX 類別。
 - 裝置:權限/bind、tab、待命→啟動→守護、GPU delegate、真模型描述、dev 素材回歸。
 - Rust/JNI 純邏輯另由 `core-rs cargo test` 與 Android 裝置煙霧測試覆蓋。
 

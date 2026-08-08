@@ -34,7 +34,7 @@ pub fn frame_signature(luma: &[u8], width: usize, height: usize) -> Signature {
                     n += 1;
                 }
             }
-            cells[by * 8 + bx] = if n > 0 { (sum / n) as u32 } else { 0 };
+            cells[by * 8 + bx] = sum.checked_div(n).unwrap_or(0) as u32;
         }
     }
     let mean = (cells.iter().map(|&c| c as u64).sum::<u64>() / 64) as u32;
@@ -63,7 +63,10 @@ impl ChangeGate {
     /// `threshold`: minimum aHash Hamming distance (0..=64) to treat as a change.
     /// ~6–10 is a sensible starting band; tune against real footage.
     pub fn new(threshold: u32) -> Self {
-        Self { threshold, prev: None }
+        Self {
+            threshold,
+            prev: None,
+        }
     }
 
     /// Returns true if this frame should be passed to L1 (scene changed enough,
@@ -134,7 +137,11 @@ mod tests {
             }
         }
         let b = frame_signature(&vf, W, H);
-        assert!(distance(a, b) >= 10, "expected large distance, got {}", distance(a, b));
+        assert!(
+            distance(a, b) >= 10,
+            "expected large distance, got {}",
+            distance(a, b)
+        );
     }
 
     #[test]

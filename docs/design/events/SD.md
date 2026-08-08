@@ -8,6 +8,8 @@
 | 元件 | 職責 |
 |---|---|
 | `core-rs/src/events.rs::EventEngine` | 依 timestamp 消費 observation，輸出新跨越的事件狀態 |
+| `core-rs/src/event_bridge.rs::EventEngineRegistry` | 以正數 opaque handle 隔離各 camera session，驗證 lifecycle 並序列化每個 Event |
+| `android/.../events/NativeEventEngine` | 將 Kotlin `FastPathObservation` 映射至 JNI；`close()` 可重入，不暴露 Rust 指標 |
 | `TrackState` | 每個匿名 actant 的 fall/zone 狀態；stale 後清除 |
 | `ViolenceState` | 每個排序後匿名 actant pair 的 hit window、candidate 與 cooldown |
 | `Event::add_vlm_corroboration` | 在事件後附加 bounded L1 描述；不改判斷欄位 |
@@ -66,6 +68,10 @@ extractor 尚未接上前，本 detector 只有 host-testable contract。
   也會中斷「持續倒臥」計時，後續可見倒臥須重新累積 dwell。
 - actant/pair 超過 60 秒未見即移除，避免長期監看狀態無界成長。
 - ID 為 `evt_<detected_at_ms>_<sequence>`；source_id 是邏輯位置，不是硬體序號。
+- JNI registry 只發放 `1..Long.MAX_VALUE` handle，不把記憶體位址暴露給 Kotlin；無效或
+  已 destroy handle 會被拒絕，不會 dereference freed memory。
+- JNI 輸入先驗證 timestamp/slot/count/pose wire value；無事件返回 empty array，無效 payload
+  返回 null 並由 Kotlin 明確報錯。影格與 pose landmark 不跨越 JNI。
 
 ## 7. Schema/serde 對應
 
@@ -82,6 +88,8 @@ rename 為 `type`，risk 為 nested object。`to_json` 是正式 transport 邊�
 - Rust 合成序列:正常坐下、impact fall、dwell fall、Unknown 中斷 dwell、恢復取消、gap、zone
   去重、孤立 motion、repeated violence、pair 隔離、危險設定拒絕、VLM 不升級、NaN/out-of-order、
   serde transport shape。
+- Rust registry 覆蓋 destroy 後拒絕、session 狀態隔離、正數 JNI handle wrap；Kotlin 用 fake bridge
+  覆蓋欄位映射、init/payload 錯誤與可重入 close，不需相機或 `.so`。
 - Python schema:合法 fall、reason 必填、VLM-only 拒絕、zone neutral、角色 privacy、禁止額外 payload。
 - 接上 extractor 後必補錄影素材 confusion matrix、p95 end-to-end latency、72h negative corpus 與
   `<1/24h` 誤報門檻；目前 host 測試不能替代實機校準。

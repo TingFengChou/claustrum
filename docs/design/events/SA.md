@@ -9,8 +9,9 @@ L2 把裝置端輕量 pose/motion/action extractor 產生的時間序列，轉�
 它是 <1 秒快路徑的狀態機，不等待單次約 6.5–11.5 秒的 L1 VLM。VLM 只在事件建立後附加
 客觀描述，不能單獨升級 candidate、risk 或 alert。
 
-本階段交付純 Rust `EventEngine`、跨語言 `event.schema.json` 與合成序列測試。Android pose/
-action extractor、JNI 串接、通知與實機資料校準是接續工作，不宣稱已完成。
+本階段已交付 Rust `EventEngine`、跨語言 `event.schema.json`、Android `FastPathObservation`
+與具生命週期的 JNI engine bridge。Pose/action extractor、CameraX 餐取、通知與實機資料校準
+仍是接續工作，不宣稱已有實際事件偵測。
 
 ## 2. 功能需求
 
@@ -23,6 +24,7 @@ action extractor、JNI 串接、通知與實機資料校準是接續工作，不
 | FR-5 | 所有非 none risk 必須含 `fast_path` 畫面可見證據與 reason |
 | FR-6 | L1 caption 可作 VLM 二階佐證，但不得改變 status/risk/confidence/latency |
 | FR-7 | 輸出可序列化為 `schemas/event.schema.json`，不含影格、人物身分或年齡/臉部欄位 |
+| FR-8 | Android 以可關閉的 opaque handle 管理每個 camera source 狀態；JNI 只傳 observation，每個返回字串為單一 Event JSON |
 
 ## 3. 非功能需求
 
@@ -50,7 +52,7 @@ action extractor、JNI 串接、通知與實機資料校準是接續工作，不
 
 ## 6. 限制
 
-- 目前 score 是 extractor 的輸入契約，尚未決定/接上 LiteRT pose/action 模型。
+- 目前 score 是 extractor 的輸入契約；bridge 已就緒，但尚未決定/接上 pose/action 模型。
 - 預設 thresholds 是保守起點，不等於已達 `<1/24h`；須用 72 小時無事件語料與演練素材校準。
 - `latency_ms` 是事件時窗延遲，不含 CameraX/extractor/JNI/通知；端到端 p95 需實機量測。
 

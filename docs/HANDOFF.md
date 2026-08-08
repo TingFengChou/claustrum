@@ -16,7 +16,7 @@
 Rust 優先(ADR-0007)+ L1 用 LiteRT-LM(ADR-0009)。皆於 **Pixel 10 / Tensor G5 / Android 17** 驗證。
 
 **已 merge 至 main:** P0(Rust→JNI→Kotlin)· P1(CameraX×L0 閘控)· P2/L1 LiteRT 真實描述 ·
-App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 foundation/event schema。
+App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema + Android/JNI bridge。
 
 **目前 `main` 已具備:**
 
@@ -33,8 +33,8 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 foundation/event sch
 | LiteRT delegate 初始化失敗先 close Engine，再嘗試下一個 backend(防 OOM) | ✅ |
 | 開發者模式:測試影片播放(過 L0→L1)、模型驗證(pass-rate+延遲)、描述串流+記錄 | ✅ |
 | 移除 legacy RN `app/` | ✅ |
-| Rust L2 Fall/ZoneExit/Violence 狀態機 + Event schema/serde | ✅ foundation；Android observation/JNI 待接 |
-| 43 個 Android host 單元測試 + Rust 25 + Python 28 | ✅ |
+| Rust L2 狀態機 + Event schema + Android/JNI observation bridge | ✅ bridge；pose/action extractor 待接 |
+| 48 個 Android host 單元測試 + Rust 29 + Python 28 | ✅ |
 
 ### Legacy React Native 退場稽核(2026-08-08)
 
@@ -51,8 +51,9 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 foundation/event sch
 
 ## 下一步(建議順序)
 
-1. **L2 Android 接線(issue #26,P3):** 選定輕量 pose/action extractor → 產生匿名 Observation →
-   JNI 餵入 Rust `EventEngine` → Android event/policy；再用真實素材校準。L1 只能後補客觀脈絡。
+1. **L2 extractor 與 CameraX 接線(issue #26,P3):** Android `FastPathObservation` → JNI → Rust
+   `EventEngine` bridge 已就緒。下一步選定輕量 pose/action extractor（優先驗證 CameraX
+   `MlKitAnalyzer`適配性），用真實素材校準後才接 event/policy。L1 只能後補客觀脈絡。
 2. **清除 legacy Rust L1 seam:** `NativeCore.describe` + `core-rs/src/vlm.rs` 是 ADR-0008 的未使用
    佔位；另開小 PR 移除 JNI symbol、Rust module/tests 並更新 ADR-0008/0009。**保留**仍在用的
    Rust `frameSignature` 與 L2 engine。
