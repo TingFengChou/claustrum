@@ -14,8 +14,8 @@ L1 把 L0 **放行**的旋正影格變成一句客觀場景描述，供 UI/驗�
 
 - **在範圍內(已落地):** Kotlin `Captioner<Bitmap>`、`LiteRtCaptioner`、誠實的 Kotlin
   `PlaceholderCaptioner`/`FallbackCaptioner`、`PerceptionPipeline` single-flight 協調與文字清理。
-- **legacy 待清:** Rust `Captioner`/`NativeCore.describe` 是 ADR-0008 過渡 seam，現行
-  `MonitorActivity` 不呼叫；清除事項記於 HANDOFF。
+- **已清除:** ADR-0008 的 Rust `Captioner`／`NativeCore.describe` 過渡 seam 已移除；現行 L1
+  只有 Kotlin `Captioner<Bitmap>` 邊界，不再存在平行 ABI。
 - **不在範圍內:** L0 signature/gate、L2 事件判定、通知、影格持久化或上傳。
 
 ## 3. 需求

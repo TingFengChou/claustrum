@@ -2,9 +2,8 @@
 //!
 //! Device-only glue (see lib.rs cfg). Kotlin side: `com.claustrum.core.NativeCore`
 //! with `external fun` declarations matching these symbols. The active path copies
-//! single-channel luma bytes in only long enough to return a compact aHash. The
-//! legacy `describe` export below is not called by MonitorActivity; L1 now runs in
-//! Kotlin/LiteRT (ADR-0009).
+//! single-channel luma bytes in only long enough to return a compact aHash. L1 runs
+//! entirely in Kotlin/LiteRT (ADR-0009).
 
 use std::sync::{Mutex, OnceLock};
 
@@ -15,7 +14,6 @@ use jni::JNIEnv;
 use crate::event_bridge::EventEngineRegistry;
 use crate::events::{ActantSlot, Observation, Pose};
 use crate::gate::frame_signature;
-use crate::vlm::{Captioner, PlaceholderCaptioner};
 
 static EVENT_ENGINES: OnceLock<Mutex<EventEngineRegistry>> = OnceLock::new();
 
@@ -208,35 +206,4 @@ fn observation_from_jni(
         visible_people: u8::try_from(visible_people).ok()?,
         zone_exit: zone_exit != 0,
     })
-}
-
-/// Legacy ADR-0008 diagnostic export. The active L1 path is Kotlin
-/// `LiteRtCaptioner`; keep this temporarily only until the ABI cleanup recorded in
-/// HANDOFF removes `core-rs::vlm` and this JNI symbol together.
-#[no_mangle]
-pub extern "system" fn Java_com_claustrum_core_NativeCore_describe(
-    env: JNIEnv,
-    _class: JClass,
-    luma: JByteArray,
-    width: jint,
-    height: jint,
-) -> jstring {
-    let fallback = |env: &JNIEnv| {
-        env.new_string("L1 佔位:無效幀")
-            .map(|s| s.into_raw())
-            .unwrap_or(std::ptr::null_mut())
-    };
-    if width <= 0 || height <= 0 {
-        return fallback(&env);
-    }
-    let bytes = match env.convert_byte_array(&luma) {
-        Ok(b) => b,
-        Err(_) => return fallback(&env),
-    };
-    let mut captioner = PlaceholderCaptioner;
-    let desc = captioner.describe(&bytes, width as usize, height as usize);
-    match env.new_string(desc) {
-        Ok(s) => s.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
 }

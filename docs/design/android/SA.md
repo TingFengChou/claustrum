@@ -72,7 +72,7 @@
 - 前景內停止控制須在啟動中／守護中／需處理都可用；停止後 CameraX 不再 streaming、跨 tab
   指示消失，舊 callback 不恢復疊圖／event，且同一 Activity 可再次安全啟動。Pixel 10 已完成
   模型 tab 停止、100ms 快速停止與 40 次 CameraService CONNECT/DISCONNECT 對稱循環，無相關
-  crash/error；issue #42 待 PR merge 後關閉。
+  crash/error；issue #42 已隨 PR #45 merge 關閉。
 - `:app:testDebugUnitTest` 覆蓋 ChangeGate、GuardianSession、PerceptionPipeline、Fallback、
   CaptionText、ModelEval、ModelSpec、PoseObservationExtractor、NativeEventEngine、
   AnonymousObjectTracker 與 LitterEvidenceTracker；真 ML Kit/LiteRT 推論以實機/dev 素材驗證。

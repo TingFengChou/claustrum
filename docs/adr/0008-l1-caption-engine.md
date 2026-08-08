@@ -1,6 +1,6 @@
 # ADR-0008 — L1 場景描述引擎:llama.cpp(Rust FFI)+ 可抽換 Captioner 介面
 
-**狀態:** ⚠️ **實作已被取代** — L1 已由 [ADR-0009](0009-edge-ai-litert-ai-edge.md) 改為 Kotlin Google AI Edge / LiteRT。仍沿用的是「可抽換 Captioner」「誠實 fallback」「只在放行幀喚醒 L1」等概念，不是本 ADR 的 Rust/JNI 介面。`core-rs::vlm` 與 `NativeCore.describe` 只剩未使用 legacy seam，待 HANDOFF 所列小 PR 移除。 · **日期:** 2026-08-06
+**狀態:** ❌ **已被取代且 legacy 實作已移除** — L1 已由 [ADR-0009](0009-edge-ai-litert-ai-edge.md) 改為 Kotlin Google AI Edge / LiteRT。仍沿用的是「可抽換 Captioner」「誠實 fallback」「只在放行幀喚醒 L1」等概念，不是本 ADR 的 Rust/JNI 介面。`core-rs::vlm`、`NativeCore.describe` 與其 4 個 placeholder tests 已於 2026-08-08 刪除。 · **日期:** 2026-08-06
 **延續:** [ADR-0007](0007-rust-first-redesign.md)(Rust 優先、效能優先)
 **保留:** [ADR-0004](0004-phone-first-single-node.md)、[ADR-0006](0006-safety-alert-mvp.md)
 
@@ -17,9 +17,9 @@ ADR-0007 已定調「llama.cpp via Rust FFI」。
 1. **軟體邊界**——L1 不該和某個特定推論庫綁死;要能先用佔位、再換真模型、日後甚至換引擎。
 2. **真實後端的前置條件**——誠實記錄它需要什麼,避免把「還沒驗證」講成「已完成」。
 
-## 決策
+## 歷史決策（不再是現行實作）
 
-### 1. `Captioner` trait 作為 L1 的單一邊界(已落地)
+### 1. `Captioner` trait 作為 L1 的單一邊界（歷史）
 
 `core-rs` 新增 `vlm` 模組,定義:
 
@@ -35,13 +35,13 @@ pub trait Captioner {
 - `&mut self`:真後端可持有模型/context 狀態跨呼叫(載一次、重複用)。
 - **影格不過橋回傳**:只回描述字串;像素留在原生層(隱私 + 效能,延續 ADR-0007)。
 
-### 2. 佔位後端 `PlaceholderCaptioner`(已落地、已裝置驗證)
+### 2. 佔位後端 `PlaceholderCaptioner`（歷史）
 
 在真模型就緒前,回傳**誠實診斷**(尺寸、平均亮度、2×2 亮度網格),並明確標示
 「未載入 VLM」。它**不偽造**場景理解,只證明放行幀正確抵達 describe()。這讓 L0→L1
 觸發管線能端到端測試與裝置驗證(Pixel 10 已驗:放行幀觸發、640×480、亮度/網格正確)。
 
-### 3. 真實後端:llama.cpp,經 Rust FFI(待實作)
+### 3. 真實後端:llama.cpp,經 Rust FFI（未採用）
 
 - 綁定:優先評估 `llama-cpp-2`(crates.io 可取,`llama-cpp-sys-2` 由 cmake 建 llama.cpp)。
 - **多模態**:SmolVLM / Gemma 的視覺需 llama.cpp 的 `libmtmd`(mmproj 投影器)。若
@@ -49,7 +49,7 @@ pub trait Captioner {
 - 舊 RN 版曾以 `llama.rn`(內含 llama.cpp)在本機 Pixel 10 驗證過 SmolVLM 多模態可行——
   作為「裝置能跑」的既有證據,但不直接重用其 RN 綁定。
 
-### 4. 真實後端的前置條件(尚未滿足,需使用者參與)
+### 4. 當時評估的前置條件（已作廢）
 
 | 前置 | 狀態 | 說明 |
 |---|---|---|
@@ -63,10 +63,10 @@ pub trait Captioner {
 - **好處:** L1 管線今晚即可端到端驗證,重/高風險的原生建置與模型下載被隔離成獨立、可聚焦的
   下一步;換後端零管線改動。
 - **代價:** 佔位後端不是真理解;必須在 UI 與文件明確標示,避免誤導(已標示)。
-- **待辦:** 安裝 cmake → cargo-ndk 建 llama.cpp `.so` → 確認 mtmd → 下載選定模型(需授權)→
-  實作 `LlamaCaptioner: Captioner` → 裝置驗證真描述。
+- **現況:** 上述 llama.cpp 待辦全部由 ADR-0009 作廢；現行 Kotlin `Captioner`／LiteRT-LM 已在
+  Pixel 10 產生真描述，Rust L1 ABI 與 placeholder 已刪除。
 
 ## 追溯
 
-實作:[`core-rs` vlm](../design/vlm/SD.md)。相關:[ADR-0007](0007-rust-first-redesign.md)、
+現行實作:[`vlm` 設計](../design/vlm/SD.md)。相關:[ADR-0007](0007-rust-first-redesign.md)、
 [ROADMAP P2](../ROADMAP.md)。

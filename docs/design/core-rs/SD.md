@@ -14,10 +14,9 @@
 | 模組 | 職責 | 狀態 |
 |---|---|---|
 | `gate` | L0 變化閘控:`Signature`(8×8 aHash)、`frame_signature`、`distance`、`ChangeGate` | ✅ P0 |
-| `vlm` | ADR-0008 的 legacy Rust 佔位；現行 Android 不呼叫，待小 PR 與 `NativeCore.describe` 一併移除 | ⚠️ legacy |
 | `events` | L2 Fall/ZoneExit/Violence 狀態機 + Event serde(見 events 設計) | ✅ P3 foundation |
 | `event_bridge` | host-testable engine registry；opaque positive handle → 隔離的 `EventEngine` session | ✅ P3 bridge |
-| `ffi` | JNI 入口；active:`frameSignature` + L2 create/process/destroy；legacy:`describe` | ✅ P0/P1/P3 · ⚠️ legacy seam |
+| `ffi` | JNI 入口：`frameSignature` + L2 create/process/destroy；不含 L1 ABI | ✅ P0/P1/P3 |
 
 ## 3. 介面與合約
 
@@ -31,6 +30,8 @@
 - **L2 JNI:**`createEventEngine(sourceId)` 取得非指標 handle；`processEventObservation(...)`
   傳送匿名結構化特徵並回傳 `Array<String>`；`destroyEventEngine(handle)` 釋放 session。
   每個字串都是一個 `event.schema.json` Event；empty array 代表未跨越狀態。
+- **L1 不經 Rust/JNI:** ADR-0008 的 `vlm` module／`NativeCore.describe` 已刪除；現行單一邊界是
+  Android Kotlin `Captioner<Bitmap>` + LiteRT-LM（ADR-0009）。
 
 `.so` 建置(cargo-ndk):
 ```bash

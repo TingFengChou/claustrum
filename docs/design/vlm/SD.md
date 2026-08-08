@@ -7,8 +7,8 @@
 
 L1 的 active 邊界是 Kotlin `Captioner<Bitmap>`。`PerceptionPipeline` 負責 L0 放行後的觸發，
 `MonitorActivity` 以 single-flight + 最新 pending 一張把工作交給背景 inference executor，真實後端
-`LiteRtCaptioner` 使用 Google AI Edge LiteRT-LM 與多模態 Gemma `.litertlm`。Rust
-`Captioner`/JNI `NativeCore.describe` 是未被呼叫的 ADR-0008 legacy seam，不在現行影像路徑。
+`LiteRtCaptioner` 使用 Google AI Edge LiteRT-LM 與多模態 Gemma `.litertlm`。ADR-0008 的 Rust
+`Captioner`／JNI `NativeCore.describe` 已移除，Kotlin `Captioner` 是唯一 L1 軟體邊界。
 
 ## 2. 元件與職責
 
@@ -19,7 +19,6 @@ L1 的 active 邊界是 Kotlin `Captioner<Bitmap>`。`PerceptionPipeline` 負責
 | `PlaceholderCaptioner` / `FallbackCaptioner`(Kotlin) | 模型未就緒或首次明確失敗時回誠實診斷，不成死路 | ✅ active |
 | `LiteRtCaptioner`(Kotlin) | LiteRT-LM SDK `litertlm-android`:`Engine`(backend fallback GPU/GPU→CPU/GPU→CPU/CPU)+ 每放行幀新 `Conversation`;`Content.ImageBytes(png)`+`Text` → 描述;`enable_thinking=false`;穩定 cache 目錄;`maxNumImages=1` + 文字由 `Content.Text` 取出 + client 端輸出上限 + `.litertlm`-native 模型 | ✅ **實機真實描述**(GPU/GPU,~6.5s,非 `<pad>`);`.litertlm` 取代 `.task` 修復(見 §6.1) |
 | `CaptionText` / `CaptionLog` | 清理/限制輸出；RAM 內保存最近 100 筆文字、來源與延遲 | ✅ active |
-| Rust `vlm` / JNI `describe` | 舊 luma 診斷佔位，不被 `MonitorActivity` 呼叫 | ⚠️ legacy，待移除 |
 
 ## 3. 介面與合約
 
@@ -27,7 +26,7 @@ L1 的 active 邊界是 Kotlin `Captioner<Bitmap>`。`PerceptionPipeline` 負責
 - **呼叫時機:** analyzer 只在 `ChangeGate.admit()==true` 時複製/旋正 Bitmap，接著由
   inference executor 呼叫；編碼與 LiteRT 不在 analyzer thread。
 - **輸出界線:** L1 回客觀文字，不回 risk/event；`CaptionLog` 只在 RAM 保存最近 100 筆。
-- **legacy:** `NativeCore.describe(luma,w,h)` 已標 deprecated，現行程式沒有 call site。
+- **ABI 邊界:** `NativeCore` 只保留 L0 aHash 與 L2 EventEngine；L1 不跨 JNI。
 
 ## 4. 資料結構
 
@@ -83,7 +82,6 @@ maxNumTokens)`)**載入一次**(初始化成本高)、跨放行幀重用,`onDest
 
 ## 7. 測試策略(必備)
 
-- **Legacy Rust host tests(✅ 4，待隨 seam 移除):** 舊 luma placeholder 診斷；不代表現行 L1 路徑。
 - **裝置整合(✅):** 放行幀觸發 LiteRT 真實描述，Engine GPU/GPU 與 lifecycle 已於 Pixel 10 驗證。
 - **輸出後處理(✅ host):** `CaptionText`(去 emoji/符號、取首句、非中文拒絕)9 項單元測試。
 - **模型驗證 harness(✅):** `ModelEval`(關鍵詞 any-match 計 pass、彙總 pass-rate + avg/p50 延遲)6 項單元測試;開發者模式以 `dev_eval/` 標註影格 + `dev_videos/` 測試影片在裝置上跑,**換模型時基本正確率與效能驗證**。裝置實測:跌倒影片(去字幕)L1 正確判讀「一人倒臥在馬路上」;3/3 影格通過、單張 ~6.5–11.5s。
