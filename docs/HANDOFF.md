@@ -6,10 +6,11 @@
 
 - **裝置端 App 已成形**:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、**L1 真實場景描述已通**(`.litertlm`-native Gemma 3n)、開發者模式驗證工具。
-- **PR #24/#30/#33/#34/#35/#40/#43/#44/#45 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
+- **PR #24/#30/#33/#34/#35/#40/#43/#44/#45/#46 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
   merge commit 為 `65905cd2`，#40 的 FIT_CENTER／rotation／zoom／匿名框 merge commit 為
   `898662ba`，#43 的 object candidate merge commit 為 `bd258aed`，#44 的 litter tracker merge
-  commit 為 `f41fa46f`，#45 的明確停止守護 merge commit 為 `1481831f`。checks 與 review threads 均
+  commit 為 `f41fa46f`，#45 的明確停止守護 merge commit 為 `1481831f`，#46 的 legacy Rust L1
+  移除 merge commit 為 `acd180d4`。checks 與 review threads 均
   逐則處理後合併；Pixel 10 已驗證相機、pose/JNI、
   前後景恢復與 2F→1F 初測。
 - **PR #44:** #43 後新增 session-local `AnonymousObjectTracker` 與 `LitterEvidenceTracker`：
@@ -42,6 +43,10 @@
   CameraService stop/start 後無 crash；但稍後清楚可見成人推嬰兒車時 detector 回 0，沒有
   detection 就無法 association。故只驗證接線／reset，不宣稱 recall、ID stability 或 litter stage
   可用；#39 保持 open。
+- **Object eval harness 已接線（待本 PR merge）:** `dev_object_eval/manifest.json` 可在停止守護時以
+  真 Lite2 量 TP/FP/FN、P/R、IoU、hard-negative、min-pixel 與 p50/p95；strict parser 拒絕 identity／
+  路徑／未知欄位，不接 tracker/Event。Pixel 非固定鏡位 2 張 smoke 為 TP0/FP4/FN3；兩次
+  p50/p95 180/241 與 138/185ms，只驗接線且再次證明 domain gap，不能當 2F→1F 驗收。
 - **旋轉驗證邊界:** Pixel 以 WindowManager 強制 ROTATION_90 已確認 landscape 雙欄、底部導覽與
   zoom 控制可操作；因手機實體感測器仍為 portrait，強制畫面下 camera buffer 會側轉，不能冒充
   `OrientationEventListener` 實體四向驗收。裝置原 rotation 設定已還原，#37 仍需手動轉機驗證。
@@ -73,14 +78,14 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 | Codex P1(初始化移出 analyzer、保留放行幀、旋正、有界輸出) | ✅ |
 | 相機權限/bind 失敗可重試、連續 analyzer 失敗顯示「需處理」並可恢復 | ✅ |
 | LiteRT delegate 初始化失敗先 close Engine，再嘗試下一個 backend(防 OOM) | ✅ |
-| 開發者模式:測試影片播放(過 L0→L1)、模型驗證(pass-rate+延遲)、描述串流+記錄 | ✅ |
+| 開發者模式:L1/影片 + 固定鏡位 object bbox 評估、描述串流+記錄 | ✅ object eval 待本 PR merge |
 | 移除 legacy RN `app/` | ✅ |
 | 移除 legacy Rust L1 module/JNI placeholder（保留正式 L0/L2） | ✅ 本輪 cleanup |
 | Rust L2 + Android/JNI + ML Kit 單人 pose fast path | ✅ 接線；素材校準/policy 待續 |
 | Camera preview 匿名人物框（不顯示骨架）+ 主體像素提示 | ✅ CameraX transform；多人追蹤見 #36 |
 | fullSensor / landscape / zoom persistence | ✅ 實作；四向與 2F→1F 實機驗收見 #37/#38 |
 | MediaPipe object→litter 管線 | 🟡 candidate/gate/匿名短時 tracker/evidence overlay 已接；ROI/多人 association/Event/場域驗收見 #39 |
-| Android host 98 + Rust 25 + Python 28 | ✅；Android lint 0 issue、debug APK 可組裝 |
+| Android host 107 + Rust 25 + Python 28 | ✅；Android lint 0 issue、debug APK 可組裝 |
 
 ### Legacy React Native 退場稽核(2026-08-08)
 
@@ -109,7 +114,8 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
    - `MlKitAnalyzer` 已評估但不採用，因現有 L0/L1 仍需同一個 raw `ImageProxy` 分支；目前由單一
      analyzer 明確持有 proxy，ML Kit task 完成後才跑 L0，completion `finally` close。
 2. **亂丟垃圾時序(issue #39):** aHash movement gate → MediaPipe Object Detector `VIDEO` candidate
-   → session-local tracker → fail-closed evidence stage 已接；下一步完成 ROI、固定鏡位標註集、
+   → session-local tracker → fail-closed evidence stage 已接；frame-level eval harness 也已完成。下一步
+   用實際 2F→1F 的 1×/2×/3×、日夜／雨天／空景建立標註集，完成 ROI、
    多人／多物 ID-switch 與 allowlist/min-pixel confusion matrix，再定 association／dwell threshold。
    通過後才設計 `ObjectObservation` schema 與 L2 litter Event；單一 detection 或 pending-review
    不得成事件。模型不足則訓練客製 detector；MediaPipe no-telemetry 替代獨立追 #41。
@@ -127,13 +133,15 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 2. `adb push` 測試素材到裝置:
    ```bash
    BASE=/sdcard/Android/data/com.claustrum/files
-   adb shell mkdir -p $BASE/dev_eval $BASE/dev_videos
+   adb shell mkdir -p $BASE/dev_eval $BASE/dev_videos $BASE/dev_object_eval
    # 標註影格(檔名帶預期關鍵詞,any-match 計 pass):
    adb push fall_close.jpg "$BASE/dev_eval/fall__倒臥,跌倒,倒地,躺,地上.jpg"
    # 測試影片:
    adb push clip.mp4 "$BASE/dev_videos/clip.mp4"
+   # object bbox manifest 格式見 README「固定鏡位 Object Detector 評估」:
+   adb push manifest.json frame_*.jpg "$BASE/dev_object_eval/"
    ```
-3. 守護頁:**▶ 模型驗證**(跑 dev_eval → pass-rate + avg/p50 延遲)· **▶ 測試影片**(於 visor 播放並過 L0→L1)。
+3. 守護頁:**▶ L1 驗證** · **▶ 測試影片** · 停止守護後 **◎ 固定鏡位物件評估**。
 4. 描述逐列記錄於守護頁「描述串流」(最近 10)與事件頁(完整 100、時間序)。
 5. **換模型 SOP:** 換 `ModelSpec` 後,先跑模型驗證比對 pass-rate 與延遲,再決定是否採用。
 

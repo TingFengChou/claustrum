@@ -20,7 +20,8 @@
   畫出匿名人物框與取景像素提示。`fullSensor`、landscape 重排、CameraX target rotation 與持久化
   zoom 已接線。MediaPipe EfficientDet-Lite2 的 movement gate、有界候選佇列、allowlist、本機
   bbox 疊圖、session-local 匿名 P/O tracker 與 fail-closed litter evidence stage 也已接線；尚待
-  真實素材校準、ROI／可靠多人 association、L2 ObjectObservation/Event、policy 與告警。
+  真實素材校準、ROI／可靠多人 association、L2 ObjectObservation/Event、policy 與告警。開發者
+  模式已有固定鏡位 object bbox 評估器，可先量 TP/FP/FN、P/R、IoU、最小像素與延遲。
 - **範圍外:** 人臉/身分/年齡辨識、影格上傳、由 L1 直接判定風險。
 
 ## 3. 需求
@@ -44,6 +45,7 @@
 | FR-15 | MediaPipe metrics 未取得獨立知情同意時不得初始化 detector；模型頁可撤回，撤回後停止新輸入並序列化 close |
 | FR-16 | 啟動後須能明確停止守護；跨 tab 顯示相機狀態，停止時 unbind/清 queue/overlay 且可安全重啟；舊 callback 不得污染新 session |
 | FR-17 | Object 槽位不得使用臉、外觀 embedding 或跨 session re-identification；同類別幾何 track gap、退背景、撤回與 destroy 均須重設，evidence 最終只可標待檢視 |
+| FR-18 | Dev object eval 只讀 external-files 標註集，以獨立 detector 量 bbox 指標；守護中不得執行，不接 tracker/Event、不保存影格，未知／身分欄位須拒絕；離開前景或 destroy 須取消整批且不發布 partial summary |
 | NFR-1 | Host 單元測試不依賴模型、相機或 Android 裝置 |
 | NFR-2 | `ImageProxy` 必定 close；複製 Bitmap 在 L1 使用後 recycle；影格不外傳 |
 | NFR-3 | 相機啟動、首幀、連續分析錯誤與恢復狀態必須如實反映於 UI |
@@ -75,7 +77,8 @@
   crash/error；issue #42 已隨 PR #45 merge 關閉。
 - `:app:testDebugUnitTest` 覆蓋 ChangeGate、GuardianSession、PerceptionPipeline、Fallback、
   CaptionText、ModelEval、ModelSpec、PoseObservationExtractor、NativeEventEngine、
-  AnonymousObjectTracker 與 LitterEvidenceTracker；真 ML Kit/LiteRT 推論以實機/dev 素材驗證。
+  AnonymousObjectTracker、LitterEvidenceTracker、ObjectEval 與 strict manifest parser；真
+  ML Kit/LiteRT/MediaPipe 推論以實機/dev 素材驗證，不能由 host test 冒充。
 
 ## 追溯
 

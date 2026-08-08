@@ -175,7 +175,7 @@ private fun MonitorDetails(
     maxStreamRows: Int,
 ) {
     if (dev.enabled) {
-        DevControls(dev)
+        DevControls(dev, guardianActive = ui.active)
         Spacer(Modifier.height(10.dp))
     }
     SenseCard(
@@ -425,7 +425,7 @@ private fun StandbyEye(onActivate: () -> Unit) {
 
 /** Dev-mode controls: run model eval / play test video, with the latest eval summary. */
 @Composable
-private fun DevControls(dev: DevUi) {
+private fun DevControls(dev: DevUi, guardianActive: Boolean) {
     val c = ClaustrumTheme.colors
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface2)
@@ -434,8 +434,17 @@ private fun DevControls(dev: DevUi) {
         Text("開發者模式 · 模型驗證", color = c.warn, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DevButton(if (dev.evalRunning) "驗證中…" else "▶ 模型驗證", enabled = !dev.evalRunning && !dev.videoPlaying, modifier = Modifier.weight(1f)) { dev.onRunEval() }
-            DevButton(if (dev.videoPlaying) "播放中…" else "▶ 測試影片", enabled = !dev.videoPlaying && !dev.evalRunning, modifier = Modifier.weight(1f)) { dev.onPlayVideo() }
+            val busy = dev.evalRunning || dev.videoPlaying || dev.objectEvalRunning
+            DevButton(if (dev.evalRunning) "驗證中…" else "▶ L1 驗證", enabled = !busy, modifier = Modifier.weight(1f)) { dev.onRunEval() }
+            DevButton(if (dev.videoPlaying) "播放中…" else "▶ 測試影片", enabled = !busy, modifier = Modifier.weight(1f)) { dev.onPlayVideo() }
+        }
+        Spacer(Modifier.height(8.dp))
+        DevButton(
+            if (dev.objectEvalRunning) "物件評估中…" else "◎ 固定鏡位物件評估",
+            enabled = !dev.evalRunning && !dev.videoPlaying && !dev.objectEvalRunning && !guardianActive,
+        ) { dev.onRunObjectEval() }
+        if (guardianActive) {
+            Text("先停止守護，才能用獨立 detector 跑標註集。", color = c.faint, fontSize = 10.sp)
         }
         dev.evalSummary?.let { s ->
             Spacer(Modifier.height(8.dp))
@@ -444,12 +453,41 @@ private fun DevControls(dev: DevUi) {
                 color = c.steel, fontFamily = Mono, fontSize = 11.sp,
             )
         }
+        dev.objectEvalSummary?.let { s ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "物件:TP ${s.truePositive} · FP ${s.falsePositive} · FN ${s.falseNegative} · " +
+                    "P ${formatEvalRatio(s.precision)} · R ${formatEvalRatio(s.recall)} · " +
+                    "IoU ${formatEvalRatio(s.meanMatchedIou)}",
+                color = c.steel, fontFamily = Mono, fontSize = 11.sp,
+            )
+            Text(
+                "影格 ${s.images} · hard-negative ${s.hardNegativeFailures}/${s.hardNegativeImages} 失敗 · " +
+                    "p50/p95 ${s.p50LatencyMs}/${s.p95LatencyMs}ms · 最小短邊 ${s.minGroundTruthShortSidePx ?: "—"}px",
+                color = c.steel, fontFamily = Mono, fontSize = 11.sp,
+            )
+            if (s.categories.isNotEmpty()) {
+                Text(
+                    s.categories.joinToString(" · ") {
+                        "${it.category}:P${formatEvalRatio(it.precision)}/R${formatEvalRatio(it.recall)}" +
+                            "/min${it.minGroundTruthShortSidePx ?: "—"}px"
+                    },
+                    color = c.faint, fontFamily = Mono, fontSize = 10.sp,
+                )
+            }
+        }
+        dev.objectEvalStatus?.let { status ->
+            Text(status, color = c.faint, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
+        }
         Text(
-            "影格放 dev_eval/(檔名 fall__倒臥,跌倒.jpg)· 影片放 dev_videos/",
+            "L1:dev_eval/ · 影片:dev_videos/ · 物件:dev_object_eval/manifest.json",
             color = c.faint, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
         )
     }
 }
+
+private fun formatEvalRatio(value: Double?): String =
+    value?.let { "%.1f%%".format(it * 100.0) } ?: "—"
 
 @Composable
 private fun DevButton(label: String, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {

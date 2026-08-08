@@ -43,6 +43,7 @@ L0→L1 管線；Compose 只渲染 immutable `MonitorUi`。L0 的 aHash 在 Rust
 | `AnonymousObjectTracker` | 同類別 normalized bbox 幾何 association、session-local P/O 槽位與 motion；不用身分／外觀特徵 |
 | `LitterEvidenceTracker` | 連續近接→可見分離→分離後靜置→人離開 pending-review；不建 Event |
 | `ObjectRuntimeStats` | 最近 120 幀的 p50/p95/max 有界診斷 window；每 20 幀寫本機 log，不影響事件證據 |
+| `ObjectEvalManifest` / `ObjectEval` | strict anonymous bbox manifest + TP/FP/FN、P/R、IoU、min-pixel、latency 聚合；只供 dev commissioning |
 | `ObjectCandidateOverlay` | CameraX 映射後的本機橘色候選框與 category/P-O 槽位/motion/evidence/latency/合併 telemetry |
 | `CameraZoomPolicy` | host-test 的裝置 zoom range clamp 與 0.5× UI step |
 | `NativeEventEngine` | 擁有一個 Rust L2 opaque handle；同步 process/close，返回單筆 Event JSON 清單 |
@@ -73,6 +74,12 @@ objectExecutor(single thread)
   current Bitmap → category/score/bbox → AnonymousObjectTracker → LitterEvidenceTracker
   → recycle → drain 最新 pending Bitmap
   → main thread CoordinateTransform(Analysis→PreviewView) → ObjectCandidateUi
+
+  [守護已停止 + dev button]
+  external-files/dev_object_eval/manifest.json + images
+  → separate MediaPipe ObjectDetector(VIDEO) → normalized detections
+  → ObjectEval confidence-greedy same-category IoU≥0.5
+  → RAM Summary / Compose + aggregate-only local log → recycle Bitmap
 
 main thread
   GuardianSession / pipeline snapshot + ephemeral trackedPeople → MonitorUi → Compose
@@ -125,6 +132,17 @@ main thread
   且與物件分開。兩次可見拉遠、物件分離後至少 30 秒靜置、人物之後未見，才顯示 pending-review；
   既有靜止物、取回與 stale track 均 fail closed。此層不建 Event；ROI、多人 association、門檻
   confusion matrix 與 L2 schema 仍屬 #39。
+- Dev object eval 與 production detector 共用同一 pinned Lite2/allowlist/score/max-results 設定，但另建
+  instance 並由同一 `objectExecutor` 序列化。執行期間禁止啟動守護；撤回 MediaPipe consent 會在
+  當幀後停止，不發布部分 summary。manifest 只允許 basename、normalized bbox 與 allowlisted
+  category；未知欄位全部拒絕，所以不會悄悄引入 person ID 或拼字錯誤標註。評估刻意跳過 movement
+  gate、tracker 與 litter state，量到的是 detector frame-level capability，不是事件 precision。
+  lifecycle generation 在每個 case 前、native detect 返回後與 summary 發布前檢查；`onStop`／
+  `onDestroy` 會使整批失效。不可安全中斷的當前 native call 只允許收尾，之後立即 close detector，
+  不繼續下一張也不發布 partial summary，避免重開 Activity 後兩批推論重疊。
+- Pixel 10 以既有兩張非固定鏡位影格完成 end-to-end smoke：3 個 person GT 為 TP 0／FP 4／FN 3，
+  兩次 p50/p95 為 180/241 與 138/185 ms、min short side 54 px。素材不代表 2F→1F 場域，數字不可當驗收結果；
+  它只驗證真 model、UI 與 metrics 接線並暴露該素材上的 detector domain gap。
 - Pixel 10／2×／2F→1F 首測中，Lite0 約 121 ms 且對樹／告示牌輸出兩個 `person` 候選、漏掉
   小型真人；改用 Lite2 後空景 20 幀 p50 191 ms／p95 237 ms／max 238 ms、合併 2/20，約三分鐘
   未再誤框樹木；後續三人同框只框到兩人，小框定位仍有十幾至數十像素誤差。480×640 全框 probe
@@ -188,7 +206,8 @@ error。這是 issue #42 的裝置驗收證據，不代表固定式背景服務�
 - MediaPipe object 模型從官方固定 URL 下載，先驗 byte length + SHA-256 才 rename；非 HF URL
   絕不附加 HF bearer token。MediaPipe Tasks 的非影像效能 metrics 需模型頁獨立同意才啟用，
   可撤回並直接停止新 detector submission，不依賴下一張 CameraX 影格；詳見 PRIVACY/#41。
-- Dev 素材只讀使用者明確放入 app external-files 的 `dev_eval/`、`dev_videos/`。
+- Dev 素材只讀使用者明確放入 app external-files 的 `dev_eval/`、`dev_videos/`、
+  `dev_object_eval/`；object eval 只輸出 aggregate、不另存或上傳影格，完成後 recycle Bitmap。
 
 ## 8. 測試
 
@@ -196,7 +215,7 @@ error。這是 issue #42 的裝置驗收證據，不代表固定式背景服務�
   `FallbackCaptionerTest`、`CaptionTextTest`、`ModelEvalTest`、`ModelSpecTest`、
   `PoseObservationExtractorTest`、`NativeEventEngineTest`、`ObjectCandidateGateTest`、
   `LatestOnlyQueueTest`、`ObjectRuntimeStatsTest`、`AnonymousObjectTrackerTest`、
-  `LitterEvidenceTrackerTest`、`ObjectCandidateGeometryTest`、
+  `LitterEvidenceTrackerTest`、`ObjectEvalTest`、`ObjectEvalManifestTest`、`ObjectCandidateGeometryTest`、
   `ModelsControllerTest`。pose/object 測試用
   純資料，不 mock `ImageProxy` 或真模型。
 - `PersonOverlayGeometryTest` 覆蓋 confidence/NaN 過濾、邊界裁切、取景提示與多人 list UI 合約；
@@ -210,7 +229,8 @@ error。這是 issue #42 的裝置驗收證據，不代表固定式背景服務�
   sensor，故不能替代四向 camera buffer 驗收。四向 rotation 與 2F→1F zoom 依 issue #37/#38
   逐項實機驗收；host／強制 display rotation 都不能冒充感測器校準。
 - MediaPipe Object Detector 候選 adapter、匿名短時 tracker 與 pre-Event evidence state 已接線；
-  Pixel 已量 detector 首輪 p50/p95 與合併率，仍須補真人／小物 allowlist coverage、最小物件像素、
+  Pixel 已量 detector 首輪 p50/p95 與合併率，且 dev eval 已能直接產生 bbox metrics；仍須補實際
+  2F→1F 真人／小物 allowlist coverage、hard negatives、最小物件像素、
   多人／多物 ID-switch 與完整時序 overlay。ROI、litter schema/Event 仍未接線，不能把 COCO
   detection 或 pending-review 直接映射成 Event。
 - Rust/JNI 純邏輯另由 `core-rs cargo test` 與 Android 裝置煙霧測試覆蓋。

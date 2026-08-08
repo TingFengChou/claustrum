@@ -125,7 +125,8 @@ rename 為 `type`，risk 為 nested object。`to_json` 是正式 transport 邊�
 - `ObjectCandidateGateTest` 覆蓋首次放行、active window、最小間隔、periodic probe、out-of-order
   與 reset；`AnonymousObjectTrackerTest` 覆蓋槽位 continuity、motion、類別/gap/reset；
   `LitterEvidenceTrackerTest` 覆蓋 person miss、既有靜止物、完整可見序列、取回與 stale fail-closed；
-  bbox normalization/clamp 另由 Android host test 覆蓋。這些只證明排程／幾何／狀態契約，不能
+  `ObjectEvalTest`／`ObjectEvalManifestTest` 覆蓋 frame-level bbox confusion metrics、hard negative、
+  min-pixel、匿名 strict schema；bbox normalization/clamp 另由 Android host test 覆蓋。這些只證明排程／幾何／狀態契約，不能
   代替 detector accuracy、多人 ID-switch 或 litter event 測試。
 - Python schema:合法 fall、reason 必填、VLM-only 拒絕、zone neutral、角色 privacy、禁止額外 payload。
 - 接上 extractor 後必補錄影素材 confusion matrix、p95 end-to-end latency、72h negative corpus 與
