@@ -15,8 +15,9 @@
 - **P2/P2.5(✅):** 單一 Activity Compose app shell、Splash/介紹、機器之眼手動啟動、
   gated 模型下載、LiteRT-LM 原生 `.litertlm` L1、描述記錄與 dev 驗證工具。
 - **P3(🟡):** ML Kit base Pose Detection `STREAM_MODE` 已由 CameraX 餐取，純 Kotlin extractor
-  產生匿名 `FastPathObservation` 並送入 Rust L2 JNI session；尚待真實素材校準、impact/多人
-  action 特徵、事件呈現、policy 與告警。
+  產生匿名 `FastPathObservation` 並送入 Rust L2 JNI session；Preview 會以 CameraX 官方座標轉換
+  畫出匿名人物框與取景像素提示。`fullSensor`、landscape 重排、CameraX target rotation 與持久化
+  zoom 已接線；尚待真實素材校準、litter object fast path、事件呈現、policy 與告警。
 - **範圍外:** 人臉/身分/年齡辨識、影格上傳、由 L1 直接判定風險。
 
 ## 3. 需求
@@ -32,10 +33,15 @@
 | FR-7 | 模型可在 App 內下載；gated 模型的 HF 權杖須加密儲存且不得進 log |
 | FR-8 | Android 只把匿名 timestamp/role slot/pose/scores 傳給 Rust L2；engine session 可關閉且不使用裸指標 |
 | FR-9 | ML Kit 無 tracking ID 時，追蹤遺失/跳位須輪替匿名 role slot，不能把不同人時序拼接 |
+| FR-10 | Preview 疊圖須用 CameraX analysis→PreviewView transform 與 FIT_CENTER 保留完整視野；只顯示匿名人物框與取景品質，不顯示骨架／身分／未確認風險，遺失/退背景立即清除 |
+| FR-11 | CameraX zoom 必須依 `ZoomState` 裝置 min/max clamp、持久化並於回前景重套；UI 必須讓使用者知道實際倍率 |
+| FR-12 | `fullSensor` 四方向須同步 Preview/Analysis `targetRotation`；landscape UI 不得讓預覽或主要狀態不可操作 |
+| FR-13 | 亂丟垃圾後續以 movement/ROI gate → MediaPipe Object Detector → 匿名人／物時序接入，不把單一類別／移動直接當事件 |
 | NFR-1 | Host 單元測試不依賴模型、相機或 Android 裝置 |
 | NFR-2 | `ImageProxy` 必定 close；複製 Bitmap 在 L1 使用後 recycle；影格不外傳 |
 | NFR-3 | 相機啟動、首幀、連續分析錯誤與恢復狀態必須如實反映於 UI |
 | NFR-4 | Pose detector/JNI 同步失敗只停用 L2；同一幀與後續幀仍須走 L0/L1，不得連帶停擺 |
+| NFR-5 | overlay 資料型別預留多人 list，但現用 ML Kit 只回一人；不得以 UI 外觀宣稱多人已完成 |
 
 ## 4. 相依與假設
 
@@ -49,6 +55,8 @@
 - 連續 analyzer 失敗會顯示「需處理」，後續成功幀可自動恢復。
 - L1 推論不佔用 CameraX analyzer；推論期間的新場景保留最新 pending 幀。
 - Pose stream 每個可分析幀獨立於 L0 admit 產生 observation；單人 pose 不臆造 impact、第二人或 strike。
+- 後/前景切換與偵測遺失不留舊人物框；FIT_CENTER letterbox 下框對齊 Preview。四向 rotation、
+  landscape 重排、zoom persistence 與 2F→1F 取景須以實機完成 issue #37/#38 驗收。
 - `:app:testDebugUnitTest` 覆蓋 ChangeGate、GuardianSession、PerceptionPipeline、Fallback、
   CaptionText、ModelEval、ModelSpec、PoseObservationExtractor 與 NativeEventEngine；真 ML Kit/LiteRT
   推論以實機/dev 素材驗證。
@@ -56,4 +64,5 @@
 ## 追溯
 
 [ADR-0006](../../adr/0006-safety-alert-mvp.md)、[ADR-0007](../../adr/0007-rust-first-redesign.md)、
-[ADR-0009](../../adr/0009-edge-ai-litert-ai-edge.md)、[core-rs](../core-rs/SD.md)、[vlm](../vlm/SD.md)。
+[ADR-0009](../../adr/0009-edge-ai-litert-ai-edge.md)、
+[ADR-0012](../../adr/0012-two-scenario-mvp-and-object-gating.md)、[core-rs](../core-rs/SD.md)、[vlm](../vlm/SD.md)。

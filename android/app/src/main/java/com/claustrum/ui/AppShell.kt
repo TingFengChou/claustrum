@@ -55,6 +55,7 @@ fun AppShell(
     previewView: View,
     models: ModelsController,
     onActivate: () -> Unit,
+    onZoomChange: (Float) -> Unit,
     dev: DevUi = DevUi(),
 ) {
     val c = ClaustrumTheme.colors
@@ -63,7 +64,13 @@ fun AppShell(
     Column(Modifier.fillMaxSize().background(c.ground)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
-                ClaustrumTab.GUARD -> LiveMonitorScreen(monitorUi, previewView, onActivate = onActivate, dev = dev)
+                ClaustrumTab.GUARD -> LiveMonitorScreen(
+                    monitorUi,
+                    previewView,
+                    onActivate = onActivate,
+                    onZoomChange = onZoomChange,
+                    dev = dev,
+                )
                 ClaustrumTab.EVENTS -> EventsScreen()
                 ClaustrumTab.MODELS -> ModelsScreen(models)
                 ClaustrumTab.SETTINGS -> SettingsScreen(monitorUi.backend, dev = dev)

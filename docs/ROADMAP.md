@@ -4,12 +4,12 @@
 
 > **技術重建中(2026-08-06,ADR-0007,效能優先)。** 產品由 React Native 打掉重練為
 > **Rust 感知核心 + 原生 Android(Kotlin/Compose)+ L1 用 Google AI Edge / LiteRT**(ADR-0009,不自建 llama.cpp)。MVP 的功能目標(下方
-> A–D、社區/幼兒園)不變;實作技術棧改變。重建階段:
+> 近期功能範圍依 ADR-0012 收斂為「跌倒／倒地」與「亂丟垃圾」兩條垂直管線；實作技術棧改變。重建階段:
 > **P0** 骨架(Rust `.so` + Android + JNI)〔✅ 完成:L0 變化閘控(host `cargo test` 綠)、JNI/`.so`、Android 外殼在 Pixel 10 實測 `nativeHello()` 回話 + L0 閘控 PASS〕· **P1** L0 變化閘控接 CameraX luma 流〔✅ 完成:Pixel 10 實測 640×480 即時串流,靜態場景 1/2250 放行 → 省下 ~100% 運算;`ChangeGate` 7 個 JVM 單元測試綠〕·
 > **P2** L1 場景描述(**Google AI Edge / LiteRT-LM SDK**,不自建 llama.cpp — ADR-0009)〔✅ 大致完成:L0→L1、App 內模型下載、Compose 全貌、`.litertlm` 原生 Gemma 3n 真描述〕·
 > **P2.5** Compose UI ✅ · **P3** L2 事件引擎 🟡〔Rust Fall/ZoneExit/Violence 狀態機 +
 > Event serde/schema + Android/JNI bridge + ML Kit 單人 pose/CameraX fast path 已落地；實機校準、
-> impact/多人 action、通知待續〕·
+> 匿名單人 preview 框、zoom/旋轉基礎已落地；跌倒場域校準與 litter object fast path、通知待續〕·
 > **P4** 音訊融合(#6)。續作見 [`HANDOFF.md`](HANDOFF.md)。
 > 詳見 [ADR-0007](adr/0007-rust-first-redesign.md)。
 
@@ -17,7 +17,7 @@
 
 ```mermaid
 flowchart TD
-  THESIS["🛡️ 核心命題:攝影機是主動防護的守護者,不是事後回看<br/>北極星:即時串流 · Edge AI · 綁定多模態 · 機器人視覺大腦"]
+  THESIS["🛡️ 核心命題:攝影機是主動防護的守護者,不是事後回看<br/>北極星:兩個可驗收情境 · 即時串流 · Edge AI"]
 
   subgraph P1["Phase 1 — 基礎(已完成)"]
     direction TB
@@ -28,15 +28,15 @@ flowchart TD
     P1e["AI 審查改用 Antigravity agy(本機、免 secret)"]
   end
 
-  subgraph P2["Phase 2 — MVP v1(進行中 · 手機驗證優先 · ADR-0006)"]
+  subgraph P2["Phase 2 — MVP v1(進行中 · 真實場域優先 · ADR-0012)"]
     direction TB
-    A["A. 感知閉環:CameraX 影像 + 麥克風音訊 → 裝置端偵測 → 告警"]
+    A["A. 感知閉環:CameraX 影像 → 裝置端候選／時序 → 告警"]
     B["B. 跌倒偵測:on-device pose 快路徑 recall + 確認 precision"]
-    C["C. 暴力偵測:音 + 視融合(尖叫/衝突聲 + 畫面)"]
+    C["C. 亂丟垃圾:movement/ROI → object detector → 人—物遺留時序"]
     D["D. 告警通道 + 抑制:去重 / 速率限制 / 冷卻 / 人工確認"]
     V1(["社區:跌倒 → 通知保全"])
-    V2(["幼兒園:暴力 → 聲光告警(含兒童 → 高隱私門檻)"])
-    M["指標:fall recall 大於 90% · false-alerts/24h 小於 1 · p95 小於 5s"]
+    V2(["公共／社區:亂丟垃圾 → 可查證事件"])
+    M["指標:兩情境各自 confusion matrix · 合計 false-alerts/24h 小於 1 · 裝置 p95"]
     A --> B --> D
     A --> C --> D
     B --> V1
@@ -51,7 +51,7 @@ flowchart TD
     F3["AppFunctions provider(原 M4)"]
     F4["硬化:7 天連續 · 熱 / 功耗(原 M6)"]
     F5["雙節點 Jetson(ADR-0003)· 機器人橋接 MCP / ROS 2(原 M7)"]
-    F6["完整第二模態:ASR / TTS 融合"]
+    F6["暴力／完整第二模態:ASR / TTS 融合"]
   end
 
   THESIS --> P1 --> P2 --> P3
@@ -76,32 +76,44 @@ flowchart TD
 - PR #24/#30 已 merge 至 `main`：裝置 App 已具進入流程、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、L0 變化閘控、**L1 真實場景描述**與開發者驗證工具；Rust L2
   Fall/ZoneExit/Violence engine + Event schema 已有 foundation；後續已接上 Android/JNI bridge 與
-  ML Kit base `STREAM_MODE` 單人 pose fast path。尚未完成實機素材校準、impact/多人 action 與告警。
+  ML Kit base `STREAM_MODE` 單人 pose fast path。尚未完成實機素材校準、litter object fast path 與告警。
+- Camera preview 已用 CameraX analysis→PreviewView transform 顯示匿名人物框（關節只作內部特徵，不在產品 UI 顯示）；資料型別預留多人，
+  但 detector 仍只回最顯著一人。多人交錯/遮擋解法與驗收追蹤於 issue #36，未完成前不得宣稱多人。
+- Preview 採 FIT_CENTER 保留完整人物證據；`fullSensor`、響應式 landscape、Preview/Analysis
+  `targetRotation` 與持久化 zoom 已實作，四向實機驗收追蹤於 issue #37。2F→1F 的 1×/2×/3×、
+  FOV、主體像素與俯角遮擋驗收見 issue #38。
+- MVP 只聚焦跌倒與亂丟垃圾。後者採 movement/ROI gate → MediaPipe Object Detector → 匿名
+  人—物 association → separated/stationary/dwell/person-left 時序；COCO 類別不直接等於垃圾，
+  實作與 72h hard-negative 驗收見 issue #39。
 - **關鍵發現:L1 場景描述非可靠跌倒偵測器**(遠景/小主體會漏或幻覺)→ 事件偵測須 L2;
   相機佈建須讓主體佔畫面 ≥ ⅓(見 [`docs/design/vlm/SD.md`](design/vlm/SD.md) §8、issue #26)。
+- **2F→1F 首輪實機亦證明 pose 有場域 domain gap:** 1× 無人時樹幹／告示牌出現人體姿態候選，
+  2× 有一名被遮擋行人時反而無 output。未完成 #38 固定鏡位 confusion matrix 前不得接告警。
 - 首個應用**藥單辨識**的軟體層(schema、prompt、安全解析、單元測試、SA/SD)完成
   ——**現已延後**(見下方 MVP 重新聚焦)。
 
-## MVP v1 重新聚焦(2026-08-06,ADR-0006)
+## MVP v1 重新聚焦(2026-08-08,ADR-0012)
 
-**第一版 MVP = 裝置端(edge AI)、多模態(視覺 + 音訊)的主動安全事件偵測與告警。**
+**第一版 MVP = 裝置端(edge AI)的跌倒／倒地安全與亂丟垃圾事件偵測。**
 Phase 2 以**手機實機驗證為優先**。
 
 - **社區**:偵測**跌倒** → 通知**保全**。
-- **幼兒園**:偵測**暴力衝突** → **聲音 + 視覺**主動告警(對象含兒童 → 高隱私/倫理門檻,見 ADR-0006)。
-- **音訊提前**:暴力偵測需聲音證據,故第二模態(音訊)閘門對本 MVP 提前開啟。
+- **公共／社區場域**:偵測**亂丟垃圾** → 提供可查證的遺留事件供保全處理。
+- **暴力／音訊延後**:既有 Rust foundation 保留，但不列入近期完成定義。
 - **藥袋辨識延後**(PR #5 成果保留,不刪)。
 
 MVP 里程碑(取代下方 M0–M7 的近期優先序;M2–M7 的概念仍適用):
 
-- **A. 感知閉環(手機)**:CameraX 影像 + 麥克風音訊 → 裝置端偵測 → 螢幕/通知告警。先跑通,再談準確度。
+- **A. 感知閉環(手機)**:CameraX 影像 → 裝置端候選與時序判定 → 螢幕/通知告警。
 - **B. 跌倒偵測**:on-device pose(快路徑,recall)+ 確認(precision);指標:recall、false-alerts/24h。
-- **C. 暴力偵測(音+視)**:裝置端聲音事件(尖叫/衝突)+ 畫面,融合升級告警。
+- **C. 亂丟垃圾**:movement/ROI gate + object detector + 匿名人—物時序；指標:object recall、
+  litter precision、false-alerts/24h。
 - **D. 告警通道 + 抑制**:通知保全 / 聲光告警;去重、速率限制、冷卻、人工確認。
 
 目前 B 的第一條單人 fast path 已接線：ML Kit pose 只提供最顯著一人的 landmark，Kotlin 只推導
 pose/descent/motion，不臆造 impact 或多人 strike。Event 暫只寫 log；需先以固定鏡位跌倒/正常
 坐下/躺下素材建立 confusion matrix、p95 與 72h negative corpus，達標後才接 D。
+Preview 的匿名人物框與主體像素提示是取景工具，不是事件結論或多人能力證明。
 
 ---
 

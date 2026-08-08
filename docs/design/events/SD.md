@@ -12,6 +12,9 @@
 | `android/.../events/NativeEventEngine` | 將 Kotlin `FastPathObservation` 映射至 JNI；`close()` 可重入，不暴露 Rust 指標 |
 | `MlKitPoseFrameAdapter` | 只取肩/髖/膝/踝，正規化為 upright-frame 座標；landmark 不跨 JNI |
 | `PoseObservationExtractor` | 純 Kotlin 時序特徵；保守 pose、rapid descent/motion、匿名 slot continuity |
+| `MediaPipeObjectAdapter`(規劃) | LIVE_STREAM category/score/bbox 邊界；movement/ROI gate 後才執行 |
+| `AnonymousObjectTracker`(規劃) | 短時 person/object association 與遮擋恢復；不做跨 session re-identification |
+| `LitterState`(規劃) | carried→separated→stationary/dwell→person-left；不完整證據 fail closed |
 | `TrackState` | 每個匿名 actant 的 fall/zone 狀態；stale 後清除 |
 | `ViolenceState` | 每個排序後匿名 actant pair 的 hit window、candidate 與 cooldown |
 | `Event::add_vlm_corroboration` | 在事件後附加 bounded L1 描述；不改判斷欄位 |
@@ -61,6 +64,23 @@ extractor 尚未接上前，本 detector 只有 host-testable contract。
 截斷至 240 字。方法不寫入 status、risk、confidence、latency；schema 亦規定非 none risk 至少包含
 一筆 `fast_path` evidence，因此 VLM-only 事件無法通過契約。
 
+## 5.1 Litter 規劃狀態機
+
+```mermaid
+stateDiagram-v2
+  [*] --> Unassociated
+  Unassociated --> Carried: "物件與匿名人物持續近接"
+  Carried --> Separated: "物件離開人物區域並向地面／ROI 移動"
+  Separated --> Stationary: "物件速度低且位置穩定"
+  Stationary --> Candidate: "dwell 達門檻且關聯人物離開"
+  Candidate --> Cancelled: "物件被取回／association 不確定／偵測中斷"
+  Candidate --> Confirmed: "持續可見 + policy／人工確認"
+```
+
+Object Detector 的類別只是候選；「動態物」、「瓶子」或「杯子」都不能直接進入 Candidate。
+預設模型 coverage、最小物件像素、association 門檻與 dwell 必須由 2F→1F 場域資料決定。完整
+實作／schema 變更另由 issue #39 交付，避免在尚無資料時先固定錯誤契約。
+
 ## 6. 時序、錯誤與資源
 
 - Engine 假設同 source observation 依 timestamp 排序；out-of-order 直接忽略，避免回捲狀態。
@@ -104,4 +124,5 @@ rename 為 `type`，risk 為 nested object。`to_json` 是正式 transport 邊�
 ## 追溯
 
 [SA](SA.md)、[`events.rs`](../../../core-rs/src/events.rs)、
-[`event.schema.json`](../../../schemas/event.schema.json)、[ADR-0006](../../adr/0006-safety-alert-mvp.md)。
+[`event.schema.json`](../../../schemas/event.schema.json)、[ADR-0006](../../adr/0006-safety-alert-mvp.md)、
+[ADR-0012](../../adr/0012-two-scenario-mvp-and-object-gating.md)。

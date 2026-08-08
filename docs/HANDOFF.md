@@ -6,11 +6,22 @@
 
 - **裝置端 App 已成形**:進入流程(Splash→介紹→守護)、底部導覽、機器之眼手動啟動、
   App 內 gated 模型下載、**L1 真實場景描述已通**(`.litertlm`-native Gemma 3n)、開發者模式驗證工具。
-- **PR #24 與 #30 已於 2026-08-08 squash merge 至 `main`**(`37849491`、`c06c05b7`)；兩者最新
-  SHA 的 CI/Android/Gemini checks 全綠。PR #24 的 7 個舊 P1 threads 已逐則查證、回覆並 resolve；
-  feature branches 已刪除。
+- **PR #24/#30/#33/#34/#35 已於 2026-08-08 merge 至 `main`**；#35 的 ML Kit pose fast path
+  merge commit 為 `65905cd2`，最新 CI/Android/Gemini checks 全綠，P1 fallback thread 已修正、回覆
+  並 resolve；Pixel 10 實機亦驗證相機、pose/JNI 載入與前後景恢復。
 - **最重要的發現**:**L1 場景描述不是可靠的跌倒偵測器**(遠景/小主體會漏、會幻覺)。L2
   已接 ML Kit 單人 pose fast path，但仍須固定鏡位素材校準後才可告警(issue #26)。
+- **多人能力仍未完成:** 現行 ML Kit 只回最顯著一人；交錯/遮擋/人物切換限制、MediaPipe
+  multi-pose 等方案與驗收已立 issue #36。Preview 匿名框不等於多人或事件判斷。
+- **產品已收斂為兩個情境(ADR-0012):** 跌倒／倒地與亂丟垃圾。MediaPipe Object Detector
+  只作候選閘門；人—物分離／落地／遺留／人離開時序與場域驗收見 issue #39。
+- **2F→1F 安裝:** FIT_CENTER 保留完整視野；`fullSensor`、landscape 重排、CameraX targetRotation
+  與持久化 zoom 已實作。四向驗收見 #37；1×/2×/3×、FOV／像素／俯角遮擋見 #38。
+- **首輪真實鏡位結果:** 1× 無人時樹幹／告示牌出現約 197 px pose 候選；2× 有一名部分遮擋
+  行人時反而無 pose output。已將 UI 改稱「人體姿態候選」，此鏡位未完成 #38 前不可接告警。
+- **旋轉驗證邊界:** Pixel 以 WindowManager 強制 ROTATION_90 已確認 landscape 雙欄、底部導覽與
+  zoom 控制可操作；因手機實體感測器仍為 portrait，強制畫面下 camera buffer 會側轉，不能冒充
+  `OrientationEventListener` 實體四向驗收。裝置原 rotation 設定已還原，#37 仍需手動轉機驗證。
 
 ## 目前狀態
 
@@ -34,8 +45,12 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 | LiteRT delegate 初始化失敗先 close Engine，再嘗試下一個 backend(防 OOM) | ✅ |
 | 開發者模式:測試影片播放(過 L0→L1)、模型驗證(pass-rate+延遲)、描述串流+記錄 | ✅ |
 | 移除 legacy RN `app/` | ✅ |
-| Rust L2 + Android/JNI + ML Kit 單人 pose fast path | ✅ 接線；素材校準/impact/多人 action/policy 待續 |
-| 56 個 Android host 單元測試 + Rust 29 + Python 28 | ✅ |
+| Rust L2 + Android/JNI + ML Kit 單人 pose fast path | ✅ 接線；素材校準/policy 待續 |
+| Camera preview 匿名人物框（不顯示骨架）+ 主體像素提示 | ✅ CameraX transform；多人追蹤見 #36 |
+| fullSensor / landscape / zoom persistence | ✅ 實作；四向與 2F→1F 實機驗收見 #37/#38 |
+| MediaPipe object→litter 管線 | ⏳ 設計完成；實作與場域驗收見 #39 |
+| 65 個 Android host 單元測試 + Rust 29 + Python 28 | ✅ |
+| 65 個 Android host 單元測試 + Rust 29 + Python 28 | ✅ |
 
 ### Legacy React Native 退場稽核(2026-08-08)
 
@@ -58,19 +73,24 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
    與 72h negative corpus；未達 `<1/24h` 前不接 policy/通知。
    - 限制：只追最顯著一人、API beta、無 tracking ID，且官方要求臉部可見/完整身體取景最佳；
      背向、遮擋或倒地後臉被擋是 recall 硬風險。追蹤中斷會輪替匿名 role slot。
-   - pose-only 的 impact/contact/strike 固定 0；impact 快確認與多人 violence 要另接可替換 extractor/音訊。
+   - pose-only 的 impact 固定 0；快速 impact confirmation 要另接可替換 extractor。
+   - 多人追蹤與遮擋恢復依 issue #36 做 PoC；首選 MediaPipe LIVE_STREAM + `numPoses`，但仍須
+     自己驗證匿名 association，不能把 `numPoses` 當成穩定 tracking ID。
    - `MlKitAnalyzer` 已評估但不採用，因現有 L0/L1 仍需同一個 raw `ImageProxy` 分支；目前由單一
      analyzer 明確持有 proxy，ML Kit task 完成後才跑 L0，completion `finally` close。
-2. **清除 legacy Rust L1 seam:** `NativeCore.describe` + `core-rs/src/vlm.rs` 是 ADR-0008 的未使用
+2. **亂丟垃圾 object fast path(issue #39):** movement/ROI gate → MediaPipe Object Detector
+   `LIVE_STREAM` → 匿名人—物 association → separated/stationary/dwell/person-left。先量 COCO
+   allowlist coverage 與最小物件像素，不足再訓練客製 detector；單一 detection 不得成事件。
+3. **2F→1F 場域 commissioning(issue #38):** 實測 1×/2×/3× 的人物、小物 recall、完整 FOV、
+   陡峭俯角遮擋、多人與日夜；單鏡不成立就分區／多鏡，不以數位 zoom 製造盲區。
+4. **清除 legacy Rust L1 seam:** `NativeCore.describe` + `core-rs/src/vlm.rs` 是 ADR-0008 的未使用
    佔位；另開小 PR 移除 JNI symbol、Rust module/tests 並更新 ADR-0008/0009。**保留**仍在用的
    Rust `frameSignature` 與 L2 engine。
-3. **相機佈建準則落地:** 依 §8,關注區主體佔比 ≥ ⅓、多機分區；以 `dev_eval/` + `dev_videos/` 量測。
-4. **釐清模型能力 vs 取景(issue #29):** 同組近景影格比較 E2B/E4B pass-rate、幻覺與延遲。
-5. **L1 效能**(issues #25/#27/#28):最小間隔節流、NPU delegate、prefill/輸出優化。
-6. **#3 HF OAuth 網頁登入**(取代貼權杖；現況為裝置端加密 HF read token)。
-7. **#4 Firebase 接線**(Remote Config 模型目錄 + FCM 告警；ADR-0010)。
-8. **#5 升級 library**(targetSdk 已 36；逐一升級並驗證)。
-9. **P4 音訊融合**(目前誠實標示未啟用)。
+5. **釐清模型能力 vs 取景(issue #29):** 同組近景影格比較 E2B/E4B pass-rate、幻覺與延遲。
+6. **L1 效能**(issues #25/#27/#28):最小間隔節流、NPU delegate、prefill/輸出優化。
+7. **#3 HF OAuth 網頁登入**(取代貼權杖；現況為裝置端加密 HF read token)。
+8. **#4 Firebase 接線**(Remote Config 模型目錄 + FCM 告警；ADR-0010)。
+9. **#5 升級 library**(targetSdk 已 36；逐一升級並驗證)。
 
 ## 開發者模式(驗證工具)用法
 
@@ -92,7 +112,8 @@ App 內模型下載 · P2.5 Compose App Shell · P3 Rust L2 engine/event schema 
 
 - **`GEMINI_API_KEY`**(repo secret):未設時雲端 `ai-code-review` 部分功能 skip。
 - **HF read 權杖**:owner 在 App 模型目錄「設定」貼上即可下載 gated Gemma(加密存裝置)。
-- **實體相機測試**:遠端無法對準實體鏡頭;用開發者模式的測試影片/影格驗證 L1。
+- **實體相機測試**:CameraX/ML Kit/preview transform 必須連接實機並實際對準人物；dev 影片目前
+  只驗 L1，不能替代 L2/overlay。2026-08-08 已以 Pixel 10 驗證 #35 相機、pose/JNI 載入與前後景恢復。
 
 ## 開發流程(硬性)
 
@@ -119,10 +140,13 @@ Gradle 9.3.1 · AGP 8.12.0 · **Kotlin 2.2.10**(為 litertlm metadata 升)· com
 - **L1 延遲 ~6.5–11.5s/張**(有效 ~0.15 fps)；single-flight 只保留最新 pending 放行幀，
   會合併中間畫面，因此只保證不阻塞，不保證事件召回；事件召回必須走獨立 L2 fast path。
 - **L1 非跌倒偵測器**(遠景會漏/幻覺)→ 需 L2 + 相機佈建(§8)。
+- ML Kit pose 只支援最顯著一人、無公開 tracking ID、API beta；多人能力追蹤於 #36。
+- `fullSensor`/landscape/zoom 已實作，但 90°/180°/270° 與 2F→1F 尚待 #37/#38 實機完成。
+- MediaPipe Object Detector 與 litter state machine 尚未接線；COCO 類別不能直接代表垃圾，見 #39。
 - 音訊模態尚未啟用(誠實標示,不誤報)。
 
 ## 參考
 
-ADR:[0006](adr/0006-safety-alert-mvp.md) MVP、[0007](adr/0007-rust-first-redesign.md) Rust 重建、[0009](adr/0009-edge-ai-litert-ai-edge.md) LiteRT、[0010](adr/0010-firebase-architecture.md) Firebase、[0011](adr/0011-l2-fast-path-evidence.md) L2 fast path。
+ADR:[0006](adr/0006-safety-alert-mvp.md) 歷史 MVP、[0007](adr/0007-rust-first-redesign.md) Rust 重建、[0009](adr/0009-edge-ai-litert-ai-edge.md) LiteRT、[0010](adr/0010-firebase-architecture.md) Firebase、[0011](adr/0011-l2-fast-path-evidence.md) L2 fast path、[0012](adr/0012-two-scenario-mvp-and-object-gating.md) 兩情境收斂。
 設計:[`docs/design/`](design/README.md)(尤其 [`vlm/SD.md`](design/vlm/SD.md) §6.1 pad 根因、§8 相機選型)。
-開放 issues:#25/#26/#27/#28/#29。GitHub Milestones:P2 / P2.5 / P3 / P4 / MVP。
+開放 issues:#25/#26/#27/#28/#29/#36/#37/#38/#39。GitHub Milestones:P2 / P2.5 / P3 / P4 / MVP。

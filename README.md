@@ -2,11 +2,11 @@
 
 # claustrum
 
-**把攝影機從「事後回看」變成「主動防護」的即時守護者。** 產品目標是在裝置端(edge AI)
-融合視覺與音訊，主動偵測跌倒、暴力等安全事件並即時告警，而不是事發後才調閱錄影。
+**把攝影機從「事後回看」變成「主動防護」的即時守護者。** 近期只聚焦裝置端(edge AI)
+的跌倒／倒地安全與亂丟垃圾兩個可驗收情境，不做泛用影像理解。
 目前已完成相機串流、L0 變化閘控與 L1 客觀場景描述；L2 已有 Rust engine 與
 Android↔JNI bridge，並接上 ML Kit `STREAM_MODE` 單人 pose fast path 實際產生 observation。
-這條路徑尚待真實素材校準，impact/多人 action、音訊、policy 與對外告警也尚未啟用。影像不外傳。
+這條路徑尚待真實素材校準，litter object fast path、policy 與對外告警也尚未啟用。影像不外傳。
 
 Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack Compose · Edge AI
 
@@ -36,15 +36,16 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 
 ## 目標與目前能力
 
-第一版 MVP 的目標是裝置端、多模態(視覺 + 音訊)的**主動安全事件偵測與告警**。目前仍在
+第一版 MVP 已收斂為裝置端的**跌倒／倒地安全**與**亂丟垃圾**兩個事件([ADR-0012](docs/adr/0012-two-scenario-mvp-and-object-gating.md))。目前仍在
 建構感知與事件判定管線，不能把下列目標場景解讀為已可部署的產品能力。
 
 | 場景 | MVP 目標 | 目前狀態 |
 |---|---|---|
 | 社區有人跌倒 | 裝置端以可見時序證據確認，數秒內通知保全並附原因 | ML Kit 單人 pose→Kotlin 時序特徵→Rust state machine 已接線；實機校準 / policy / 通知待續 |
-| 幼兒園發生暴力衝突 | 融合聲音與畫面，經誤報抑制後主動聲光告警 | Rust vision fast-path foundation 已完成；音訊、實機校準與告警待續 |
+| 場域有人亂丟垃圾 | 以「人—物分離→物件落地並持續遺留→人離開」的可見時序證據建立候選事件 | MediaPipe Object Detector + 匿名人／物 tracker + litter state machine 已設計，實作與場域資料驗收見 issue #39 |
 
-重點是**主動**:偵測與告警在事件當下於裝置上完成,影像不外傳。居家查詢、藥袋辨識等能力保留於路線圖後段。
+重點是**主動且可驗收**：不做泛用影像理解。偵測與告警在事件當下於裝置上完成，影像不外傳；
+暴力、居家查詢、藥袋辨識等 foundation 保留但不列入近期完成定義。
 
 ## 技術棧
 
@@ -54,6 +55,7 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 |---|---|---|
 | 感知核心(L0 signature · L2 事件引擎) | **Rust**(cargo-ndk → `.so`,JNI) | 每幀計算 64-bit aHash；L2 保存匿名 observation 的時序狀態 |
 | L2 pose fast path | **ML Kit Pose Detection + Kotlin** | bundled base model `STREAM_MODE`；單人 landmark→保守 pose/descent/motion，未校準前不告警 |
+| L2 object fast path(規劃) | **MediaPipe Object Detector + Kotlin** | `LIVE_STREAM` category/bbox 作候選閘門；匿名人／物時序才能判斷遺留，不把物件類別直接當垃圾 |
 | L1 VLM 推論 | **Google AI Edge / LiteRT**(Kotlin;LiteRT-LM,`.litertlm`) | on-device 多模態 Gemma；目前實測 GPU/GPU，依序 fallback CPU/GPU、CPU/CPU；不自建 llama.cpp(ADR-0009) |
 | 相機擷取 | **CameraX(Kotlin)** | Preview 只供本機 UI 顯示；ImageAnalysis 的 luma 交給 Rust L0，放行影格才交給 L1 |
 | 平台 / UI | **Kotlin + Jetpack Compose**(原生 Android) | 預覽 / 字幕 / 告警 / 控制;**無 React Native** |
@@ -61,13 +63,14 @@ Pixel 10 · **Rust 感知核心** · Google AI Edge / LiteRT · Kotlin / Jetpack
 | 離線工具 | **Python**(bench / eval) | 基準測試、評測 |
 | 建置 | Gradle + cargo-ndk(NDK 27) | Rust `.so` 隨 App 打包 |
 
-目標資料流有兩條並行路徑：`CameraX → 輕量 pose/motion extractor → Rust L2` 負責時間敏感
-事件；`CameraX → Rust L0 閘控 → LiteRT L1` 只產生客觀文字脈絡。**影格只在裝置端流動；
+目標資料流有三條並行路徑：跌倒走 `CameraX → pose/motion extractor → Rust L2`；亂丟垃圾走
+`CameraX → movement/ROI gate → object detector → 匿名人／物時序`；`CameraX → Rust L0 閘控 →
+LiteRT L1` 只產生候選事件所需的客觀文字脈絡。**影格只在裝置端流動；
 L2 只接收匿名結構化 observation 與可選文字，不接收 pixels。**目前 L0/L1 已接線，L2 Rust
-engine/schema、Android↔JNI bridge 與 ML Kit 單人 pose/CameraX 餐取已接線；實機校準、impact/
-多人 action 與 policy 待續。**設計詳見
+engine/schema、Android↔JNI bridge 與 ML Kit 單人 pose/CameraX 餐取已接線；實機校準、litter
+observation/schema 與 policy 待續。**設計詳見
 [ADR-0007](docs/adr/0007-rust-first-redesign.md)、[ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md)與
-[ADR-0011](docs/adr/0011-l2-fast-path-evidence.md)。
+[ADR-0011](docs/adr/0011-l2-fast-path-evidence.md)與 [ADR-0012](docs/adr/0012-two-scenario-mvp-and-object-gating.md)。
 
 ## 路線圖與現階段重點
 
@@ -83,14 +86,14 @@ flowchart TD
     P1["P1 CameraX × L0 變化閘控(省算力)✅"]
     P2["P2 L1 場景描述:LiteRT + App 內模型管理 + UI 定稿 🔶"]
     P25["P2.5 Compose UI:進入流程 + 底部導覽 + 機器之眼 ✅"]
-    P3T["P3 L2:Rust engine + JNI + ML Kit 單人 pose fast path 🟡<br/>實機校準/impact/多人 action/policy 待續 · P4 音訊融合"]
+    P3T["P3 L2:跌倒 pose fast path 🟡 + litter object fast path ⏳<br/>實機場域校準/policy 待續"]
     P0 --> P1 --> P2 --> P25 --> P3T
   end
 
-  subgraph MVP["MVP 功能目標(ADR-0006,不變)"]
+  subgraph MVP["MVP 功能目標(ADR-0012,兩條可驗收垂直管線)"]
     direction TB
     B["跌倒偵測 → 通知保全 ◀ MVP 核心"]
-    C["暴力偵測(音 + 視融合)→ 幼兒園聲光告警"]
+    C["亂丟垃圾:人—物分離 + 遺留 dwell → 秩序事件"]
     D["告警通道 + 誤報抑制(去重 / 冷卻 / 人工確認)"]
     B --> D
     C --> D
@@ -110,7 +113,8 @@ flowchart TD
   class P0,P1,P25 done;
   class P2,P3T now;
   class B next;
-  class C,D,F future;
+  class C,D next;
+  class F future;
 ```
 
 完整里程碑、驗收標準與全景圖:[`docs/ROADMAP.md`](docs/ROADMAP.md);續作交接:[`docs/HANDOFF.md`](docs/HANDOFF.md)。
@@ -128,6 +132,7 @@ flowchart LR
   L0["Rust aHash + Kotlin ChangeGate<br/>✅ 已接線"]
   L1["LiteRT L1 客觀描述<br/>✅ 已接線"]
   EXT["ML Kit base pose STREAM_MODE<br/>+ Kotlin 時序特徵 🟡 已接線；待校準"]
+  OBJ["movement / ROI gate → MediaPipe Object Detector<br/>→ 匿名人—物時序 ⏳ issue #39"]
   OBS["匿名 Observation + JNI<br/>✅ bridge 與 lifecycle 已實作"]
   L2["Rust L2 時序事件引擎<br/>🟡 foundation"]
   POLICY["去重 / 冷卻 / 人工確認 / 通知<br/>⏳ 待實作"]
@@ -136,8 +141,10 @@ flowchart LR
   CAM --> PREVIEW
   CAM --> IA --> L0 -->|"放行關鍵影格"| L1
   IA --> EXT
+  IA -.-> OBJ
   EXT --> OBS
   OBS --> L2
+  OBJ -.->|"litter candidate observation"| L2
   L2 -.-> POLICY
   AUDIO -.-> OBS
   L1 -.->|"後到的客觀文字；不得升級 status / risk"| L2
@@ -208,18 +215,23 @@ L0→L1 管線。L2 的 ML Kit 單人 pose extractor 已接到 Rust engine，但
 
 > L1(場景描述/VLM)的**推論引擎採 Google AI Edge / LiteRT,不自建 llama.cpp**([ADR-0009](docs/adr/0009-edge-ai-litert-ai-edge.md),取代 ADR-0008)。理由:Gemma 3n 多模態可用 LiteRT 裝置 delegate；目前 Pixel 10 已驗證 GPU/GPU，NPU 待 issue #27 評估；且 [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery) 為 Apache-2.0 開源可直接沿用——**善用而非重造**。
 
-### 影像處理與傳導路徑(現況 + L2 待校準)
+### 影像處理與傳導路徑(現況 + 兩條事件垂直管線)
 
 ```mermaid
 flowchart TB
   START["使用者點『啟動守護』<br/>權限 + bindToLifecycle"]
   CAMERA["CameraX 後鏡頭"]
+  ZOOM["CameraControl zoomRatio<br/>ZoomState 裝置 min/max · 持久化設定"]
   PREVIEW["Preview UseCase → PreviewView<br/>本機 visor；不進推論佇列"]
+  OVERLAY["CameraX CoordinateTransform<br/>內部 pose → 匿名人物框 + 主體像素高度<br/>不顯示關節；離場/背景立即清除"]
   ANALYSIS["ImageAnalysis<br/>YUV_420_888 · KEEP_ONLY_LATEST<br/>analysisExecutor"]
   POSE["ML Kit base PoseDetector<br/>STREAM_MODE · async；持有 ImageProxy"]
   FEATURE["8 landmarks 正規化 → Kotlin 時序特徵<br/>pose / descent / motion · 匿名 slot"]
   OBS["FastPathObservation → JNI<br/>timestamp / role slot / scores；不含 pixels/landmarks"]
-  L2["Rust EventEngine<br/>Fall / ZoneExit / Violence<br/>✅ state machine"]
+  L2["Rust EventEngine<br/>Fall ✅；litter observation/schema 待 issue #39"]
+  MOTION["movement / ROI 候選閘門<br/>⏳ 只關注動態與關注區"]
+  OBJECT["MediaPipe Object Detector LIVE_STREAM<br/>person + 場域 allowlist；category/score/bbox ⏳"]
+  ASSOC["匿名人—物 association<br/>carried→separated→stationary/dwell→person-left ⏳"]
   LUMA["extractLuma()<br/>Y plane → width×height ByteArray"]
   JNI["JNI convert_byte_array<br/>Java heap → Rust Vec copy"]
   HASH["Rust frame_signature()<br/>8×8 average hash → 64-bit jlong"]
@@ -236,8 +248,11 @@ flowchart TB
   ALLOWED["未來可外傳：文字描述 / 結構化事件<br/>禁止外傳：影格 / Bitmap / PNG / pose 身分特徵"]
 
   START --> CAMERA
+  ZOOM --> CAMERA
   CAMERA --> PREVIEW
   CAMERA --> ANALYSIS --> POSE --> FEATURE --> OBS --> L2
+  ANALYSIS -.-> MOTION -.-> OBJECT -.-> ASSOC -.->|"litter candidate"| L2
+  FEATURE -->|"同一組客觀 landmarks"| OVERLAY --> PREVIEW
   POSE -->|"task 完成；同一個仍開啟的 proxy"| LUMA --> JNI --> HASH --> GATE
   GATE -->|"未放行"| CLOSE
   GATE -->|"放行"| COPY --> CLOSE
@@ -247,7 +262,7 @@ flowchart TB
   TEXT -.->|"後到的客觀脈絡；不得升級 status / risk"| L2
 ```
 
-虛線是尚未接線的 policy/告警與 L1 後補脈絡；其餘是目前 `MonitorActivity` 的實際影像生命週期。
+虛線是尚未接線的亂丟垃圾、policy/告警與 L1 後補脈絡；其餘是目前 `MonitorActivity` 的實際影像生命週期。
 單一 analyzer 先讓 ML Kit 讀 media image；task 完成後同一個仍開啟的 proxy 才進 L0→L1，最後
 一定 close。L2 每個成功分析幀都產生 observation，**不經 L0 admit gate**。完整影格不會送入
 Rust；L0 只有 luma copy，L2 只有匿名數值 observation。重模型 L1 僅處理放行後的旋正 Bitmap，
@@ -257,9 +272,13 @@ Rust；L0 只有 luma copy，L2 只有匿名數值 observation。重模型 L1 �
 |---|---|---|---|
 | 啟動 | Android main executor | 使用者動作 → CameraX bind | 未授權或 bind 失敗會回到可重試狀態，不會顯示正在守護 |
 | 預覽 | CameraX `Preview` → `PreviewView` | camera surface → 本機 visor | CameraX 管理 surface；App 不把 Preview 幀寫檔或送網路 |
+| 安裝方向／zoom | CameraX `CameraControl` / `ZoomState` | UI ±0.5× → 裝置支援範圍內 zoomRatio | `fullSensor` + `OrientationEventListener` 同步 Preview/Analysis `targetRotation`；zoomRatio 持久化並在回前景重套；zoom 會縮窄 FOV，不能當作多人覆蓋方案 |
+| 人物疊圖 | Android main thread / Compose Canvas | 8 個內部 landmarks → CameraX analysis-to-preview transform → 匿名「人體姿態候選」框 + 約略像素高度 | 不把 pose output 宣稱為已確認的人，不顯示骨架/身分/風險；`ImageProxyTransformFactory` + `CoordinateTransform` 處理 rotation/FIT_CENTER letterbox；只在 RAM，遺失/退背景/L2 停用立即清除 |
 | 分析取幀 | `analysisExecutor` | `ImageProxy(YUV_420_888)` | `KEEP_ONLY_LATEST` 避免無界佇列；ML Kit task completion `finally image.close()`，只關一次 |
 | L2 pose | ML Kit bundled base model，`STREAM_MODE` | 最顯著一人的 frame → 33 landmarks；App 只取肩/髖/膝/踝 | landmark 正規化後只在 RAM 保留相鄰幀；不跨 JNI、不落地、不辨識身分 |
 | L2 特徵 | 純 Kotlin `PoseObservationExtractor` | landmarks → pose/descent/motion + 短時匿名 slot | tracking miss/gap/大跳位會換 slot，防止把不同人時序拼接；impact/contact/strike 固定 0 |
+| 物件候選(規劃) | movement/ROI gate → MediaPipe Object Detector | 動態關注區 → category/score/bbox | `LIVE_STREAM` 忙碌可丟幀；allowlist 只省下無關結果，COCO 類別不能證明「垃圾」或意圖 |
+| 亂丟垃圾時序(規劃) | 匿名人／物 tracker + L2 | carried/separated/stationary/dwell/person-left → candidate | association 不確定、合法暫放後取回、既有物品時 fail closed；見 issue #39 |
 | L0 特徵 | Kotlin → JNI → Rust → Kotlin | Y plane `ByteArray` → 64-bit aHash | JNI 會複製 luma 到 Rust；Rust 不保存，回傳 hash 後釋放 |
 | L0 決策 | Kotlin `PerceptionPipeline` / `ChangeGate` | hash → admit/skip + telemetry | 只保存 64-bit「最後放行 hash」；節流比例依場景而變 |
 | L1 取圖 | analyzer，僅 admit | `ImageProxy` → 旋正 `Bitmap` | 必須在 proxy close 前複製；之後 proxy 立即關閉 |
@@ -286,14 +305,43 @@ Rust；L0 只有 luma copy，L2 只有匿名數值 observation。重模型 L1 �
 - 推論忙碌時只保留最新 pending 放行幀，會刻意合併中間畫面；這適合更新場景描述，不能作為事件召回保證。
 - 時間敏感事件必須由獨立 fast path 的連續 pose/motion/action observation 判定，不能依賴 L1 是否剛好描述到該瞬間。
 
-**ML Kit `STREAM_MODE` 會不會限制整個專案？** 不會，但它界定了第一版 extractor 的能力邊界。
+**ML Kit `STREAM_MODE` 會不會限制整個專案？** 它會限制「跌倒」第一版 extractor 的單人召回，
+但不應綁住另一條「亂丟垃圾」管線。
 [官方文件](https://developers.google.com/ml-kit/vision/pose-detection/android)說明此模式會沿用前幀追蹤、
 降低 video/camera 延遲，適合即時單人 pose；同時它只追畫面中最顯著的一人、Pose Detection 仍是
 beta，[pose 概觀](https://developers.google.com/ml-kit/vision/pose-detection)並指出臉部需可見、完整
 身體取景最佳。背向/遮擋/倒地後臉被擋可能造成 tracking miss，會直接威脅 fall recall 指標；姿態
 landmark 也不能證明 impact 或多人 strike。因此目前可用於單人 fall candidate；無 impact 時要
-持續倒臥才 confirmed。幼兒園 violence、多人物件連續性與快速 impact confirmation 必須另接
-可替換 action/multi-person extractor 或第二模態，不會硬塞進 ML Kit 輸出。
+持續倒臥才 confirmed。多人與快速 impact confirmation 必須另接可替換 extractor，不會硬塞進
+ML Kit 輸出。目前 UI 只畫客觀匿名人物框，不展示關節細節，也不可宣稱已支援多人；限制、
+MediaPipe multi-pose / person-detector 方案與實機驗收條件
+已記於 [issue #36](https://github.com/TingFengChou/claustrum/issues/36)。
+
+**相機方向現況:** App 已改為 `fullSensor`，Compose 在 landscape 以雙欄重排；
+`OrientationEventListener` 會同步 Preview/Analysis `targetRotation`。Pixel 10 已驗證 portrait sensor
+rotation + `FIT_CENTER` 的完整視野與 overlay mapping；90°/180°/270° 仍須逐向實機確認後才關閉
+[issue #37](https://github.com/TingFengChou/claustrum/issues/37)。
+
+**2F 俯視 1F 的 zoom 與真實場域:** CameraX 的 zoom 是 camera crop/zoom ratio 控制，能增加人物或
+小物件送入 detector 的像素，但會同步縮窄視野、放大抖動並增加盲區。App 會顯示裝置實際
+min/max、持久化倍率，並用約略人物高度提示低於 ML Kit 建議約 256 px 的取景；這只是 commissioning
+指標，不是準確率保證。陡峭俯角仍會造成頭、軀幹、手中物與落地物自遮擋，數位 zoom 無法恢復
+被遮住的證據。場域需對每個 ROI 比較 1×/2×/3× 的人物／小物 recall、完整 FOV、日夜與多人
+交錯；若單一倍率不能同時滿足覆蓋與像素尺寸，正解是分區或多鏡頭，而不是繼續放大。驗收清單見
+[issue #38](https://github.com/TingFengChou/claustrum/issues/38)。
+
+2026-08-08 Pixel 10 對準實際 2F→1F 鏡位的首輪結果已證明風險不是理論：1× 畫面無可見行人時，
+ML Kit 曾把樹幹／告示牌輪廓輸出為約 197 px 的人體姿態候選；切到 2× 後畫面出現一名被樹與告示牌
+部分遮擋的行人，反而沒有 pose output。故 preview 只稱「候選」，跌倒不能由單幀 pose presence
+決定；樹幹、路燈、告示牌、陰影及高角度遮擋已列為 72 小時 hard negatives。這個鏡位在完成
+固定 ROI 素材 confusion matrix 前**不可部署跌倒告警**。
+
+**MediaPipe Object Detector 如何減少無效分析?** 先用 movement/ROI gate 排除靜態背景，再把候選
+送入 `LIVE_STREAM` Object Detector，利用 `categoryAllowlist` 只保留 person 與場域已驗證的物件。
+[官方輸出](https://developers.google.com/edge/mediapipe/solutions/vision/object_detector)只有 category、
+score、bbox；推薦 EfficientDet-Lite0 的 COCO 80 類也沒有「亂丟」意圖。因此 bottle/cup 或移動
+物都只能是候選，必須經人—物分離、落地、持續遺留與人離開的時序才成立。完整實作與 hard-negative
+驗收見 [issue #39](https://github.com/TingFengChou/claustrum/issues/39)。
 
 **MediaPipe 在哪?** MediaPipe LLM Inference(`tasks-genai`)是 Gallery **早期**採用、吃 `.task` 的路徑;本專案改用**更新的 LiteRT-LM SDK(`litertlm-android`)吃 `.litertlm` 原生檔**——因為同一顆 Gemma 的 MediaPipe `.task` 在 litertlm 0.11.0 只會吐 `<pad>`(格式不相容,見 [vlm/SD §6.1](docs/design/vlm/SD.md))。兩者皆屬「Google AI Edge / LiteRT」家族。
 
@@ -493,7 +541,7 @@ Skills 是開發 agent 的工作指引，**不是 App runtime dependency，也�
 ## 部署拓撲
 
 **現在 —— 手機優先、單節點**(ADR-0004)：Pixel 10 已承載相機、L0 與 L1；Rust L2 engine
-已有 ML Kit 單人 pose→observation/JNI 餐取，但實機校準、impact/多人 action、音訊與告警仍待續。
+已有 ML Kit 單人 pose→observation/JNI 餐取，但實機校準、litter object fast path 與告警仍待續。
 目標仍由同一裝置完成 L0–L2 與
 告警。單一行程會同時持有影格並判斷，因此影格隔離目前靠**政策**(不外傳、用完即刪)而非
 拓撲落實。日後 Jetson 就緒，再評估 [ADR-0003](docs/adr/0003-two-node-topology.md) 的雙節點結構性隔離。
@@ -518,8 +566,8 @@ Skills 是開發 agent 的工作指引，**不是 App runtime dependency，也�
 
 這套系統是協助人力的**一層額外警覺**,不是唯一的安全網。
 
-- **不是醫療器材,也不能取代真人監看與保全。** 跌倒/暴力偵測會漏掉事件,也會產生誤報;對外告警(通報保全/園方)尤其需要誤報抑制與人工確認。
-- **需知情同意。** 任何部署都需取得現場相關人員同意。**幼兒園等涉及兒童的場景**,兒童個資屬高度敏感(PDPA),需機構同意、家長告知與明確治理。
+- **不是醫療器材,也不能取代真人監看與保全。** 跌倒與亂丟垃圾偵測都可能漏報／誤報；對外告警尤其需要抑制與人工確認。
+- **需知情同意。** 任何部署都需取得現場相關人員同意；若場域涉及兒童或其他敏感族群，需更高標準的告知與治理。
 - **隱私。** 影像/聲音只在裝置端處理、不外傳、用完即刪。在把鏡頭對準任何人之前,請先讀 [`docs/PRIVACY.md`](docs/PRIVACY.md)。
 
 ## 關鍵指標
